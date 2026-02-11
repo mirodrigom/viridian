@@ -1,0 +1,331 @@
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import { useAuthStore } from './auth';
+import { useChatStore } from './chat';
+import { useFilesStore } from './files';
+
+interface GitFileStatus {
+  path: string;
+  index: string;
+  working_dir: string;
+}
+
+interface CommitLogEntry {
+  hash: string;
+  date: string;
+  message: string;
+  author_name: string;
+}
+
+interface BranchInfo {
+  name: string;
+  current: boolean;
+}
+
+export const useGitStore = defineStore('git', () => {
+  const branch = ref('');
+  const staged = ref<GitFileStatus[]>([]);
+  const modified = ref<GitFileStatus[]>([]);
+  const untracked = ref<string[]>([]);
+  const diff = ref('');
+  const loading = ref(false);
+  const commitMessage = ref('');
+  const log = ref<CommitLogEntry[]>([]);
+  const branches = ref<BranchInfo[]>([]);
+  const selectedFile = ref<string | null>(null);
+  const showStagedDiff = ref(false);
+  const remoteLoading = ref(false);
+  const generatingMessage = ref(false);
+  const selectedFiles = ref<Set<string>>(new Set());
+
+  function authHeaders() {
+    const auth = useAuthStore();
+    return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' };
+  }
+
+  function cwd() {
+    return useChatStore().projectPath || '';
+  }
+
+  async function fetchStatus() {
+    if (!cwd()) return;
+    loading.value = true;
+    try {
+      const res = await fetch(`/api/git/status?cwd=${encodeURIComponent(cwd())}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      branch.value = data.current || '';
+      staged.value = data.staged || [];
+      modified.value = data.modified?.map((p: string) => ({ path: p, index: ' ', working_dir: 'M' })) || [];
+      untracked.value = data.not_added || [];
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function fetchDiff(isStagedDiff = false) {
+    if (!cwd()) return;
+    showStagedDiff.value = isStagedDiff;
+    selectedFile.value = null;
+    const res = await fetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    diff.value = data.diff || '';
+  }
+
+  async function fetchFileDiff(filePath: string) {
+    if (!cwd()) return;
+    selectedFile.value = filePath;
+    const res = await fetch(
+      `/api/git/file-diff?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
+      { headers: authHeaders() },
+    );
+    const data = await res.json();
+    diff.value = data.diff || '';
+  }
+
+  async function stageFiles(files: string[]) {
+    if (!cwd()) return;
+    await fetch('/api/git/stage', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), files }),
+    });
+    await fetchStatus();
+  }
+
+  async function unstageFiles(files: string[]) {
+    if (!cwd()) return;
+    await fetch('/api/git/unstage', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), files }),
+    });
+    await fetchStatus();
+  }
+
+  async function doCommit() {
+    if (!cwd() || !commitMessage.value.trim()) return;
+    await fetch('/api/git/commit', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), message: commitMessage.value }),
+    });
+    commitMessage.value = '';
+    await fetchStatus();
+    diff.value = '';
+  }
+
+  async function discardFile(filePath: string) {
+    if (!cwd()) return;
+    await fetch('/api/git/discard', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), file: filePath }),
+    });
+    await fetchStatus();
+  }
+
+  async function fetchLog() {
+    if (!cwd()) return;
+    const res = await fetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    log.value = data.all || [];
+  }
+
+  async function fetchBranches() {
+    if (!cwd()) return;
+    const res = await fetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
+      headers: authHeaders(),
+    });
+    const data = await res.json();
+    branches.value = Object.values(data.branches || {}).map((b: any) => ({
+      name: b.name,
+      current: b.current,
+    }));
+  }
+
+  async function checkoutBranch(branchName: string) {
+    if (!cwd()) return;
+    await fetch('/api/git/checkout', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), branch: branchName }),
+    });
+    await fetchStatus();
+    await fetchBranches();
+  }
+
+  async function createBranch(branchName: string) {
+    if (!cwd()) return;
+    await fetch('/api/git/create-branch', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ cwd: cwd(), branch: branchName }),
+    });
+    await fetchStatus();
+    await fetchBranches();
+  }
+
+  async function doPull() {
+    if (!cwd()) return;
+    remoteLoading.value = true;
+    try {
+      const res = await fetch('/api/git/pull', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd() }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Pull failed');
+      }
+      await fetchStatus();
+      await fetchLog();
+    } finally {
+      remoteLoading.value = false;
+    }
+  }
+
+  async function doPush() {
+    if (!cwd()) return;
+    remoteLoading.value = true;
+    try {
+      const res = await fetch('/api/git/push', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd() }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Push failed');
+      }
+    } finally {
+      remoteLoading.value = false;
+    }
+  }
+
+  async function doFetch() {
+    if (!cwd()) return;
+    remoteLoading.value = true;
+    try {
+      await fetch('/api/git/fetch', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd() }),
+      });
+    } finally {
+      remoteLoading.value = false;
+    }
+  }
+
+  async function generateCommitMessage() {
+    if (!cwd()) return;
+    generatingMessage.value = true;
+    try {
+      const res = await fetch('/api/git/generate-commit-message', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd() }),
+      });
+      const data = await res.json();
+      if (data.error) return;
+      // Send the diff to Claude via the chat WebSocket to generate a commit message
+      // For now, generate a simple message from the diff
+      const diffText = data.diff as string;
+      const files = diffText.split('\n')
+        .filter(l => l.startsWith('diff --git'))
+        .map(l => l.replace(/^diff --git a\/(.+?) b\/.*$/, '$1'));
+      const adds = (diffText.match(/^\+[^+]/gm) || []).length;
+      const dels = (diffText.match(/^-[^-]/gm) || []).length;
+      commitMessage.value = `Update ${files.length} file${files.length > 1 ? 's' : ''} (+${adds}/-${dels})\n\nFiles: ${files.join(', ')}`;
+    } finally {
+      generatingMessage.value = false;
+    }
+  }
+
+  async function showCommit(hash: string) {
+    if (!cwd()) return;
+    const res = await fetch(
+      `/api/git/show?cwd=${encodeURIComponent(cwd())}&hash=${encodeURIComponent(hash)}`,
+      { headers: authHeaders() },
+    );
+    const data = await res.json();
+    diff.value = data.show || '';
+    selectedFile.value = null;
+  }
+
+  function toggleFileSelection(path: string) {
+    if (selectedFiles.value.has(path)) {
+      selectedFiles.value.delete(path);
+    } else {
+      selectedFiles.value.add(path);
+    }
+    // Force reactivity on Set
+    selectedFiles.value = new Set(selectedFiles.value);
+  }
+
+  function selectAllModified() {
+    const all = [...modified.value.map(f => f.path), ...untracked.value];
+    selectedFiles.value = new Set(all);
+  }
+
+  function clearSelection() {
+    selectedFiles.value = new Set();
+  }
+
+  async function stageSelected() {
+    const files = Array.from(selectedFiles.value);
+    if (!files.length) return;
+    await stageFiles(files);
+    clearSelection();
+  }
+
+  async function openDiffInEditor(filePath: string) {
+    if (!cwd()) return;
+    const res = await window.fetch(
+      `/api/git/file-versions?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
+      { headers: authHeaders() },
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const ext = filePath.split('.').pop()?.toLowerCase() || '';
+    const langMap: Record<string, string> = {
+      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+      py: 'python', html: 'html', vue: 'vue', svelte: 'svelte',
+      css: 'css', scss: 'scss', json: 'json', md: 'markdown',
+    };
+    const filesStore = useFilesStore();
+    filesStore.openDiff({
+      path: filePath,
+      original: data.original || '',
+      modified: data.modified || '',
+      language: langMap[ext] || '',
+    });
+  }
+
+  async function openFileInEditor(filePath: string) {
+    const filesStore = useFilesStore();
+    // Set rootPath if not already set
+    if (!filesStore.rootPath && cwd()) {
+      filesStore.rootPath = cwd();
+    }
+    filesStore.closeDiff(); // Close diff view if open
+    await filesStore.openFile(filePath);
+  }
+
+  return {
+    branch, staged, modified, untracked, diff, loading, commitMessage,
+    log, branches, selectedFile, showStagedDiff, remoteLoading, generatingMessage,
+    selectedFiles,
+    fetchStatus, fetchDiff, fetchFileDiff, stageFiles, unstageFiles, doCommit,
+    discardFile, fetchLog, fetchBranches, checkoutBranch, createBranch,
+    doPull, doPush, doFetch, generateCommitMessage, showCommit,
+    toggleFileSelection, selectAllModified, clearSelection, stageSelected,
+    openDiffInEditor, openFileInEditor,
+  };
+});

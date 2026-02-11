@@ -1,0 +1,46 @@
+import express, { type Express } from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { config } from './config.js';
+import authRoutes from './routes/auth.js';
+import filesRoutes from './routes/files.js';
+import gitRoutes from './routes/git.js';
+import sessionsRoutes from './routes/sessions.js';
+import { authMiddleware } from './middleware/auth.js';
+import { setupChatWs } from './ws/chat.js';
+import { setupShellWs } from './ws/shell.js';
+import { setupSessionsWs } from './ws/sessions.js';
+
+const app: Express = express();
+const server = createServer(app);
+
+app.use(cors({ origin: config.corsOrigin }));
+app.use(express.json());
+
+// Public routes
+app.use('/api/auth', authRoutes);
+
+// Protected routes
+app.use('/api/files', filesRoutes);
+app.use('/api/git', gitRoutes);
+app.use('/api/sessions', sessionsRoutes);
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/me', authMiddleware, (req, res) => {
+  const authReq = req as import('./middleware/auth.js').AuthRequest;
+  res.json({ user: authReq.user });
+});
+
+// WebSocket handlers
+setupChatWs(server);
+setupShellWs(server);
+setupSessionsWs(server);
+
+server.listen(config.port, () => {
+  console.log(`Server running on http://localhost:${config.port}`);
+});
+
+export { server, app };

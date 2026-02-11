@@ -1,0 +1,187 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(html.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ─── Light Mode: Green-tinted ─── */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.003 155);
+  --foreground: oklch(0.155 0.015 160);
+  --card: oklch(0.995 0.002 155);
+  --card-foreground: oklch(0.155 0.015 160);
+  --popover: oklch(0.995 0.002 155);
+  --popover-foreground: oklch(0.155 0.015 160);
+  --primary: oklch(0.637 0.194 160);
+  --primary-foreground: oklch(0.99 0.01 155);
+  --secondary: oklch(0.95 0.022 155);
+  --secondary-foreground: oklch(0.2 0.015 160);
+  --muted: oklch(0.95 0.015 155);
+  --muted-foreground: oklch(0.49 0.03 160);
+  --accent: oklch(0.94 0.035 155);
+  --accent-foreground: oklch(0.2 0.015 160);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.91 0.015 155);
+  --input: oklch(0.91 0.015 155);
+  --ring: oklch(0.637 0.194 160);
+  --chart-1: oklch(0.637 0.194 160);
+  --chart-2: oklch(0.55 0.17 175);
+  --chart-3: oklch(0.72 0.15 145);
+  --chart-4: oklch(0.78 0.12 130);
+  --chart-5: oklch(0.48 0.14 190);
+  --sidebar: oklch(0.975 0.005 155);
+  --sidebar-foreground: oklch(0.155 0.015 160);
+  --sidebar-primary: oklch(0.637 0.194 160);
+  --sidebar-primary-foreground: oklch(0.99 0.01 155);
+  --sidebar-accent: oklch(0.94 0.03 155);
+  --sidebar-accent-foreground: oklch(0.2 0.015 160);
+  --sidebar-border: oklch(0.91 0.015 155);
+  --sidebar-ring: oklch(0.637 0.194 160);
+}
+
+/* ─── Dark Mode: Rich dark with green accents ─── */
+html.dark {
+  --background: oklch(0.13 0.012 155);
+  --foreground: oklch(0.96 0.008 155);
+  --card: oklch(0.175 0.014 155);
+  --card-foreground: oklch(0.96 0.008 155);
+  --popover: oklch(0.175 0.014 155);
+  --popover-foreground: oklch(0.96 0.008 155);
+  --primary: oklch(0.723 0.191 163);
+  --primary-foreground: oklch(0.13 0.03 160);
+  --secondary: oklch(0.235 0.018 155);
+  --secondary-foreground: oklch(0.96 0.008 155);
+  --muted: oklch(0.235 0.018 155);
+  --muted-foreground: oklch(0.62 0.03 155);
+  --accent: oklch(0.235 0.025 155);
+  --accent-foreground: oklch(0.96 0.008 155);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.32 0.02 155 / 50%);
+  --input: oklch(0.35 0.02 155 / 40%);
+  --ring: oklch(0.723 0.191 163);
+  --chart-1: oklch(0.723 0.191 163);
+  --chart-2: oklch(0.62 0.16 175);
+  --chart-3: oklch(0.78 0.14 145);
+  --chart-4: oklch(0.55 0.18 190);
+  --chart-5: oklch(0.82 0.11 130);
+  --sidebar: oklch(0.155 0.013 155);
+  --sidebar-foreground: oklch(0.96 0.008 155);
+  --sidebar-primary: oklch(0.723 0.191 163);
+  --sidebar-primary-foreground: oklch(0.13 0.03 160);
+  --sidebar-accent: oklch(0.235 0.025 155);
+  --sidebar-accent-foreground: oklch(0.96 0.008 155);
+  --sidebar-border: oklch(0.32 0.02 155 / 50%);
+  --sidebar-ring: oklch(0.723 0.191 163);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ─── Safe area insets for notched devices (iPad, iPhone) ─── */
+@supports (padding: env(safe-area-inset-top)) {
+  #app {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ─── Mobile sidebar transitions ─── */
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: transform 0.25s ease;
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(-100%);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ─── Touch optimizations ─── */
+@media (pointer: coarse) {
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}
+
+/* ─── Highlight.js theme ─── */
+@import "highlight.js/styles/github-dark.css";
+
+/* ─── Code block styling ─── */
+.prose .code-block-wrapper pre {
+  margin-top: 0 !important;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+
+.prose .code-block-wrapper pre code {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.copy-code-btn.copied {
+  color: var(--primary) !important;
+  opacity: 1 !important;
+}
+
+/* ─── Merge view (diff editor) ─── */
+.cm-merge-a .cm-changedLine { background-color: rgba(239, 68, 68, 0.08); }
+.cm-merge-b .cm-changedLine { background-color: rgba(34, 197, 94, 0.08); }
+.cm-merge-a .cm-changedText { background-color: rgba(239, 68, 68, 0.2); }
+.cm-merge-b .cm-changedText { background-color: rgba(34, 197, 94, 0.2); }
+.cm-collapsedLines { color: var(--muted-foreground); font-style: italic; }

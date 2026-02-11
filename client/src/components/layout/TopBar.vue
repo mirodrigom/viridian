@@ -1,0 +1,132 @@
+<script setup lang="ts">
+import { useAuthStore } from '@/stores/auth';
+import { useChatStore } from '@/stores/chat';
+import { useSettingsStore } from '@/stores/settings';
+import { useRouter } from 'vue-router';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import {
+  PanelRight, TerminalSquare, Settings, LogOut, FolderOpen,
+  Loader2, Moon, Sun, Trash2, Wrench,
+} from 'lucide-vue-next';
+
+const auth = useAuthStore();
+const chat = useChatStore();
+const settings = useSettingsStore();
+const router = useRouter();
+
+const emit = defineEmits<{
+  toggleFiles: [];
+  toggleTerminal: [];
+  openSettings: [];
+  openToolsSettings: [];
+}>();
+
+function logout() {
+  auth.logout();
+  router.push('/login');
+}
+</script>
+
+<template>
+  <TooltipProvider :delay-duration="300">
+    <header class="flex h-11 items-center justify-between border-b border-border bg-card/50 px-2 md:px-3">
+      <!-- Left: Logo + Project -->
+      <div class="flex min-w-0 items-center gap-1.5 md:gap-2">
+        <div class="flex shrink-0 items-center gap-1.5">
+          <ClaudeLogo :size="20" class="text-primary" />
+          <span class="hidden text-sm font-semibold text-foreground sm:inline">Claude Code</span>
+        </div>
+
+        <Separator orientation="vertical" class="mx-0.5 hidden h-5 sm:block md:mx-1" />
+
+        <Tooltip v-if="chat.projectPath">
+          <TooltipTrigger as-child>
+            <button class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" @click="router.push('/')">
+              <FolderOpen class="h-3.5 w-3.5 shrink-0" />
+              <span class="max-w-20 truncate sm:max-w-48">{{ chat.projectPath?.split('/').pop() }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{ chat.projectPath }}</TooltipContent>
+        </Tooltip>
+
+        <Badge v-if="chat.isStreaming" variant="secondary" class="gap-1 text-xs">
+          <Loader2 class="h-3 w-3 animate-spin" />
+          <span class="hidden sm:inline">Streaming</span>
+        </Badge>
+      </div>
+
+      <!-- Right: Actions -->
+      <div class="flex shrink-0 items-center gap-0.5 md:gap-1">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('toggleFiles')">
+              <PanelRight class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Toggle File Explorer</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('toggleTerminal')">
+              <TerminalSquare class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Toggle Terminal</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="settings.toggleDarkMode()">
+              <Sun v-if="settings.darkMode" class="h-4 w-4" />
+              <Moon v-else class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Toggle Dark Mode</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="chat.clearMessages()">
+              <Trash2 class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>New Chat</TooltipContent>
+        </Tooltip>
+
+        <Separator orientation="vertical" class="mx-0.5 hidden h-5 sm:block md:mx-1" />
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="hidden h-7 w-7 p-0 sm:inline-flex" @click="emit('openToolsSettings')">
+              <Wrench class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Tools Settings</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('openSettings')">
+              <Settings class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Settings</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="logout">
+              <LogOut class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Logout</TooltipContent>
+        </Tooltip>
+      </div>
+    </header>
+  </TooltipProvider>
+</template>

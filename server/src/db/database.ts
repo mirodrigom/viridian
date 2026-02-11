@@ -1,0 +1,39 @@
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
+import { config } from '../config.js';
+
+let db: Database.Database;
+
+export function getDb(): Database.Database {
+  if (!db) {
+    mkdirSync(dirname(config.dbPath), { recursive: true });
+    db = new Database(config.dbPath);
+    db.pragma('journal_mode = WAL');
+    runMigrations(db);
+  }
+  return db;
+}
+
+function runMigrations(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      project_path TEXT NOT NULL,
+      claude_session_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+}
