@@ -139,9 +139,9 @@
 
 | # | Feature | Priority | Effort | Status | Reference (claudecodeui) | Our files |
 |---|---------|----------|--------|--------|--------------------------|-----------|
-| 10.1 | **Multi-provider** (Cursor CLI + Codex SDK alongside Claude) | P3 | C | `[ ]` | `cursor-cli.js`, `openai-codex.js`, `shared/modelConstants.js` | Claude only |
+| 10.1 | ~~**Multi-provider**~~ (removed — not needed) | P3 | C | `[-]` | — | — |
 | 10.2 | **Headless agent API** (REST API for programmatic Claude execution + GitHub PRs) | P3 | C | `[x]` | `server/routes/agent.js:1-1232` | `server/src/routes/agent.ts` — REST+SSE with dual auth (JWT+API key), POST /run, session CRUD |
-| 10.3 | **TaskMaster integration** (task management from PRDs) | P3 | C | `[ ]` | `server/routes/taskmaster.js:1-1963` | Not implemented |
+| 10.3 | **TaskMaster integration** (task management from PRDs) | P3 | C | `[x]` | `server/routes/taskmaster.js:1-1963` | `server/src/routes/tasks.ts` (CRUD + PRD parse + task expand via Claude), `stores/tasks.ts`, `components/tasks/TaskBoard.vue` (Kanban board in Tasks tab) |
 | 10.4 | **Claude Agent SDK** (instead of CLI spawning) | P2 | C | `[x]` | `server/claude-sdk.js:1-725` | `server/src/services/claude-sdk.ts` — typed AsyncGenerator wrapper; `claude.ts` refactored to use SDK |
 
 ---

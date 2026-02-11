@@ -45,5 +45,22 @@ function runMigrations(db: Database.Database) {
       last_used_at DATETIME,
       revoked INTEGER DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      details TEXT DEFAULT '',
+      status TEXT DEFAULT 'todo',
+      priority TEXT DEFAULT 'medium',
+      parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+      dependency_ids TEXT DEFAULT '[]',
+      prd_source TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_user_project ON tasks(user_id, project_path);
   `);
 }
