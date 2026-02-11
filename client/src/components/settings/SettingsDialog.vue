@@ -14,7 +14,13 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import McpSettingsDialog from './McpSettingsDialog.vue';
+import ApiKeysDialog from './ApiKeysDialog.vue';
+import { Server, Key } from 'lucide-vue-next';
+import { LOCALE_OPTIONS, setLocale, type SupportedLocale } from '@/i18n';
+import { useI18n } from 'vue-i18n';
 
+const { locale } = useI18n();
 const settings = useSettingsStore();
 const auth = useAuthStore();
 const chat = useChatStore();
@@ -26,6 +32,8 @@ const gitName = ref('');
 const gitEmail = ref('');
 const gitConfigLoading = ref(false);
 const gitConfigSaved = ref(false);
+const showMcpDialog = ref(false);
+const showApiKeysDialog = ref(false);
 
 watch(open, async (isOpen) => {
   if (isOpen && chat.projectPath) {
@@ -78,6 +86,19 @@ async function saveGitConfig() {
             <div class="flex items-center justify-between">
               <Label>Dark Mode</Label>
               <Switch :checked="settings.darkMode" @update:checked="settings.toggleDarkMode" />
+            </div>
+            <div class="flex items-center justify-between">
+              <Label>Language</Label>
+              <Select :model-value="locale" @update:model-value="(v: any) => setLocale(v as SupportedLocale)">
+                <SelectTrigger class="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="l in LOCALE_OPTIONS" :key="l.value" :value="l.value">
+                    {{ l.nativeLabel }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div class="flex items-center justify-between">
               <Label>Editor Font Size</Label>
@@ -208,6 +229,27 @@ async function saveGitConfig() {
               <Label>Line Numbers</Label>
               <Switch :checked="settings.editorShowLineNumbers" @update:checked="(v: boolean) => { settings.editorShowLineNumbers = v; settings.save(); }" />
             </div>
+            <div class="flex items-center justify-between">
+              <Label>Minimap</Label>
+              <Switch :checked="settings.editorMinimap" @update:checked="(v: boolean) => { settings.editorMinimap = v; settings.save(); }" />
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <!-- MCP Servers -->
+        <div>
+          <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Integrations</h4>
+          <div class="space-y-2">
+            <Button variant="outline" size="sm" class="w-full gap-2" @click="showMcpDialog = true">
+              <Server class="h-4 w-4" />
+              MCP Servers
+            </Button>
+            <Button variant="outline" size="sm" class="w-full gap-2" @click="showApiKeysDialog = true">
+              <Key class="h-4 w-4" />
+              API Keys
+            </Button>
           </div>
         </div>
 
@@ -239,4 +281,6 @@ async function saveGitConfig() {
       </div>
     </DialogContent>
   </Dialog>
+  <McpSettingsDialog v-model:open="showMcpDialog" />
+  <ApiKeysDialog v-model:open="showApiKeysDialog" />
 </template>

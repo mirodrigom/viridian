@@ -13,6 +13,7 @@ import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
+import { showMinimap } from '@replit/codemirror-minimap';
 
 const files = useFilesStore();
 const settings = useSettingsStore();
@@ -72,6 +73,20 @@ function createEditor(content: string, language: string) {
     extensions.push(EditorView.lineWrapping);
   }
 
+  // Minimap
+  if (settings.editorMinimap) {
+    extensions.push(
+      showMinimap.compute(['doc'], () => ({
+        create: () => {
+          const dom = document.createElement('div');
+          return { dom };
+        },
+        displayText: 'blocks',
+        showOverlay: 'always' as const,
+      })),
+    );
+  }
+
   const state = EditorState.create({ doc: content, extensions });
   editorView = new EditorView({ state, parent: editorContainer.value });
 }
@@ -85,7 +100,7 @@ watch(activeFileData, (file) => {
 
 // Recreate editor when settings change
 watch(
-  () => [settings.editorFontSize, settings.editorTabSize, settings.editorWordWrap, settings.editorShowLineNumbers],
+  () => [settings.editorFontSize, settings.editorTabSize, settings.editorWordWrap, settings.editorShowLineNumbers, settings.editorMinimap],
   () => {
     if (activeFileData.value) {
       const content = editorView?.state.doc.toString() || activeFileData.value.content;

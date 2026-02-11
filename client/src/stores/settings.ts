@@ -52,6 +52,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorTabSize = ref(2);
   const editorFontSize = ref(13);
   const editorShowLineNumbers = ref(true);
+  const editorMinimap = ref(true);
 
   const modelLabel = computed(() =>
     MODEL_OPTIONS.find(m => m.value === model.value)?.label || model.value
@@ -83,6 +84,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorTabSize.value = parsed.editorTabSize ?? 2;
       editorFontSize.value = parsed.editorFontSize ?? 13;
       editorShowLineNumbers.value = parsed.editorShowLineNumbers ?? true;
+      editorMinimap.value = parsed.editorMinimap ?? true;
     }
     applyDarkMode();
   }
@@ -103,6 +105,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorTabSize: editorTabSize.value,
       editorFontSize: editorFontSize.value,
       editorShowLineNumbers: editorShowLineNumbers.value,
+      editorMinimap: editorMinimap.value,
     }));
     applyDarkMode();
   }
@@ -147,7 +150,7 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     darkMode, fontSize, permissionMode, model, thinkingMode, maxTokens, maxOutputTokens,
     allowedTools, disallowedTools, projectsDir,
-    editorWordWrap, editorTabSize, editorFontSize, editorShowLineNumbers,
+    editorWordWrap, editorTabSize, editorFontSize, editorShowLineNumbers, editorMinimap,
     modelLabel, permissionLabel, thinkingLabel,
     init, save, toggleDarkMode,
     addAllowedTool, removeAllowedTool,

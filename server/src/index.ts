@@ -9,6 +9,8 @@ import authRoutes from './routes/auth.js';
 import filesRoutes from './routes/files.js';
 import gitRoutes from './routes/git.js';
 import sessionsRoutes from './routes/sessions.js';
+import mcpRoutes from './routes/mcp.js';
+import apikeysRoutes from './routes/apikeys.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
@@ -27,6 +29,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/git', gitRoutes);
 app.use('/api/sessions', sessionsRoutes);
+app.use('/api/mcp', mcpRoutes);
+app.use('/api/keys', apikeysRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

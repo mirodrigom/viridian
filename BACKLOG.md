@@ -25,7 +25,7 @@
 | 1.9 | **File mentions** (reference files in chat input as context) | P2 | S | `[x]` | `ChatInterface.jsx:1857-1999` | `ChatInput.vue` (@autocomplete, debounced file search, badge display, context prepend), `routes/files.ts:GET /search`, `services/files.ts:searchFiles()` |
 | 1.10 | **Token budget control** (set max output tokens per response) | P3 | S | `[x]` | `ChatInterface.jsx:1857-1999` | `stores/settings.ts` (maxOutputTokens), `SettingsDialog.vue` (select 4k-64k/unlimited), `useClaudeStream.ts` → `ws/chat.ts` → `services/claude.ts` (--max-tokens flag) |
 | 1.11 | **Interactive tool approval** (approve/deny buttons with 55s timeout) | P1 | C | `[x]` | `ChatInterface.jsx:1569-1650`, `claude-sdk.js:1-725` | `MessageBubble.vue` (approve/deny + 55s countdown), `useClaudeStream.ts`, streaming tool input via `tool_input_delta` |
-| 1.12 | **Voice input** (Whisper transcription + 4 enhancement modes) | P3 | M | `[ ]` | `MicButton.jsx:5-176` | Not implemented |
+| 1.12 | **Voice input** (Web Speech API + 4 enhancement modes) | P3 | M | `[x]` | `MicButton.jsx:5-176` | `components/chat/MicButton.vue` (SpeechRecognition API, 4 modes: Raw/Clean/Expand/Code, right-click mode menu, recording pulse), `ChatInput.vue` (handleVoiceTranscript, mic button placement) |
 
 ---
 
@@ -74,7 +74,7 @@
 |---|---------|----------|--------|--------|--------------------------|-----------|
 | 5.1 | **CodeMirror editor** (syntax, line numbers, bracket matching) | P0 | - | `[x]` | `CodeEditor.jsx:640-686` | `EditorView.vue` |
 | 5.2 | **Diff view** (unified merge view with navigation) | P1 | M | `[x]` | `CodeEditor.jsx:44-106` (@codemirror/merge) | `DiffEditorView.vue` (@codemirror/merge MergeView, side-by-side, collapseUnchanged), `stores/files.ts` (DiffData, openDiff/closeDiff), `MainTabs.vue` (auto-switch), `routes/git.ts:GET /file-versions`, `services/git.ts:getFileVersions()`, `GitStatus.vue` + `DiffViewer.vue` (Columns2 buttons) |
-| 5.3 | **Minimap** with colored chunk gutters | P3 | M | `[ ]` | `CodeEditor.jsx:44-106` (@replit/codemirror-minimap) | Not implemented |
+| 5.3 | **Minimap** with colored chunk gutters | P3 | M | `[x]` | `CodeEditor.jsx:44-106` (@replit/codemirror-minimap) | `EditorView.vue` (@replit/codemirror-minimap, toggle in settings), `stores/settings.ts` (editorMinimap), `SettingsDialog.vue` (Minimap toggle) |
 | 5.4 | **Editor settings** (theme, word wrap, font size, line numbers) | P2 | S | `[x]` | `CodeEditor.jsx:17-41`, `Settings.jsx:65-100` | `stores/settings.ts` (4 editor settings), `EditorView.vue` (reactive recreation), `SettingsDialog.vue` (Editor section) |
 | 5.5 | **Ctrl+S save** | P1 | - | `[x]` | `CodeEditor.jsx:323-376` | `EditorView.vue` |
 | 5.6 | **File type icons** (color-coded by category) | P1 | - | `[x]` | `FileTree.jsx:143-200` | `FileTree.vue` has icons |
@@ -115,8 +115,8 @@
 |---|---------|----------|--------|--------|--------------------------|-----------|
 | 8.1 | **Settings dialog** (model, permissions, tools) | P0 | - | `[x]` | `Settings.jsx:24-100` | `SettingsDialog.vue`, `ToolsSettingsDialog.vue` |
 | 8.2 | **Tool permission patterns** (allowedTools/disallowedTools with Bash(command:*)) | P1 | M | `[x]` | `ChatInterface.jsx:250-344` | `ToolsSettingsDialog.vue` (quick-add common tools/blocks, pattern syntax help), `stores/settings.ts` (COMMON_TOOLS/COMMON_DISALLOWED), `services/claude.ts` (--allowedTools/--disallowedTools flags), `ws/chat.ts` (forward from client) |
-| 8.3 | **MCP server management** (CRUD: add/list/remove stdio/HTTP/SSE servers) | P2 | C | `[ ]` | `server/routes/mcp.js:1-551` | Not implemented |
-| 8.4 | **API key management** (create/list/revoke ck_ prefixed keys) | P3 | M | `[ ]` | `server/routes/settings.js:1-179` | Not implemented |
+| 8.3 | **MCP server management** (CRUD: add/list/remove stdio/HTTP/SSE servers) | P2 | C | `[x]` | `server/routes/mcp.js:1-551` | `routes/mcp.ts` (GET/POST/DELETE servers, reads/writes ~/.claude/settings.json), `components/settings/McpSettingsDialog.vue` (expandable list, add form with stdio/SSE/HTTP types, env vars, headers), `SettingsDialog.vue` (MCP Servers button) |
+| 8.4 | **API key management** (create/list/revoke ck_ prefixed keys) | P3 | M | `[x]` | `server/routes/settings.js:1-179` | `routes/apikeys.ts` (GET/POST/DELETE, ck_ prefix, SHA-256 hash, SQLite storage), `db/database.ts` (api_keys table), `components/settings/ApiKeysDialog.vue` (create/list/revoke, copy-once warning), `SettingsDialog.vue` (API Keys button) |
 | 8.5 | **Git user config** (view/set name + email) | P3 | S | `[x]` | `api.js:167-175` | `SettingsDialog.vue` (Git Identity section, auto-load on open), `routes/git.ts:GET/PUT /user-config`, `services/git.ts:getUserConfig/setUserConfig` |
 
 ---
@@ -128,7 +128,7 @@
 | 9.1 | **Dark mode toggle** | P0 | - | `[x]` | `ThemeContext.jsx` | `stores/settings.ts` |
 | 9.2 | **Resizable panels** | P0 | - | `[x]` | `MainContent.jsx:62-80` | `AppLayout.vue` |
 | 9.3 | **PWA support** (installable, service worker) | P2 | S | `[x]` | `public/manifest.json`, `public/sw.js` | `public/manifest.json` + `public/sw.js` (network-first HTML, cache-first assets) + `index.html` (meta tags, SW registration) |
-| 9.4 | **i18n** (English, Chinese, Korean) | P3 | M | `[ ]` | i18next + react-i18next | Not implemented |
+| 9.4 | **i18n** (English, Chinese, Korean) | P3 | M | `[x]` | i18next + react-i18next | `i18n/index.ts` (vue-i18n setup, locale persistence), `i18n/locales/{en,zh,ko}.ts` (full translations: common, auth, dashboard, chat, settings, mcp, apiKeys, onboarding, session, git, terminal, permissions), `SettingsDialog.vue` (language selector), `main.ts` (i18n plugin registration) |
 | 9.5 | **Responsive mobile design** (touch handlers, iPad double-tap prevention) | P2 | M | `[x]` | `Sidebar.jsx:104-115`, `MainContent.jsx:617-670` | `ChatView.vue` (mobile slide-out sidebar), `AppLayout.vue` (auto-hide panels), `TopBar.vue` (compact), `ChatInput.vue` (wrapping status bar), `style.css` (safe-area insets, touch targets, transitions) |
 | 9.6 | **Version update notification** | P3 | S | `[x]` | `useVersionCheck.js` | `composables/useVersionCheck.ts` (GitHub releases check, 12h interval, dismiss persistence), `DashboardPage.vue` (banner + version footer), `server/index.ts` (/api/version endpoint) |
 | 9.7 | **Onboarding flow** (first-time wizard) | P3 | M | `[x]` | `api.js:176-181`, `AuthContext.jsx:46-57` | `components/OnboardingWizard.vue` (3-step dialog: projects dir, model+permissions, tips), `DashboardPage.vue` (auto-shows on first visit) |

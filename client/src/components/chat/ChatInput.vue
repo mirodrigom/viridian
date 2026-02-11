@@ -12,6 +12,7 @@ import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
 } from 'lucide-vue-next';
 import TokenUsageChart from './TokenUsageChart.vue';
+import MicButton from './MicButton.vue';
 
 const MAX_IMAGES = 5;
 
@@ -238,6 +239,22 @@ function handlePaste(e: ClipboardEvent) {
     e.preventDefault();
     addImageFiles(imageFiles);
   }
+}
+
+function handleVoiceTranscript(text: string, mode: string) {
+  if (mode === 'raw') {
+    input.value += (input.value ? ' ' : '') + text;
+  } else if (mode === 'clean') {
+    input.value += (input.value ? ' ' : '') + text.charAt(0).toUpperCase() + text.slice(1);
+  } else if (mode === 'expand') {
+    input.value += (input.value ? '\n\n' : '') + `Please help me with: ${text}`;
+  } else if (mode === 'code') {
+    input.value += (input.value ? '\n\n' : '') + `Write code to ${text}`;
+  }
+  nextTick(() => {
+    autoResize();
+    textarea.value?.focus();
+  });
 }
 
 function executeCommand(cmd: SlashCommand) {
@@ -515,7 +532,7 @@ const permissionIcons: Record<string, typeof Zap> = {
         ref="textarea"
         v-model="input"
         placeholder="Ask Claude to help with your code... (/ for commands)"
-        class="block w-full resize-none bg-transparent px-4 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        class="block w-full resize-none bg-transparent px-4 py-3 pr-28 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         rows="1"
         style="min-height: 44px; max-height: 200px"
         @keydown="handleKeydown"
@@ -524,6 +541,7 @@ const permissionIcons: Record<string, typeof Zap> = {
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-2 flex items-center gap-1">
+        <MicButton v-if="!chat.isStreaming" @transcript="handleVoiceTranscript" />
         <Button
           v-if="!chat.isStreaming && attachedImages.length < MAX_IMAGES"
           variant="ghost"
