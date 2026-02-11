@@ -67,6 +67,19 @@ export async function getShowCommit(cwd: string, hash: string): Promise<string> 
   return git.show([hash, '--stat', '--patch']);
 }
 
+export async function getUserConfig(cwd: string): Promise<{ name: string; email: string }> {
+  const git = getGit(cwd);
+  const name = await git.getConfig('user.name');
+  const email = await git.getConfig('user.email');
+  return { name: name.value || '', email: email.value || '' };
+}
+
+export async function setUserConfig(cwd: string, name: string, email: string): Promise<void> {
+  const git = getGit(cwd);
+  await git.addConfig('user.name', name);
+  await git.addConfig('user.email', email);
+}
+
 export async function getFileVersions(cwd: string, filePath: string, staged = false): Promise<{ original: string; modified: string }> {
   const git = getGit(cwd);
   const { readFile } = await import('fs/promises');

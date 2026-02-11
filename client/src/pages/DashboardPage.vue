@@ -10,9 +10,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import {
   FolderOpen, ArrowRight, Clock, Moon, Sun, LogOut,
-  Zap, Shield, FileEdit, ClipboardList,
+  Zap, Shield, FileEdit, ClipboardList, Search,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -21,6 +22,7 @@ const router = useRouter();
 
 const projectPath = ref('');
 const recentPaths = ref<string[]>([]);
+const showDirPicker = ref(false);
 
 onMounted(() => {
   settings.init();
@@ -122,6 +124,10 @@ const permissionIcons: Record<string, typeof Zap> = {
                 class="font-mono text-sm"
                 @keydown.enter="openProject()"
               />
+              <Button variant="outline" @click="showDirPicker = true" class="shrink-0 gap-1">
+                <Search class="h-4 w-4" />
+                Browse
+              </Button>
               <Button @click="openProject()" :disabled="!projectPath.trim()" class="gap-1">
                 Open
                 <ArrowRight class="h-4 w-4" />
@@ -210,5 +216,11 @@ const permissionIcons: Record<string, typeof Zap> = {
         </div>
       </div>
     </div>
+
+    <DirectoryPicker
+      v-model:open="showDirPicker"
+      :initial-path="settings.projectsDir"
+      @select="(path: string) => { projectPath = path; openProject(path); }"
+    />
   </div>
 </template>

@@ -18,6 +18,7 @@ export interface ChatMessage {
   isStreaming?: boolean;
   thinking?: string;
   isThinking?: boolean;
+  images?: { name: string; dataUrl: string }[];
 }
 
 export interface TokenUsage {

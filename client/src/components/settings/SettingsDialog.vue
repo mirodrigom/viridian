@@ -1,23 +1,70 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue';
 import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS } from '@/stores/settings';
+import { useAuthStore } from '@/stores/auth';
+import { useChatStore } from '@/stores/chat';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 
 const settings = useSettingsStore();
+const auth = useAuthStore();
+const chat = useChatStore();
 
 const open = defineModel<boolean>('open', { default: false });
+
+// Git user config
+const gitName = ref('');
+const gitEmail = ref('');
+const gitConfigLoading = ref(false);
+const gitConfigSaved = ref(false);
+
+watch(open, async (isOpen) => {
+  if (isOpen && chat.projectPath) {
+    gitConfigLoading.value = true;
+    try {
+      const res = await fetch(
+        `/api/git/user-config?cwd=${encodeURIComponent(chat.projectPath)}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        gitName.value = data.name || '';
+        gitEmail.value = data.email || '';
+      }
+    } catch { /* ignore */ }
+    gitConfigLoading.value = false;
+  }
+});
+
+async function saveGitConfig() {
+  if (!chat.projectPath) return;
+  try {
+    await fetch('/api/git/user-config', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({ cwd: chat.projectPath, name: gitName.value, email: gitEmail.value }),
+    });
+    gitConfigSaved.value = true;
+    setTimeout(() => { gitConfigSaved.value = false; }, 2000);
+  } catch { /* ignore */ }
+}
 </script>
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-md">
+    <DialogContent class="max-h-[85vh] max-w-md overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Settings</DialogTitle>
         <DialogDescription>Configure your Claude Code Web preferences</DialogDescription>
@@ -98,6 +145,23 @@ const open = defineModel<boolean>('open', { default: false });
                 </SelectContent>
               </Select>
             </div>
+
+            <div class="flex items-center justify-between">
+              <Label>Max Output Tokens</Label>
+              <Select :model-value="String(settings.maxOutputTokens)" @update:model-value="(v: any) => { settings.maxOutputTokens = Number(v); settings.save(); }">
+                <SelectTrigger class="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="4096">4k tokens</SelectItem>
+                  <SelectItem value="8192">8k tokens</SelectItem>
+                  <SelectItem value="16384">16k tokens</SelectItem>
+                  <SelectItem value="32768">32k tokens</SelectItem>
+                  <SelectItem value="65536">64k tokens</SelectItem>
+                  <SelectItem value="0">Unlimited</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -143,6 +207,32 @@ const open = defineModel<boolean>('open', { default: false });
             <div class="flex items-center justify-between">
               <Label>Line Numbers</Label>
               <Switch :checked="settings.editorShowLineNumbers" @update:checked="(v: boolean) => { settings.editorShowLineNumbers = v; settings.save(); }" />
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <!-- Git User Config -->
+        <div>
+          <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Git Identity</h4>
+          <div v-if="!chat.projectPath" class="text-xs text-muted-foreground">
+            Open a project to configure git identity
+          </div>
+          <div v-else class="space-y-3">
+            <div class="space-y-1.5">
+              <Label class="text-xs">Name</Label>
+              <Input v-model="gitName" placeholder="Your Name" class="h-8 text-sm" :disabled="gitConfigLoading" />
+            </div>
+            <div class="space-y-1.5">
+              <Label class="text-xs">Email</Label>
+              <Input v-model="gitEmail" placeholder="your@email.com" class="h-8 text-sm" :disabled="gitConfigLoading" />
+            </div>
+            <div class="flex items-center gap-2">
+              <Button size="sm" class="h-7 text-xs" @click="saveGitConfig" :disabled="gitConfigLoading">
+                Save
+              </Button>
+              <span v-if="gitConfigSaved" class="text-xs text-green-500">Saved!</span>
             </div>
           </div>
         </div>

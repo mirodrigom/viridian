@@ -39,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const model = ref<ClaudeModel>('claude-opus-4-6');
   const thinkingMode = ref<ThinkingMode>('standard');
   const maxTokens = ref(200000);
+  const maxOutputTokens = ref(16384);
   const allowedTools = ref<string[]>([]);
   const disallowedTools = ref<string[]>([]);
   const projectsDir = ref('/home/rodrigom/Documents');
@@ -69,6 +70,7 @@ export const useSettingsStore = defineStore('settings', () => {
       model.value = parsed.model ?? 'claude-opus-4-6';
       thinkingMode.value = parsed.thinkingMode ?? 'standard';
       maxTokens.value = parsed.maxTokens ?? 200000;
+      maxOutputTokens.value = parsed.maxOutputTokens ?? 16384;
       allowedTools.value = parsed.allowedTools ?? [];
       disallowedTools.value = parsed.disallowedTools ?? [];
       projectsDir.value = parsed.projectsDir ?? '/home/rodrigom/Documents';
@@ -88,6 +90,7 @@ export const useSettingsStore = defineStore('settings', () => {
       model: model.value,
       thinkingMode: thinkingMode.value,
       maxTokens: maxTokens.value,
+      maxOutputTokens: maxOutputTokens.value,
       allowedTools: allowedTools.value,
       disallowedTools: disallowedTools.value,
       projectsDir: projectsDir.value,
@@ -137,7 +140,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    darkMode, fontSize, permissionMode, model, thinkingMode, maxTokens,
+    darkMode, fontSize, permissionMode, model, thinkingMode, maxTokens, maxOutputTokens,
     allowedTools, disallowedTools, projectsDir,
     editorWordWrap, editorTabSize, editorFontSize, editorShowLineNumbers,
     modelLabel, permissionLabel, thinkingLabel,

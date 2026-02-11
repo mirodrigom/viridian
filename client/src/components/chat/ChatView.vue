@@ -54,7 +54,7 @@ defineExpose({ showToolsSettings });
             @approve-tool="(id) => respondToTool(id, true)"
             @reject-tool="(id) => respondToTool(id, false)"
           />
-          <ChatInput @send="sendMessage" @abort="abort" />
+          <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
@@ -97,7 +97,7 @@ defineExpose({ showToolsSettings });
           @approve-tool="(id) => respondToTool(id, true)"
           @reject-tool="(id) => respondToTool(id, false)"
         />
-        <ChatInput @send="sendMessage" @abort="abort" />
+        <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
       </div>
     </template>
 

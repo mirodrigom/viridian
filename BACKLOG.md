@@ -19,11 +19,11 @@
 | 1.3 | **Thinking messages** (collapsible reasoning blocks) | P1 | S | `[x]` | `ChatInterface.jsx:1730-1746` | `MessageBubble.vue` (collapsible thinking with Brain icon), `stores/chat.ts`, `services/claude.ts` |
 | 1.4 | **Thinking mode selector** (Standard/Think/Think Hard/Think Harder/Ultrathink) | P2 | S | `[x]` | `ThinkingModeSelector.jsx:5-182` | `ChatInput.vue` (Brain icon selector), `stores/settings.ts` (ThinkingMode type), `useClaudeStream.ts` (prefix injection) |
 | 1.5 | **Slash command system** (/help, /clear, /model, /cost, /memory, /config, /status, /rewind + custom) | P2 | M | `[x]` | `CommandMenu.jsx:14-342`, `server/routes/commands.js:1-522` | `ChatInput.vue` (7 commands: /clear /model /think /permission /status /cost /help, arrow+tab navigation, filtered popup) |
-| 1.6 | **Image attachments** (drag-drop, up to 5, base64 encode) | P2 | M | `[ ]` | `ChatInterface.jsx:1820-1855`, server multer config | Not implemented |
+| 1.6 | **Image attachments** (drag-drop, up to 5, base64 encode) | P2 | M | `[x]` | `ChatInterface.jsx:1820-1855`, server multer config | `ChatInput.vue` (drag-drop, paste, file picker, 5 max, previews), `MessageBubble.vue` (display), `useClaudeStream.ts` (send), `ws/chat.ts` + `services/claude.ts` (temp files + --image flag) |
 | 1.7 | **Chat search** (fuzzy with Fuse.js) | P2 | S | `[x]` | Fuse.js integration in ChatInterface | `MessageList.vue` (Ctrl+F search, result navigation, yellow highlights on matches) |
 | 1.8 | **Input draft persistence** (save typed text per session to localStorage) | P3 | S | `[x]` | `ChatInterface.jsx:168-248` | `ChatInput.vue` (localStorage keyed by sessionId, auto-save/restore on session switch) |
 | 1.9 | **File mentions** (reference files in chat input as context) | P2 | S | `[x]` | `ChatInterface.jsx:1857-1999` | `ChatInput.vue` (@autocomplete, debounced file search, badge display, context prepend), `routes/files.ts:GET /search`, `services/files.ts:searchFiles()` |
-| 1.10 | **Token budget control** (set max output tokens per response) | P3 | S | `[ ]` | `ChatInterface.jsx:1857-1999` | Not implemented |
+| 1.10 | **Token budget control** (set max output tokens per response) | P3 | S | `[x]` | `ChatInterface.jsx:1857-1999` | `stores/settings.ts` (maxOutputTokens), `SettingsDialog.vue` (select 4k-64k/unlimited), `useClaudeStream.ts` → `ws/chat.ts` → `services/claude.ts` (--max-tokens flag) |
 | 1.11 | **Interactive tool approval** (approve/deny buttons with 55s timeout) | P1 | C | `[x]` | `ChatInterface.jsx:1569-1650`, `claude-sdk.js:1-725` | `MessageBubble.vue` (approve/deny + 55s countdown), `useClaudeStream.ts`, streaming tool input via `tool_input_delta` |
 | 1.12 | **Voice input** (Whisper transcription + 4 enhancement modes) | P3 | M | `[ ]` | `MicButton.jsx:5-176` | Not implemented |
 
@@ -50,9 +50,9 @@
 | 3.1 | **Multi-project listing** (all projects from ~/.claude/projects/) | P1 | S | `[x]` | `projects.js:382+` | `SessionSidebar.vue` (projectGroups computed, expand/collapse, current first) |
 | 3.2 | **Project renaming** (custom display names) | P3 | S | `[ ]` | `api.js:70-73`, `Sidebar.jsx` inline rename | Not implemented |
 | 3.3 | **Starred/favorite projects** | P3 | S | `[ ]` | `Sidebar.jsx:94-102, 208-223` | Not implemented |
-| 3.4 | **Project sort** (by name or date) | P3 | S | `[ ]` | `Sidebar.jsx:260-279` | Not implemented |
+| 3.4 | **Project sort** (by name or date) | P3 | S | `[x]` | `Sidebar.jsx:260-279` | `SessionSidebar.vue` (projectSort toggle button, Date/Name modes, current project always first) |
 | 3.5 | **Project delete** (with force option) | P2 | S | `[x]` | `api.js:75-86` | `routes/sessions.ts:DELETE /project/:dir` (deletes all JSONL + empty dir), `SessionSidebar.vue` (hover Trash2 button with confirm) |
-| 3.6 | **Filesystem browser** (for selecting project dirs) | P2 | M | `[ ]` | `server/routes/projects.js`, `api.js:155-160` | Not implemented |
+| 3.6 | **Filesystem browser** (for selecting project dirs) | P2 | M | `[x]` | `server/routes/projects.js`, `api.js:155-160` | `components/DirectoryPicker.vue` (dialog with breadcrumbs, directory listing, path input, home/up nav), `DashboardPage.vue` (Browse button) |
 | 3.7 | **GitHub clone** (with SSE progress) | P3 | M | `[ ]` | `server/routes/projects.js` SSE clone | Not implemented |
 
 ---
@@ -117,7 +117,7 @@
 | 8.2 | **Tool permission patterns** (allowedTools/disallowedTools with Bash(command:*)) | P1 | M | `[~]` | `ChatInterface.jsx:250-344` | Basic allow/disallow in settings store |
 | 8.3 | **MCP server management** (CRUD: add/list/remove stdio/HTTP/SSE servers) | P2 | C | `[ ]` | `server/routes/mcp.js:1-551` | Not implemented |
 | 8.4 | **API key management** (create/list/revoke ck_ prefixed keys) | P3 | M | `[ ]` | `server/routes/settings.js:1-179` | Not implemented |
-| 8.5 | **Git user config** (view/set name + email) | P3 | S | `[ ]` | `api.js:167-175` | Not implemented |
+| 8.5 | **Git user config** (view/set name + email) | P3 | S | `[x]` | `api.js:167-175` | `SettingsDialog.vue` (Git Identity section, auto-load on open), `routes/git.ts:GET/PUT /user-config`, `services/git.ts:getUserConfig/setUserConfig` |
 
 ---
 

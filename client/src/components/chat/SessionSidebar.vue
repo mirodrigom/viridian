@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import {
   MessageSquare, Plus, ChevronDown, FolderOpen,
-  Clock, RefreshCw, Trash2, Search,
+  Clock, RefreshCw, Trash2, Search, ArrowUpDown,
 } from 'lucide-vue-next';
 
 interface SessionItem {
@@ -35,6 +35,7 @@ const isRefreshing = ref(false);
 const searchQuery = ref('');
 const visibleCount = ref(5);
 const expandedProjects = ref<Set<string>>(new Set());
+const projectSort = ref<'date' | 'name'>('date');
 
 const emit = defineEmits<{
   newSession: [];
@@ -172,10 +173,13 @@ const projectGroups = computed((): ProjectGroup[] => {
     groups.get(key)!.sessions.push(s);
   }
 
-  // Sort: current project first, then by most recent session
+  // Sort: current project first, then by selected sort mode
   return Array.from(groups.values()).sort((a, b) => {
     if (a.isCurrent && !b.isCurrent) return -1;
     if (!a.isCurrent && b.isCurrent) return 1;
+    if (projectSort.value === 'name') {
+      return a.name.localeCompare(b.name);
+    }
     const aMax = Math.max(...a.sessions.map(s => s.lastActive));
     const bMax = Math.max(...b.sessions.map(s => s.lastActive));
     return bMax - aMax;
@@ -271,15 +275,27 @@ onUnmounted(() => {
       </Button>
     </div>
 
-    <!-- Search -->
+    <!-- Search + Sort -->
     <div class="border-b border-border px-3 py-1.5">
-      <div class="flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
-        <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
-        <input
-          v-model="searchQuery"
-          class="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-          placeholder="Search sessions..."
-        />
+      <div class="flex items-center gap-1.5">
+        <div class="flex flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
+          <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
+          <input
+            v-model="searchQuery"
+            class="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            placeholder="Search sessions..."
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-7 shrink-0 px-1.5 text-[10px] text-muted-foreground"
+          :title="projectSort === 'date' ? 'Sorted by date — click for name' : 'Sorted by name — click for date'"
+          @click="projectSort = projectSort === 'date' ? 'name' : 'date'"
+        >
+          <ArrowUpDown class="mr-0.5 h-3 w-3" />
+          {{ projectSort === 'date' ? 'Date' : 'Name' }}
+        </Button>
       </div>
     </div>
 

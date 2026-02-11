@@ -1,6 +1,7 @@
 import { spawn, execSync, type ChildProcess } from 'child_process';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 
@@ -102,6 +103,8 @@ export function getSession(id: string): ClaudeSession | undefined {
 export interface SendMessageOptions {
   model?: string;
   permissionMode?: string;
+  images?: { name: string; dataUrl: string }[];
+  maxOutputTokens?: number;
 }
 
 export function sendMessage(sessionId: string, prompt: string, options?: SendMessageOptions) {
@@ -119,12 +122,33 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
     return;
   }
 
+  // Write images to temp files if provided
+  let imageTempDir: string | null = null;
+  const imagePaths: string[] = [];
+  if (options?.images?.length) {
+    imageTempDir = mkdtempSync(join(tmpdir(), 'claude-img-'));
+    for (const img of options.images) {
+      const match = img.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (!match) continue;
+      const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      const filePath = join(imageTempDir, `${uuid().slice(0, 8)}.${ext}`);
+      writeFileSync(filePath, buf);
+      imagePaths.push(filePath);
+    }
+  }
+
   const args = [
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
   ];
+
+  // Add image flags
+  for (const imgPath of imagePaths) {
+    args.push('--image', imgPath);
+  }
 
   if (session.claudeSessionId) {
     args.push('--session-id', session.claudeSessionId);
@@ -133,6 +157,10 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
 
   if (options?.model) {
     args.push('--model', options.model);
+  }
+
+  if (options?.maxOutputTokens && options.maxOutputTokens > 0) {
+    args.push('--max-tokens', String(options.maxOutputTokens));
   }
 
   const permMode = options?.permissionMode || 'bypassPermissions';
@@ -203,6 +231,10 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       } catch {
         // ignore
       }
+    }
+    // Clean up temp image files
+    if (imageTempDir) {
+      try { rmSync(imageTempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
     session.emitter.emit('stream_end', {
       sessionId: session.id,

@@ -102,6 +102,15 @@ function formatTime(ts: number) {
   >
     <div class="max-w-[75%]">
       <div class="rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground shadow-sm">
+        <div v-if="message.images?.length" class="mb-2 flex flex-wrap gap-1.5">
+          <img
+            v-for="(img, idx) in message.images"
+            :key="idx"
+            :src="img.dataUrl"
+            :alt="img.name"
+            class="max-h-48 max-w-full rounded-lg border border-primary-foreground/20 object-contain"
+          />
+        </div>
         <p class="whitespace-pre-wrap text-sm leading-relaxed">{{ message.content }}</p>
       </div>
       <p class="mt-1 text-right text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>

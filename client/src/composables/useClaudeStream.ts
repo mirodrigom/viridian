@@ -108,19 +108,20 @@ export function useClaudeStream() {
     ultrathink: 'ultrathink before responding.\n\n',
   };
 
-  function sendMessage(prompt: string) {
+  function sendMessage(prompt: string, images?: { name: string; dataUrl: string }[]) {
     chat.addMessage({
       id: crypto.randomUUID(),
       role: 'user',
       content: prompt,
       timestamp: Date.now(),
+      images: images?.length ? images : undefined,
     });
 
     // Prepend thinking instruction if non-standard mode selected
     const prefix = THINKING_PREFIXES[settings.thinkingMode] || '';
     const effectivePrompt = prefix ? prefix + prompt : prompt;
 
-    send({
+    const payload: Record<string, unknown> = {
       type: 'chat',
       prompt: effectivePrompt,
       sessionId: chat.sessionId,
@@ -129,7 +130,12 @@ export function useClaudeStream() {
       permissionMode: settings.permissionMode,
       allowedTools: settings.allowedTools,
       disallowedTools: settings.disallowedTools,
-    });
+      maxOutputTokens: settings.maxOutputTokens || undefined,
+    };
+    if (images?.length) {
+      payload.images = images.map(img => ({ name: img.name, dataUrl: img.dataUrl }));
+    }
+    send(payload);
   }
 
   function respondToTool(requestId: string, approved: boolean) {

@@ -9,18 +9,23 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X,
+  Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
 } from 'lucide-vue-next';
+
+const MAX_IMAGES = 5;
 
 const chat = useChatStore();
 const auth = useAuthStore();
 const settings = useSettingsStore();
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const imageInput = ref<HTMLInputElement | null>(null);
 const selectedCommandIndex = ref(0);
 const mentionedFiles = ref<string[]>([]);
 const fileSuggestions = ref<string[]>([]);
 const selectedFileIndex = ref(0);
+const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]);
+const isDragging = ref(false);
 let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Draft persistence - save/restore typed text per session
@@ -48,7 +53,7 @@ watch(() => chat.sessionId, loadDraft);
 onMounted(loadDraft);
 
 const emit = defineEmits<{
-  send: [message: string];
+  send: [message: string, images?: { name: string; dataUrl: string }[]];
   abort: [];
 }>();
 
@@ -186,6 +191,54 @@ function removeFileMention(filePath: string) {
   mentionedFiles.value = mentionedFiles.value.filter(f => f !== filePath);
 }
 
+// Image attachment functions
+function addImageFiles(files: FileList | File[]) {
+  const remaining = MAX_IMAGES - attachedImages.value.length;
+  const toProcess = Array.from(files).filter(f => f.type.startsWith('image/')).slice(0, remaining);
+  for (const file of toProcess) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      attachedImages.value.push({ name: file.name, dataUrl: reader.result as string, size: file.size });
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function removeImage(idx: number) {
+  attachedImages.value.splice(idx, 1);
+}
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = true;
+}
+
+function handleDragLeave() {
+  isDragging.value = false;
+}
+
+function handleDrop(e: DragEvent) {
+  e.preventDefault();
+  isDragging.value = false;
+  if (e.dataTransfer?.files) addImageFiles(e.dataTransfer.files);
+}
+
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const imageFiles: File[] = [];
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) imageFiles.push(file);
+    }
+  }
+  if (imageFiles.length) {
+    e.preventDefault();
+    addImageFiles(imageFiles);
+  }
+}
+
 function executeCommand(cmd: SlashCommand) {
   cmd.action();
   nextTick(() => autoResize());
@@ -202,7 +255,7 @@ function handleSubmit() {
   }
 
   const trimmed = input.value.trim();
-  if (!trimmed || chat.isStreaming) return;
+  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming) return;
   // Prepend file mentions as context
   let message = trimmed;
   if (mentionedFiles.value.length > 0) {
@@ -210,8 +263,10 @@ function handleSubmit() {
     message = `[Context files: ${fileList}]\n\n${trimmed}`;
     mentionedFiles.value = [];
   }
-  emit('send', message);
+  const images = attachedImages.value.length > 0 ? [...attachedImages.value] : undefined;
+  emit('send', message, images);
   input.value = '';
+  attachedImages.value = [];
   nextTick(() => autoResize());
 }
 
@@ -425,24 +480,58 @@ const permissionIcons: Record<string, typeof Zap> = {
       </span>
     </div>
 
+    <!-- Image previews -->
+    <div v-if="attachedImages.length > 0" class="mb-1.5 flex flex-wrap gap-1.5">
+      <div v-for="(img, idx) in attachedImages" :key="idx" class="group relative">
+        <img :src="img.dataUrl" :alt="img.name" class="h-16 w-16 rounded-md border border-border object-cover" />
+        <button
+          class="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+          @click="removeImage(idx)"
+        >
+          <X class="h-2.5 w-2.5" />
+        </button>
+      </div>
+    </div>
+
     <!-- Text input -->
-    <div class="relative rounded-xl border border-border bg-card shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20">
+    <div
+      class="relative rounded-xl border border-border bg-card shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20"
+      :class="{ 'border-primary/50 ring-1 ring-primary/20': isDragging }"
+      @dragover="handleDragOver"
+      @dragleave="handleDragLeave"
+      @drop="handleDrop"
+    >
+      <div v-if="isDragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-primary/5">
+        <span class="text-xs font-medium text-primary">Drop images here</span>
+      </div>
       <textarea
         ref="textarea"
         v-model="input"
         placeholder="Ask Claude to help with your code... (/ for commands)"
-        class="block w-full resize-none bg-transparent px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        class="block w-full resize-none bg-transparent px-4 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         rows="1"
         style="min-height: 44px; max-height: 200px"
         @keydown="handleKeydown"
         @input="autoResize"
+        @paste="handlePaste"
       />
-      <div class="absolute bottom-2 right-2">
+      <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
+      <div class="absolute bottom-2 right-2 flex items-center gap-1">
+        <Button
+          v-if="!chat.isStreaming && attachedImages.length < MAX_IMAGES"
+          variant="ghost"
+          size="sm"
+          class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
+          title="Attach image"
+          @click="imageInput?.click()"
+        >
+          <ImagePlus class="h-4 w-4" />
+        </Button>
         <Button
           v-if="!chat.isStreaming"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="!input.trim()"
+          :disabled="!input.trim() && attachedImages.length === 0"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />

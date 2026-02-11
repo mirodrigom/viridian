@@ -209,4 +209,26 @@ router.post('/generate-commit-message', async (req, res) => {
   }
 });
 
+router.get('/user-config', async (req, res) => {
+  try {
+    const cwd = req.query.cwd as string;
+    if (!cwd) { res.status(400).json({ error: 'cwd is required' }); return; }
+    const config = await gitService.getUserConfig(cwd);
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get git user config' });
+  }
+});
+
+router.put('/user-config', async (req, res) => {
+  try {
+    const { cwd, name, email } = req.body;
+    if (!cwd) { res.status(400).json({ error: 'cwd is required' }); return; }
+    await gitService.setUserConfig(cwd, name || '', email || '');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to set git user config' });
+  }
+});
+
 export default router;

@@ -36,7 +36,7 @@ export function setupChatWs(server: Server) {
         const data = JSON.parse(raw.toString());
 
         if (data.type === 'chat') {
-          const { prompt, sessionId, cwd, model, permissionMode } = data;
+          const { prompt, sessionId, cwd, model, permissionMode, images, maxOutputTokens } = data;
           const projectDir = cwd || process.env.HOME || '/home';
 
           let session = sessionId ? getSession(sessionId) : null;
@@ -92,6 +92,12 @@ export function setupChatWs(server: Server) {
           const msgOptions: SendMessageOptions = {};
           if (model) msgOptions.model = model;
           if (permissionMode) msgOptions.permissionMode = permissionMode;
+          if (images && Array.isArray(images)) {
+            msgOptions.images = images as { name: string; dataUrl: string }[];
+          }
+          if (maxOutputTokens && typeof maxOutputTokens === 'number') {
+            msgOptions.maxOutputTokens = maxOutputTokens;
+          }
           sendMessage(session.id, prompt, msgOptions);
         }
 
