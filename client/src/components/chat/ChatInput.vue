@@ -11,6 +11,7 @@ import {
 import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
 } from 'lucide-vue-next';
+import TokenUsageChart from './TokenUsageChart.vue';
 
 const MAX_IMAGES = 5;
 
@@ -142,7 +143,7 @@ const mentionQuery = computed(() => {
   const atIdx = text.lastIndexOf('@');
   if (atIdx === -1) return null;
   // Must be start of line or after whitespace
-  if (atIdx > 0 && !/\s/.test(text[atIdx - 1])) return null;
+  if (atIdx > 0 && !/\s/.test(text[atIdx - 1]!)) return null;
   const query = text.slice(atIdx + 1);
   // Stop if there's whitespace after the @ (mention already complete)
   if (/\s/.test(query)) return null;
@@ -315,7 +316,7 @@ function handleKeydown(e: KeyboardEvent) {
     }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
       e.preventDefault();
-      selectFileMention(fileSuggestions.value[selectedFileIndex.value]);
+      selectFileMention(fileSuggestions.value[selectedFileIndex.value]!);
       return;
     }
     if (e.key === 'Escape') {
@@ -406,27 +407,31 @@ const permissionIcons: Record<string, typeof Zap> = {
           </SelectContent>
         </Select>
 
-        <!-- Context usage -->
+        <!-- Context usage (donut chart) -->
         <Tooltip v-if="chat.totalTokens > 0">
           <TooltipTrigger as-child>
-            <div class="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-0.5">
-              <div class="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
-                <div
-                  class="h-full rounded-full transition-all"
-                  :class="chat.contextPercent > 80 ? 'bg-destructive' : chat.contextPercent > 50 ? 'bg-yellow-500' : 'bg-primary'"
-                  :style="{ width: `${chat.contextPercent}%` }"
-                />
-              </div>
+            <div class="flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-0.5 cursor-default">
+              <TokenUsageChart
+                :input-tokens="chat.usage.inputTokens"
+                :output-tokens="chat.usage.outputTokens"
+                :size="22"
+              />
               <span class="text-[10px] tabular-nums text-muted-foreground">
                 {{ chat.contextPercent }}%
               </span>
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            <div class="space-y-1 text-xs">
-              <div>Input: {{ formatTokens(chat.usage.inputTokens) }} tokens</div>
-              <div>Output: {{ formatTokens(chat.usage.outputTokens) }} tokens</div>
-              <div>Context: {{ chat.contextPercent }}% used</div>
+            <div class="space-y-1.5 text-xs">
+              <div class="flex items-center gap-1.5">
+                <span class="inline-block h-2 w-2 rounded-full bg-primary" />
+                Input: {{ formatTokens(chat.usage.inputTokens) }} tokens
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
+                Output: {{ formatTokens(chat.usage.outputTokens) }} tokens
+              </div>
+              <div class="border-t border-border pt-1">Context: {{ chat.contextPercent }}% used</div>
               <div v-if="chat.lastResponseMs">Last: {{ (chat.lastResponseMs / 1000).toFixed(1) }}s</div>
               <div v-if="chat.usage.totalCost > 0">Cost: ${{ chat.usage.totalCost.toFixed(4) }}</div>
             </div>

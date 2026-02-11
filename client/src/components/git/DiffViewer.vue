@@ -34,7 +34,7 @@ const parsedFiles = computed((): DiffFile[] => {
   for (const raw of rawFiles) {
     const lines = raw.split('\n');
     const headerMatch = lines[0]?.match(/a\/(.+?) b\/(.+)/);
-    const path = headerMatch ? headerMatch[2] : lines[0] || 'unknown';
+    const path = headerMatch ? headerMatch[2]! : lines[0] || 'unknown';
 
     const hunks: DiffHunk[] = [];
     let currentHunk: DiffHunk | null = null;
@@ -50,8 +50,8 @@ const parsedFiles = computed((): DiffFile[] => {
           header: line,
           lines: [],
         };
-        oldLine = parseInt(hunkMatch[1]);
-        newLine = parseInt(hunkMatch[2]);
+        oldLine = parseInt(hunkMatch[1]!);
+        newLine = parseInt(hunkMatch[2]!);
         hunks.push(currentHunk);
         continue;
       }

@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import {
   MessageSquare, Plus, ChevronDown, FolderOpen,
-  Clock, RefreshCw, Trash2, Search, ArrowUpDown,
+  Clock, RefreshCw, Trash2, Search, ArrowUpDown, Star, Pencil,
 } from 'lucide-vue-next';
 
 interface SessionItem {
@@ -36,6 +36,60 @@ const searchQuery = ref('');
 const visibleCount = ref(5);
 const expandedProjects = ref<Set<string>>(new Set());
 const projectSort = ref<'date' | 'name'>('date');
+
+// Project renaming (3.2) and starring (3.3) — persisted in localStorage
+const projectNames = ref<Record<string, string>>({});
+const starredProjects = ref<Set<string>>(new Set());
+const renamingDir = ref<string | null>(null);
+const renameInput = ref('');
+
+function loadProjectMeta() {
+  const names = localStorage.getItem('projectNames');
+  if (names) projectNames.value = JSON.parse(names);
+  const starred = localStorage.getItem('starredProjects');
+  if (starred) starredProjects.value = new Set(JSON.parse(starred));
+}
+
+function saveProjectNames() {
+  localStorage.setItem('projectNames', JSON.stringify(projectNames.value));
+}
+
+function saveStarredProjects() {
+  localStorage.setItem('starredProjects', JSON.stringify([...starredProjects.value]));
+}
+
+function startRename(group: ProjectGroup) {
+  renamingDir.value = group.dir;
+  renameInput.value = projectNames.value[group.dir] || group.name;
+}
+
+function finishRename(dir: string) {
+  const trimmed = renameInput.value.trim();
+  if (trimmed) {
+    projectNames.value[dir] = trimmed;
+  } else {
+    delete projectNames.value[dir];
+  }
+  saveProjectNames();
+  renamingDir.value = null;
+}
+
+function cancelRename() {
+  renamingDir.value = null;
+}
+
+function toggleStar(dir: string) {
+  if (starredProjects.value.has(dir)) {
+    starredProjects.value.delete(dir);
+  } else {
+    starredProjects.value.add(dir);
+  }
+  saveStarredProjects();
+}
+
+function getProjectDisplayName(group: ProjectGroup): string {
+  return projectNames.value[group.dir] || group.name;
+}
 
 const emit = defineEmits<{
   newSession: [];
@@ -173,12 +227,16 @@ const projectGroups = computed((): ProjectGroup[] => {
     groups.get(key)!.sessions.push(s);
   }
 
-  // Sort: current project first, then by selected sort mode
+  // Sort: current first, then starred, then by selected sort mode
   return Array.from(groups.values()).sort((a, b) => {
     if (a.isCurrent && !b.isCurrent) return -1;
     if (!a.isCurrent && b.isCurrent) return 1;
+    const aStarred = starredProjects.value.has(a.dir);
+    const bStarred = starredProjects.value.has(b.dir);
+    if (aStarred && !bStarred) return -1;
+    if (!aStarred && bStarred) return 1;
     if (projectSort.value === 'name') {
-      return a.name.localeCompare(b.name);
+      return getProjectDisplayName(a).localeCompare(getProjectDisplayName(b));
     }
     const aMax = Math.max(...a.sessions.map(s => s.lastActive));
     const bMax = Math.max(...b.sessions.map(s => s.lastActive));
@@ -193,7 +251,9 @@ const filteredGroups = computed((): ProjectGroup[] => {
   return projectGroups.value
     .map(g => ({
       ...g,
-      sessions: g.sessions.filter(s => s.title.toLowerCase().includes(q)),
+      sessions: g.sessions.filter(s =>
+        s.title.toLowerCase().includes(q) || getProjectDisplayName(g).toLowerCase().includes(q)
+      ),
     }))
     .filter(g => g.sessions.length > 0);
 });
@@ -247,6 +307,7 @@ function connectSessionsWs() {
 }
 
 onMounted(() => {
+  loadProjectMeta();
   connectSessionsWs();
 });
 
@@ -321,14 +382,45 @@ onUnmounted(() => {
 
       <!-- Project groups -->
       <div v-for="group in filteredGroups" :key="group.dir" class="group/project">
-        <div class="flex w-full items-center gap-2 border-b border-border px-3 py-2 transition-colors hover:bg-accent">
-          <button class="flex min-w-0 flex-1 items-center gap-2 text-left" @click="toggleProject(group.path)">
-            <FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span class="flex-1 truncate text-xs font-medium" :class="group.isCurrent ? 'text-primary' : 'text-foreground'">
-              {{ group.name }}
-            </span>
+        <div class="flex w-full items-center gap-1.5 border-b border-border px-3 py-2 transition-colors hover:bg-accent">
+          <!-- Star toggle -->
+          <button
+            class="shrink-0 text-muted-foreground transition-colors hover:text-yellow-500"
+            :class="{ 'text-yellow-500': starredProjects.has(group.dir) }"
+            @click="toggleStar(group.dir)"
+          >
+            <Star class="h-3 w-3" :class="{ 'fill-current': starredProjects.has(group.dir) }" />
           </button>
+
+          <!-- Project name (or rename input) -->
+          <template v-if="renamingDir === group.dir">
+            <input
+              v-model="renameInput"
+              class="min-w-0 flex-1 rounded border border-primary bg-background px-1.5 py-0.5 text-xs text-foreground outline-none"
+              @keydown.enter="finishRename(group.dir)"
+              @keydown.escape="cancelRename"
+              @blur="finishRename(group.dir)"
+              autofocus
+            />
+          </template>
+          <template v-else>
+            <button class="flex min-w-0 flex-1 items-center gap-1.5 text-left" @click="toggleProject(group.path)">
+              <FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span class="flex-1 truncate text-xs font-medium" :class="group.isCurrent ? 'text-primary' : 'text-foreground'">
+                {{ getProjectDisplayName(group) }}
+              </span>
+            </button>
+          </template>
           <span class="text-[10px] text-muted-foreground">{{ group.sessions.length }}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="hidden h-5 w-5 p-0 text-muted-foreground hover:text-foreground group-hover/project:inline-flex"
+            title="Rename project"
+            @click="startRename(group)"
+          >
+            <Pencil class="h-2.5 w-2.5" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -346,7 +438,7 @@ onUnmounted(() => {
 
         <div v-if="expandedProjects.has(group.path)" class="py-0.5">
           <div
-            v-for="(session, idx) in group.sessions.slice(0, visibleCount)"
+            v-for="session in group.sessions.slice(0, visibleCount)"
             :key="session.id"
             class="group flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-accent"
             :class="{

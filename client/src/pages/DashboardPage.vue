@@ -7,18 +7,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import {
   FolderOpen, ArrowRight, Clock, Moon, Sun, LogOut,
-  Zap, Shield, FileEdit, ClipboardList, Search,
+  Zap, Shield, FileEdit, ClipboardList, Search, ArrowUpCircle, X,
 } from 'lucide-vue-next';
+import { useVersionCheck } from '@/composables/useVersionCheck';
 
 const auth = useAuthStore();
 const settings = useSettingsStore();
 const router = useRouter();
+
+const { currentVersion, latestVersion, updateAvailable, dismiss: dismissUpdate } = useVersionCheck();
 
 const projectPath = ref('');
 const recentPaths = ref<string[]>([]);
@@ -73,6 +74,23 @@ const permissionIcons: Record<string, typeof Zap> = {
 
 <template>
   <div class="flex min-h-screen flex-col bg-background">
+    <!-- Update notification banner -->
+    <div v-if="updateAvailable" class="flex items-center justify-center gap-2 bg-primary/10 px-4 py-1.5 text-sm">
+      <ArrowUpCircle class="h-4 w-4 text-primary" />
+      <span class="text-foreground">
+        Version <strong>{{ latestVersion }}</strong> is available
+        <span class="text-muted-foreground">(current: {{ currentVersion }})</span>
+      </span>
+      <a
+        :href="`https://github.com/mirodrigom/claude-code-web/releases/tag/v${latestVersion}`"
+        target="_blank"
+        class="ml-1 text-primary underline hover:text-primary/80"
+      >View release</a>
+      <button class="ml-2 rounded p-0.5 text-muted-foreground hover:text-foreground" @click="dismissUpdate">
+        <X class="h-3.5 w-3.5" />
+      </button>
+    </div>
+
     <!-- Mini top bar -->
     <header class="flex h-11 items-center justify-between border-b border-border px-4">
       <div class="flex items-center gap-2">
@@ -216,6 +234,11 @@ const permissionIcons: Record<string, typeof Zap> = {
         </div>
       </div>
     </div>
+
+    <!-- Version footer -->
+    <footer v-if="currentVersion" class="py-2 text-center text-[11px] text-muted-foreground">
+      Claude Code Web v{{ currentVersion }}
+    </footer>
 
     <DirectoryPicker
       v-model:open="showDirPicker"

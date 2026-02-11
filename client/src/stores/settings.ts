@@ -28,8 +28,13 @@ export const THINKING_OPTIONS: { value: ThinkingMode; label: string; description
 
 export const COMMON_TOOLS = [
   'Bash(git log:*)', 'Bash(git diff:*)', 'Bash(git status:*)',
+  'Bash(npm:*)', 'Bash(npx:*)',
   'Write', 'Read', 'Edit', 'Glob', 'Grep', 'MultiEdit', 'Task',
   'TodoWrite', 'TodoRead', 'WebFetch', 'WebSearch',
+];
+
+export const COMMON_DISALLOWED = [
+  'Bash(rm -rf:*)', 'Bash(sudo:*)', 'Bash(curl|wget:*)',
 ];
 
 export const useSettingsStore = defineStore('settings', () => {

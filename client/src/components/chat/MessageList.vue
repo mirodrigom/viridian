@@ -38,7 +38,7 @@ const searchResults = computed(() => {
 // Set of message IDs that match search
 const matchingIds = computed(() => {
   if (!searchQuery.value.trim()) return new Set<string>();
-  return new Set(searchResults.value.map(idx => chat.messages[idx].id));
+  return new Set(searchResults.value.map(idx => chat.messages[idx]!.id));
 });
 
 function toggleSearch() {
@@ -64,7 +64,7 @@ function prevResult() {
 function scrollToResult() {
   const msgIdx = searchResults.value[searchResultIndex.value];
   if (msgIdx === undefined) return;
-  const msgId = chat.messages[msgIdx].id;
+  const msgId = chat.messages[msgIdx]!.id;
   nextTick(() => {
     const el = document.getElementById(`msg-${msgId}`);
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });

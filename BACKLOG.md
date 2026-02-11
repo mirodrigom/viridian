@@ -48,8 +48,8 @@
 | # | Feature | Priority | Effort | Status | Reference (claudecodeui) | Our files |
 |---|---------|----------|--------|--------|--------------------------|-----------|
 | 3.1 | **Multi-project listing** (all projects from ~/.claude/projects/) | P1 | S | `[x]` | `projects.js:382+` | `SessionSidebar.vue` (projectGroups computed, expand/collapse, current first) |
-| 3.2 | **Project renaming** (custom display names) | P3 | S | `[ ]` | `api.js:70-73`, `Sidebar.jsx` inline rename | Not implemented |
-| 3.3 | **Starred/favorite projects** | P3 | S | `[ ]` | `Sidebar.jsx:94-102, 208-223` | Not implemented |
+| 3.2 | **Project renaming** (custom display names) | P3 | S | `[x]` | `api.js:70-73`, `Sidebar.jsx` inline rename | `SessionSidebar.vue` (inline rename with Pencil icon, localStorage persistence, custom display names in sidebar + search) |
+| 3.3 | **Starred/favorite projects** | P3 | S | `[x]` | `Sidebar.jsx:94-102, 208-223` | `SessionSidebar.vue` (Star toggle, yellow fill, localStorage persistence, starred sort before non-starred) |
 | 3.4 | **Project sort** (by name or date) | P3 | S | `[x]` | `Sidebar.jsx:260-279` | `SessionSidebar.vue` (projectSort toggle button, Date/Name modes, current project always first) |
 | 3.5 | **Project delete** (with force option) | P2 | S | `[x]` | `api.js:75-86` | `routes/sessions.ts:DELETE /project/:dir` (deletes all JSONL + empty dir), `SessionSidebar.vue` (hover Trash2 button with confirm) |
 | 3.6 | **Filesystem browser** (for selecting project dirs) | P2 | M | `[x]` | `server/routes/projects.js`, `api.js:155-160` | `components/DirectoryPicker.vue` (dialog with breadcrumbs, directory listing, path input, home/up nav), `DashboardPage.vue` (Browse button) |
@@ -63,7 +63,7 @@
 |---|---------|----------|--------|--------|--------------------------|-----------|
 | 4.1 | **Context usage bar** (color-coded: green/yellow/red) | P1 | - | `[x]` | `TokenUsagePie.jsx:1-53` (pie chart) | `ChatInput.vue` has progress bar |
 | 4.2 | **Token usage tooltip** (input/output/cost/response time) | P1 | - | `[x]` | `ChatInterface.jsx:126-166` | `ChatInput.vue` tooltip |
-| 4.3 | **Token usage pie chart** (SVG circular indicator) | P3 | S | `[ ]` | `TokenUsagePie.jsx:1-53` | We use linear progress bar |
+| 4.3 | **Token usage pie chart** (SVG circular indicator) | P3 | S | `[x]` | `TokenUsagePie.jsx:1-53` | `components/chat/TokenUsageChart.vue` (SVG donut, input=primary + output=violet arcs, percentage center), `ChatInput.vue` (replaces linear bar) |
 | 4.4 | **Usage limit with reset time** (timezone-aware reset display) | P3 | S | `[ ]` | `ChatInterface.jsx:126-166` | Not implemented |
 
 ---
@@ -114,7 +114,7 @@
 | # | Feature | Priority | Effort | Status | Reference (claudecodeui) | Our files |
 |---|---------|----------|--------|--------|--------------------------|-----------|
 | 8.1 | **Settings dialog** (model, permissions, tools) | P0 | - | `[x]` | `Settings.jsx:24-100` | `SettingsDialog.vue`, `ToolsSettingsDialog.vue` |
-| 8.2 | **Tool permission patterns** (allowedTools/disallowedTools with Bash(command:*)) | P1 | M | `[~]` | `ChatInterface.jsx:250-344` | Basic allow/disallow in settings store |
+| 8.2 | **Tool permission patterns** (allowedTools/disallowedTools with Bash(command:*)) | P1 | M | `[x]` | `ChatInterface.jsx:250-344` | `ToolsSettingsDialog.vue` (quick-add common tools/blocks, pattern syntax help), `stores/settings.ts` (COMMON_TOOLS/COMMON_DISALLOWED), `services/claude.ts` (--allowedTools/--disallowedTools flags), `ws/chat.ts` (forward from client) |
 | 8.3 | **MCP server management** (CRUD: add/list/remove stdio/HTTP/SSE servers) | P2 | C | `[ ]` | `server/routes/mcp.js:1-551` | Not implemented |
 | 8.4 | **API key management** (create/list/revoke ck_ prefixed keys) | P3 | M | `[ ]` | `server/routes/settings.js:1-179` | Not implemented |
 | 8.5 | **Git user config** (view/set name + email) | P3 | S | `[x]` | `api.js:167-175` | `SettingsDialog.vue` (Git Identity section, auto-load on open), `routes/git.ts:GET/PUT /user-config`, `services/git.ts:getUserConfig/setUserConfig` |
@@ -130,7 +130,7 @@
 | 9.3 | **PWA support** (installable, service worker) | P2 | S | `[x]` | `public/manifest.json`, `public/sw.js` | `public/manifest.json` + `public/sw.js` (network-first HTML, cache-first assets) + `index.html` (meta tags, SW registration) |
 | 9.4 | **i18n** (English, Chinese, Korean) | P3 | M | `[ ]` | i18next + react-i18next | Not implemented |
 | 9.5 | **Responsive mobile design** (touch handlers, iPad double-tap prevention) | P2 | M | `[x]` | `Sidebar.jsx:104-115`, `MainContent.jsx:617-670` | `ChatView.vue` (mobile slide-out sidebar), `AppLayout.vue` (auto-hide panels), `TopBar.vue` (compact), `ChatInput.vue` (wrapping status bar), `style.css` (safe-area insets, touch targets, transitions) |
-| 9.6 | **Version update notification** | P3 | S | `[ ]` | `useVersionCheck.js` | Not implemented |
+| 9.6 | **Version update notification** | P3 | S | `[x]` | `useVersionCheck.js` | `composables/useVersionCheck.ts` (GitHub releases check, 12h interval, dismiss persistence), `DashboardPage.vue` (banner + version footer), `server/index.ts` (/api/version endpoint) |
 | 9.7 | **Onboarding flow** (first-time wizard) | P3 | M | `[ ]` | `api.js:176-181`, `AuthContext.jsx:46-57` | Not implemented |
 
 ---

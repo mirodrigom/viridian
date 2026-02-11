@@ -105,6 +105,8 @@ export interface SendMessageOptions {
   permissionMode?: string;
   images?: { name: string; dataUrl: string }[];
   maxOutputTokens?: number;
+  allowedTools?: string[];
+  disallowedTools?: string[];
 }
 
 export function sendMessage(sessionId: string, prompt: string, options?: SendMessageOptions) {
@@ -166,11 +168,13 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   const permMode = options?.permissionMode || 'bypassPermissions';
   args.push('--permission-mode', permMode);
 
-  args.push(
-    '--allowedTools',
-    'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-    'TodoWrite', 'WebFetch', 'WebSearch', 'Task',
-  );
+  const DEFAULT_ALLOWED = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch', 'Task'];
+  const allowedTools = options?.allowedTools?.length ? options.allowedTools : DEFAULT_ALLOWED;
+  args.push('--allowedTools', ...allowedTools);
+
+  if (options?.disallowedTools?.length) {
+    args.push('--disallowedTools', ...options.disallowedTools);
+  }
 
   console.log(`[claude] Spawning: ${claudeBin}`);
   console.log(`[claude] Args: ${args.join(' ')}`);

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { useFilesStore } from '@/stores/files';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
 const files = useFilesStore();
 

@@ -8,7 +8,7 @@ const chat = useChatStore();
 const route = useRoute();
 
 onMounted(() => {
-  const path = (route.query.path as string) || process.cwd?.() || '/home';
+  const path = (route.query.path as string) || '/home';
   chat.setProjectPath(path);
 });
 </script>

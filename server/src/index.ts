@@ -1,6 +1,9 @@
 import express, { type Express } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import authRoutes from './routes/auth.js';
 import filesRoutes from './routes/files.js';
@@ -27,6 +30,20 @@ app.use('/api/sessions', sessionsRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Version endpoint - reads from root package.json
+let appVersion = '0.0.0';
+try {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const rootPkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8'));
+  appVersion = rootPkg.version || appVersion;
+} catch {
+  // fallback version
+}
+
+app.get('/api/version', (_req, res) => {
+  res.json({ version: appVersion });
 });
 
 app.get('/api/me', authMiddleware, (req, res) => {

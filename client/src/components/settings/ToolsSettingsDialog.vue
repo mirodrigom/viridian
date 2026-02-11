@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useSettingsStore, COMMON_TOOLS, PERMISSION_OPTIONS } from '@/stores/settings';
+import { useSettingsStore, COMMON_TOOLS, COMMON_DISALLOWED } from '@/stores/settings';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import {
-  Settings, AlertTriangle, Shield, Plus, X, Zap,
+  Settings, AlertTriangle, Shield, Plus, X,
 } from 'lucide-vue-next';
 
 const settings = useSettingsStore();
@@ -159,13 +157,29 @@ function toggleSkipPermissions(checked: boolean) {
           <div class="mb-3 flex gap-2">
             <Input
               v-model="newDisallowedTool"
-              placeholder='e.g., "Bash(rm:*)"'
+              placeholder='e.g., "Bash(rm -rf:*)"'
               class="text-sm"
               @keydown.enter="addDisallowed"
             />
             <Button size="sm" variant="destructive" class="shrink-0 gap-1" @click="addDisallowed" :disabled="!newDisallowedTool.trim()">
               <Plus class="h-3.5 w-3.5" />
             </Button>
+          </div>
+
+          <!-- Quick add common disallowed -->
+          <div class="mb-3">
+            <p class="mb-2 text-xs font-medium text-muted-foreground">Quick add common blocks:</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="tool in COMMON_DISALLOWED"
+                :key="tool"
+                class="rounded-md border border-destructive/30 px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+                :class="{ 'opacity-40 pointer-events-none': settings.disallowedTools.includes(tool) }"
+                @click="settings.addDisallowedTool(tool)"
+              >
+                {{ tool }}
+              </button>
+            </div>
           </div>
 
           <div v-if="settings.disallowedTools.length > 0" class="space-y-1.5">
@@ -186,6 +200,18 @@ function toggleSkipPermissions(checked: boolean) {
           <p v-else class="text-center text-xs text-muted-foreground py-2">
             No disallowed tools configured
           </p>
+        </div>
+
+        <Separator />
+
+        <!-- Pattern syntax help -->
+        <div>
+          <h4 class="mb-2 text-xs font-medium uppercase text-muted-foreground">Pattern Syntax</h4>
+          <div class="space-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <p><code class="rounded bg-muted px-1 text-foreground">Read</code> — allow/block an entire tool</p>
+            <p><code class="rounded bg-muted px-1 text-foreground">Bash(git:*)</code> — Bash only for commands starting with "git"</p>
+            <p><code class="rounded bg-muted px-1 text-foreground">Bash(npm test:*)</code> — Bash for "npm test" commands</p>
+          </div>
         </div>
       </div>
 
