@@ -9,9 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
+import OnboardingWizard from '@/components/OnboardingWizard.vue';
 import {
   FolderOpen, ArrowRight, Clock, Moon, Sun, LogOut,
   Zap, Shield, FileEdit, ClipboardList, Search, ArrowUpCircle, X,
+  GitBranch, Loader2,
 } from 'lucide-vue-next';
 import { useVersionCheck } from '@/composables/useVersionCheck';
 
@@ -24,6 +26,77 @@ const { currentVersion, latestVersion, updateAvailable, dismiss: dismissUpdate }
 const projectPath = ref('');
 const recentPaths = ref<string[]>([]);
 const showDirPicker = ref(false);
+
+// GitHub clone state
+const cloneUrl = ref('');
+const cloning = ref(false);
+const cloneProgress = ref('');
+const clonePercent = ref(0);
+const cloneError = ref('');
+
+async function cloneRepo() {
+  const url = cloneUrl.value.trim();
+  if (!url || cloning.value) return;
+  cloning.value = true;
+  cloneProgress.value = 'Starting clone...';
+  clonePercent.value = 0;
+  cloneError.value = '';
+
+  try {
+    const res = await fetch('/api/files/clone', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({ url, targetDir: settings.projectsDir }),
+    });
+
+    if (!res.ok && !res.headers.get('content-type')?.includes('text/event-stream')) {
+      const err = await res.json();
+      cloneError.value = err.error || 'Clone failed';
+      cloning.value = false;
+      return;
+    }
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    if (!reader) { cloning.value = false; return; }
+
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      let currentEvent = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (currentEvent === 'progress') {
+              cloneProgress.value = data.message || '';
+              if (data.percent !== undefined) clonePercent.value = data.percent;
+            } else if (currentEvent === 'complete') {
+              cloneUrl.value = '';
+              cloning.value = false;
+              openProject(data.path);
+              return;
+            } else if (currentEvent === 'error') {
+              cloneError.value = data.message || 'Clone failed';
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    }
+  } catch (err) {
+    cloneError.value = err instanceof Error ? err.message : 'Clone failed';
+  }
+  cloning.value = false;
+}
 
 onMounted(() => {
   settings.init();
@@ -179,6 +252,43 @@ const permissionIcons: Record<string, typeof Zap> = {
           </CardContent>
         </Card>
 
+        <!-- Clone from GitHub -->
+        <Card>
+          <CardHeader class="pb-3">
+            <CardTitle class="flex items-center gap-2 text-lg">
+              <GitBranch class="h-5 w-5" />
+              Clone Repository
+            </CardTitle>
+          </CardHeader>
+          <CardContent class="space-y-3">
+            <div class="flex gap-2">
+              <Input
+                v-model="cloneUrl"
+                placeholder="https://github.com/user/repo.git"
+                class="font-mono text-sm"
+                :disabled="cloning"
+                @keydown.enter="cloneRepo"
+              />
+              <Button @click="cloneRepo" :disabled="!cloneUrl.trim() || cloning" class="shrink-0 gap-1">
+                <Loader2 v-if="cloning" class="h-4 w-4 animate-spin" />
+                <GitBranch v-else class="h-4 w-4" />
+                Clone
+              </Button>
+            </div>
+            <!-- Clone progress -->
+            <div v-if="cloning" class="space-y-1.5">
+              <div class="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-full rounded-full bg-primary transition-all duration-300"
+                  :style="{ width: `${clonePercent}%` }"
+                />
+              </div>
+              <p class="truncate text-xs text-muted-foreground">{{ cloneProgress }}</p>
+            </div>
+            <p v-if="cloneError" class="text-xs text-destructive">{{ cloneError }}</p>
+          </CardContent>
+        </Card>
+
         <!-- Quick settings row -->
         <div class="grid grid-cols-2 gap-4">
           <!-- Model selection -->
@@ -245,5 +355,6 @@ const permissionIcons: Record<string, typeof Zap> = {
       :initial-path="settings.projectsDir"
       @select="(path: string) => { projectPath = path; openProject(path); }"
     />
+    <OnboardingWizard />
   </div>
 </template>

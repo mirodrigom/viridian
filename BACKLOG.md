@@ -53,7 +53,7 @@
 | 3.4 | **Project sort** (by name or date) | P3 | S | `[x]` | `Sidebar.jsx:260-279` | `SessionSidebar.vue` (projectSort toggle button, Date/Name modes, current project always first) |
 | 3.5 | **Project delete** (with force option) | P2 | S | `[x]` | `api.js:75-86` | `routes/sessions.ts:DELETE /project/:dir` (deletes all JSONL + empty dir), `SessionSidebar.vue` (hover Trash2 button with confirm) |
 | 3.6 | **Filesystem browser** (for selecting project dirs) | P2 | M | `[x]` | `server/routes/projects.js`, `api.js:155-160` | `components/DirectoryPicker.vue` (dialog with breadcrumbs, directory listing, path input, home/up nav), `DashboardPage.vue` (Browse button) |
-| 3.7 | **GitHub clone** (with SSE progress) | P3 | M | `[ ]` | `server/routes/projects.js` SSE clone | Not implemented |
+| 3.7 | **GitHub clone** (with SSE progress) | P3 | M | `[x]` | `server/routes/projects.js` SSE clone | `routes/files.ts:POST /clone` (SSE streaming git clone --progress), `DashboardPage.vue` (Clone Repository card with URL input, progress bar, auto-open) |
 
 ---
 
@@ -64,7 +64,7 @@
 | 4.1 | **Context usage bar** (color-coded: green/yellow/red) | P1 | - | `[x]` | `TokenUsagePie.jsx:1-53` (pie chart) | `ChatInput.vue` has progress bar |
 | 4.2 | **Token usage tooltip** (input/output/cost/response time) | P1 | - | `[x]` | `ChatInterface.jsx:126-166` | `ChatInput.vue` tooltip |
 | 4.3 | **Token usage pie chart** (SVG circular indicator) | P3 | S | `[x]` | `TokenUsagePie.jsx:1-53` | `components/chat/TokenUsageChart.vue` (SVG donut, input=primary + output=violet arcs, percentage center), `ChatInput.vue` (replaces linear bar) |
-| 4.4 | **Usage limit with reset time** (timezone-aware reset display) | P3 | S | `[ ]` | `ChatInterface.jsx:126-166` | Not implemented |
+| 4.4 | **Usage limit with reset time** (timezone-aware reset display) | P3 | S | `[x]` | `ChatInterface.jsx:126-166` | `stores/chat.ts` (sessionDurationMin, tokensPerMin, rateLimitReset computed), `ChatInput.vue` tooltip (rate + reset countdown) |
 
 ---
 
@@ -104,8 +104,8 @@
 | 7.1 | **Full PTY terminal** (xterm.js + node-pty) | P0 | - | `[x]` | `Shell.jsx:292-476` | `Terminal.vue` |
 | 7.2 | **WebGL rendering** | P2 | S | `[x]` | `Shell.jsx:340-370` WebGLAddon | `Terminal.vue` (WebglAddon with canvas fallback) |
 | 7.3 | **Clickable URLs** (WebLinksAddon) | P2 | S | `[x]` | `Shell.jsx:340-370` WebLinksAddon | `Terminal.vue` (WebLinksAddon) |
-| 7.4 | **Auth URL detection** (overlay with Open/Copy buttons) | P3 | M | `[ ]` | `Shell.jsx:499-543` | Not implemented |
-| 7.5 | **Copy/paste handling** (Ctrl+C copies selection or SIGINT) | P1 | S | `[~]` | `Shell.jsx:371-419` | Basic terminal handles it natively |
+| 7.4 | **Auth URL detection** (overlay with Open/Copy buttons) | P3 | M | `[x]` | `Shell.jsx:499-543` | `Terminal.vue` (AUTH_URL_PATTERN regex, overlay with Open/Copy/Dismiss, 30s auto-dismiss) |
+| 7.5 | **Copy/paste handling** (Ctrl+C copies selection or SIGINT) | P1 | S | `[x]` | `Shell.jsx:371-419` | `Terminal.vue` (Ctrl+C=copy selection or SIGINT, Ctrl+V/Ctrl+Shift+V=paste, right-click paste) |
 
 ---
 
@@ -131,7 +131,7 @@
 | 9.4 | **i18n** (English, Chinese, Korean) | P3 | M | `[ ]` | i18next + react-i18next | Not implemented |
 | 9.5 | **Responsive mobile design** (touch handlers, iPad double-tap prevention) | P2 | M | `[x]` | `Sidebar.jsx:104-115`, `MainContent.jsx:617-670` | `ChatView.vue` (mobile slide-out sidebar), `AppLayout.vue` (auto-hide panels), `TopBar.vue` (compact), `ChatInput.vue` (wrapping status bar), `style.css` (safe-area insets, touch targets, transitions) |
 | 9.6 | **Version update notification** | P3 | S | `[x]` | `useVersionCheck.js` | `composables/useVersionCheck.ts` (GitHub releases check, 12h interval, dismiss persistence), `DashboardPage.vue` (banner + version footer), `server/index.ts` (/api/version endpoint) |
-| 9.7 | **Onboarding flow** (first-time wizard) | P3 | M | `[ ]` | `api.js:176-181`, `AuthContext.jsx:46-57` | Not implemented |
+| 9.7 | **Onboarding flow** (first-time wizard) | P3 | M | `[x]` | `api.js:176-181`, `AuthContext.jsx:46-57` | `components/OnboardingWizard.vue` (3-step dialog: projects dir, model+permissions, tips), `DashboardPage.vue` (auto-shows on first visit) |
 
 ---
 

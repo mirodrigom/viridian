@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { spawn } from 'child_process';
+import { basename, join } from 'path';
+import { existsSync } from 'fs';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getFileTree, getFileContent, saveFileContent, getLanguageFromPath, searchFiles } from '../services/files.js';
 
@@ -62,6 +65,79 @@ router.get('/search', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to search files' });
   }
+});
+
+/** Clone a git repository with SSE progress streaming */
+router.post('/clone', (req, res) => {
+  const { url, targetDir } = req.body;
+  if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+
+  // Validate URL
+  const validPattern = /^(https?:\/\/|git@)/;
+  if (!validPattern.test(url)) {
+    res.status(400).json({ error: 'Invalid repository URL' });
+    return;
+  }
+
+  // Determine target directory
+  const repoName = basename(url).replace(/\.git$/, '');
+  const parentDir = targetDir || process.env.HOME || '/home';
+  const clonePath = join(parentDir, repoName);
+
+  if (existsSync(clonePath)) {
+    res.status(409).json({ error: `Directory already exists: ${clonePath}` });
+    return;
+  }
+
+  // Set up SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const sendEvent = (event: string, data: unknown) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sendEvent('progress', { message: `Cloning ${url}...`, percent: 0 });
+
+  const proc = spawn('git', ['clone', '--progress', url, clonePath], {
+    cwd: parentDir,
+    env: { ...process.env },
+  });
+
+  // git clone writes progress to stderr
+  proc.stderr.on('data', (chunk: Buffer) => {
+    const text = chunk.toString();
+    // Parse git progress: "Receiving objects: 42% (100/238)"
+    const match = text.match(/(\d+)%/);
+    const percent = match ? parseInt(match[1]!) : undefined;
+    sendEvent('progress', { message: text.trim(), percent });
+  });
+
+  proc.stdout.on('data', (chunk: Buffer) => {
+    sendEvent('progress', { message: chunk.toString().trim() });
+  });
+
+  proc.on('close', (code) => {
+    if (code === 0) {
+      sendEvent('complete', { path: clonePath, repoName });
+    } else {
+      sendEvent('error', { message: `Clone failed with exit code ${code}` });
+    }
+    res.end();
+  });
+
+  proc.on('error', (err) => {
+    sendEvent('error', { message: err.message });
+    res.end();
+  });
+
+  // Handle client disconnect
+  req.on('close', () => {
+    proc.kill();
+  });
 });
 
 export default router;

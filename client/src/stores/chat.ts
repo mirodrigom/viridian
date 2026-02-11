@@ -35,6 +35,7 @@ export const useChatStore = defineStore('chat', () => {
   const usage = ref<TokenUsage>({ inputTokens: 0, outputTokens: 0, totalCost: 0 });
   const streamStartTime = ref<number | null>(null);
   const lastResponseMs = ref(0);
+  const sessionStartedAt = ref<number | null>(null);
 
   const lastMessage = computed(() => messages.value[messages.value.length - 1]);
 
@@ -43,6 +44,31 @@ export const useChatStore = defineStore('chat', () => {
   const contextPercent = computed(() => {
     const maxCtx = 200000;
     return Math.min(100, Math.round((usage.value.inputTokens / maxCtx) * 100));
+  });
+
+  const sessionDurationMin = computed(() => {
+    if (!sessionStartedAt.value) return 0;
+    return Math.max(1, Math.round((Date.now() - sessionStartedAt.value) / 60000));
+  });
+
+  const tokensPerMin = computed(() => {
+    if (sessionDurationMin.value <= 0) return 0;
+    return Math.round(totalTokens.value / sessionDurationMin.value);
+  });
+
+  /** Next rate limit reset: midnight Pacific Time (UTC-8 / UTC-7 DST) */
+  const rateLimitReset = computed(() => {
+    const now = new Date();
+    // Use Pacific Time offset via formatting
+    const ptStr = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const ptNow = new Date(ptStr);
+    const ptMidnight = new Date(ptNow);
+    ptMidnight.setDate(ptMidnight.getDate() + 1);
+    ptMidnight.setHours(0, 0, 0, 0);
+    const diffMs = ptMidnight.getTime() - ptNow.getTime();
+    const hours = Math.floor(diffMs / 3600000);
+    const mins = Math.floor((diffMs % 3600000) / 60000);
+    return `${hours}h ${mins}m`;
   });
 
   function addMessage(msg: ChatMessage) {
@@ -77,12 +103,16 @@ export const useChatStore = defineStore('chat', () => {
   function startStreaming() {
     isStreaming.value = true;
     streamStartTime.value = Date.now();
+    if (!sessionStartedAt.value) {
+      sessionStartedAt.value = Date.now();
+    }
   }
 
   function clearMessages() {
     messages.value = [];
     sessionId.value = null;
     usage.value = { inputTokens: 0, outputTokens: 0, totalCost: 0 };
+    sessionStartedAt.value = null;
   }
 
   function setProjectPath(path: string) {
@@ -138,6 +168,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, isStreaming, sessionId, projectPath, usage,
     lastMessage, totalTokens, contextPercent, lastResponseMs,
+    sessionStartedAt, sessionDurationMin, tokensPerMin, rateLimitReset,
     addMessage, updateLastAssistantContent, finishStreaming,
     updateUsage, startStreaming, clearMessages, setProjectPath,
     loadMessages, startThinking, updateThinking, finishThinking,

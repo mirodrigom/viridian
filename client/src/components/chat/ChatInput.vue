@@ -433,7 +433,9 @@ const permissionIcons: Record<string, typeof Zap> = {
               </div>
               <div class="border-t border-border pt-1">Context: {{ chat.contextPercent }}% used</div>
               <div v-if="chat.lastResponseMs">Last: {{ (chat.lastResponseMs / 1000).toFixed(1) }}s</div>
+              <div v-if="chat.tokensPerMin > 0">Rate: {{ formatTokens(chat.tokensPerMin) }}/min</div>
               <div v-if="chat.usage.totalCost > 0">Cost: ${{ chat.usage.totalCost.toFixed(4) }}</div>
+              <div class="border-t border-border pt-1 text-muted-foreground">Limit resets in {{ chat.rateLimitReset }}</div>
             </div>
           </TooltipContent>
         </Tooltip>
