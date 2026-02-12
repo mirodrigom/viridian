@@ -90,6 +90,7 @@ export function resolveExecutionGraph(graphData: GraphData): Map<string, Resolve
       if (!target) continue;
 
       const edgeType = getEdgeType(edge);
+      console.log(`[GraphRunner] Edge ${node.data.label || node.id} -> ${target.data.label || target.id}: type="${edgeType}" (raw data: ${JSON.stringify(edge.data)})`);
       switch (edgeType) {
         case 'delegation':
           delegates.push(target);
@@ -107,6 +108,8 @@ export function resolveExecutionGraph(graphData: GraphData): Map<string, Resolve
     }
 
     resolved.set(node.id, { node, skills, mcps, rules, delegates });
+    const nodeLabel = (node.data.label as string) || node.id;
+    console.log(`[GraphRunner] Resolved "${nodeLabel}" (${node.type}): delegates=[${delegates.map(d => d.data.label || d.id).join(', ')}], skills=[${skills.map(s => s.data.label || s.id).join(', ')}], rules=[${rules.map(r => r.data.label || r.id).join(', ')}]`);
   }
 
   return resolved;
@@ -354,7 +357,11 @@ async function executeNode(
   let systemPrompt = composeSystemPrompt(resolved);
   if (Object.keys(agents).length > 0) {
     systemPrompt = appendDelegationInstructions(systemPrompt, agents);
-    console.log(`[GraphRunner] Node "${nodeLabel}" agents:`, JSON.stringify(Object.keys(agents)));
+    console.log(`[GraphRunner] Node "${nodeLabel}" has ${Object.keys(agents).length} agents:`, JSON.stringify(Object.keys(agents)));
+    console.log(`[GraphRunner] Agents config:`, JSON.stringify(agents, null, 2));
+    console.log(`[GraphRunner] System prompt for "${nodeLabel}":\n${systemPrompt}`);
+  } else {
+    console.log(`[GraphRunner] Node "${nodeLabel}" has NO agents (delegates: ${resolved.delegates.length})`);
   }
 
   // Build query options

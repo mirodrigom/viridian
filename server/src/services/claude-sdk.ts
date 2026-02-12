@@ -253,6 +253,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     }
   }
 
+  console.log(`[ClaudeSDK] Spawning: ${claudeBin} ${args.map(a => a.length > 200 ? a.slice(0, 200) + '...[truncated]' : a).join(' ')}`);
+  console.log(`[ClaudeSDK] Full args count: ${args.length}, has --agents: ${args.includes('--agents')}, has --append-system-prompt: ${args.includes('--append-system-prompt')}`);
+
   const proc = spawn(claudeBin, args, {
     cwd: options.cwd,
     env: { ...process.env },
