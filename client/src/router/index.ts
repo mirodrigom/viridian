@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
+const ProjectPage = () => import('@/pages/ProjectPage.vue');
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -18,12 +20,44 @@ const router = createRouter({
     {
       path: '/project',
       name: 'project',
-      component: () => import('@/pages/ProjectPage.vue'),
+      component: ProjectPage,
+      meta: { tab: 'chat' },
     },
     {
       path: '/chat/:sessionId',
       name: 'chat-session',
-      component: () => import('@/pages/ProjectPage.vue'),
+      component: ProjectPage,
+      meta: { tab: 'chat' },
+    },
+    {
+      path: '/editor',
+      name: 'editor',
+      component: ProjectPage,
+      meta: { tab: 'editor' },
+    },
+    {
+      path: '/git',
+      name: 'git',
+      component: ProjectPage,
+      meta: { tab: 'git' },
+    },
+    {
+      path: '/tasks',
+      name: 'tasks',
+      component: ProjectPage,
+      meta: { tab: 'tasks' },
+    },
+    {
+      path: '/graph',
+      name: 'graph',
+      component: ProjectPage,
+      meta: { tab: 'graph' },
+    },
+    {
+      path: '/graph/:graphId',
+      name: 'graph-open',
+      component: ProjectPage,
+      meta: { tab: 'graph' },
     },
   ],
 });

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { Handle, Position } from '@vue-flow/core';
-import type { GraphNodeType, NodeData } from '@/types/graph';
+import type { NodeData } from '@/types/graph';
 import { NODE_CONFIG, CONNECTION_RULES } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
-import { X } from 'lucide-vue-next';
+import { useGraphRunnerStore } from '@/stores/graphRunner';
+import { X, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
@@ -13,8 +14,17 @@ const props = defineProps<{
 }>();
 
 const graph = useGraphStore();
+const runner = useGraphRunnerStore();
 
 const config = computed(() => NODE_CONFIG[props.data.nodeType]);
+
+// Execution state
+const execStatus = computed(() => {
+  if (runner.activeNodeIds.has(props.id)) return 'running';
+  if (runner.completedNodeIds.has(props.id)) return 'completed';
+  if (runner.failedNodeIds.has(props.id)) return 'failed';
+  return null;
+});
 
 // Determine which source handles this node type has
 const sourceHandles = computed(() => {
@@ -70,8 +80,19 @@ function onDelete() {
     class="relative min-w-[200px] max-w-[280px] rounded-lg border bg-card text-card-foreground shadow-md transition-all"
     :class="[
       selected ? 'ring-2 ring-primary shadow-lg shadow-primary/10' : 'hover:shadow-lg',
+      execStatus === 'running' ? 'ring-2 ring-yellow-500/70 shadow-lg shadow-yellow-500/10 exec-pulse' : '',
+      execStatus === 'completed' ? 'ring-2 ring-green-500/50 shadow-lg shadow-green-500/10' : '',
+      execStatus === 'failed' ? 'ring-2 ring-red-500/50 shadow-lg shadow-red-500/10' : '',
     ]"
+    @click="execStatus ? runner.selectExecution(id) : undefined"
   >
+    <!-- Execution status badge -->
+    <div v-if="execStatus" class="absolute -right-1.5 -top-1.5 z-10">
+      <Loader2 v-if="execStatus === 'running'" class="h-4 w-4 animate-spin text-yellow-500 drop-shadow" />
+      <CheckCircle v-else-if="execStatus === 'completed'" class="h-4 w-4 text-green-500 drop-shadow" />
+      <XCircle v-else-if="execStatus === 'failed'" class="h-4 w-4 text-red-500 drop-shadow" />
+    </div>
+
     <!-- Target handles (top) -->
     <Handle
       v-for="handle in targetHandles"
@@ -121,3 +142,14 @@ function onDelete() {
     />
   </div>
 </template>
+
+<style>
+.exec-pulse {
+  animation: exec-glow 2s ease-in-out infinite;
+}
+
+@keyframes exec-glow {
+  0%, 100% { box-shadow: 0 0 8px oklch(0.8 0.15 85 / 20%); }
+  50% { box-shadow: 0 0 16px oklch(0.8 0.15 85 / 40%); }
+}
+</style>

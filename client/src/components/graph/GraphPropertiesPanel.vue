@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
+import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X, Loader2 } from 'lucide-vue-next';
 
 const graph = useGraphStore();
 
@@ -33,6 +34,8 @@ const PERMISSION_OPTIONS = [
   { value: 'plan', label: 'Plan Mode' },
   { value: 'bypassPermissions', label: 'Full Auto' },
 ];
+
+const nodeId = computed(() => node.value?.id || null);
 
 function update(field: string, value: unknown) {
   if (!node.value) return;
@@ -110,13 +113,28 @@ function update(field: string, value: unknown) {
           <!-- Agent / Subagent / Expert: System Prompt -->
           <template v-if="data.nodeType === 'agent' || data.nodeType === 'subagent' || data.nodeType === 'expert'">
             <div class="space-y-1.5">
-              <Label class="text-xs">System Prompt</Label>
+              <div class="flex items-center justify-between">
+                <Label class="text-xs">System Prompt</Label>
+                <Button
+                  variant="ghost" size="sm" class="h-6 w-6 p-0"
+                  :disabled="graph.generatingPrompt"
+                  title="Generate system prompt with AI"
+                  @click="nodeId && graph.generatePrompt(nodeId)"
+                >
+                  <Loader2 v-if="graph.generatingPrompt" class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <Sparkles v-else class="h-3.5 w-3.5 text-yellow-500 hover:text-yellow-400" />
+                </Button>
+              </div>
               <Textarea
                 :model-value="(data as AgentNodeData | SubagentNodeData | ExpertNodeData).systemPrompt"
-                class="min-h-[100px] text-xs"
+                class="min-h-[100px] max-h-[150px] overflow-y-auto !field-sizing-normal text-xs"
                 placeholder="Enter system prompt..."
+                :disabled="graph.generatingPrompt"
                 @update:model-value="update('systemPrompt', $event)"
               />
+              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
+              </p>
             </div>
           </template>
 
@@ -139,7 +157,7 @@ function update(field: string, value: unknown) {
               <Label class="text-xs">Task Description</Label>
               <Textarea
                 :model-value="(data as SubagentNodeData).taskDescription"
-                class="min-h-[80px] text-xs"
+                class="min-h-[80px] max-h-[100px] overflow-y-auto !field-sizing-normal text-xs"
                 placeholder="What this subagent is delegated to do..."
                 @update:model-value="update('taskDescription', $event)"
               />
@@ -171,13 +189,28 @@ function update(field: string, value: unknown) {
               />
             </div>
             <div class="space-y-1.5">
-              <Label class="text-xs">Prompt Template</Label>
+              <div class="flex items-center justify-between">
+                <Label class="text-xs">Prompt Template</Label>
+                <Button
+                  variant="ghost" size="sm" class="h-6 w-6 p-0"
+                  :disabled="graph.generatingPrompt"
+                  title="Generate prompt template with AI"
+                  @click="nodeId && graph.generatePrompt(nodeId)"
+                >
+                  <Loader2 v-if="graph.generatingPrompt" class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <Sparkles v-else class="h-3.5 w-3.5 text-yellow-500 hover:text-yellow-400" />
+                </Button>
+              </div>
               <Textarea
                 :model-value="(data as SkillNodeData).promptTemplate"
-                class="min-h-[120px] font-mono text-xs"
+                class="min-h-[100px] max-h-[150px] overflow-y-auto !field-sizing-normal font-mono text-xs"
                 placeholder="Skill prompt template..."
+                :disabled="graph.generatingPrompt"
                 @update:model-value="update('promptTemplate', $event)"
               />
+              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
+              </p>
             </div>
           </template>
 
@@ -260,13 +293,28 @@ function update(field: string, value: unknown) {
               </Select>
             </div>
             <div class="space-y-1.5">
-              <Label class="text-xs">Rule Text</Label>
+              <div class="flex items-center justify-between">
+                <Label class="text-xs">Rule Text</Label>
+                <Button
+                  variant="ghost" size="sm" class="h-6 w-6 p-0"
+                  :disabled="graph.generatingPrompt"
+                  title="Generate rule text with AI"
+                  @click="nodeId && graph.generatePrompt(nodeId)"
+                >
+                  <Loader2 v-if="graph.generatingPrompt" class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <Sparkles v-else class="h-3.5 w-3.5 text-yellow-500 hover:text-yellow-400" />
+                </Button>
+              </div>
               <Textarea
                 :model-value="(data as RuleNodeData).ruleText"
-                class="min-h-[100px] text-xs"
+                class="min-h-[100px] max-h-[150px] overflow-y-auto !field-sizing-normal text-xs"
                 placeholder="Describe the rule..."
+                :disabled="graph.generatingPrompt"
                 @update:model-value="update('ruleText', $event)"
               />
+              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
+              </p>
             </div>
           </template>
         </div>

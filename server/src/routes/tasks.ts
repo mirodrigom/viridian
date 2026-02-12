@@ -199,7 +199,7 @@ ${prd}`;
   const abortController = new AbortController();
   let fullText = '';
 
-  req.on('close', () => abortController.abort());
+  res.on('close', () => abortController.abort());
 
   (async () => {
     try {
@@ -307,7 +307,7 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
   const abortController = new AbortController();
   let fullText = '';
 
-  req.on('close', () => abortController.abort());
+  res.on('close', () => abortController.abort());
 
   (async () => {
     try {

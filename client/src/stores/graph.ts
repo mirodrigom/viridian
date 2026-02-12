@@ -4,9 +4,11 @@ import type { Node, Edge, Connection } from '@vue-flow/core';
 import type {
   GraphConfig, GraphNodeType, NodeData, GraphEdgeData,
   EdgeType, SerializedNode, SerializedEdge,
+  SubagentNodeData, ExpertNodeData, SkillNodeData, RuleNodeData,
 } from '@/types/graph';
 import { CONNECTION_RULES } from '@/types/graph';
 import { useAuthStore } from './auth';
+import { uuid } from '@/lib/utils';
 
 export const useGraphStore = defineStore('graph', () => {
   // ─── State ──────────────────────────────────────────────────────────
@@ -18,6 +20,9 @@ export const useGraphStore = defineStore('graph', () => {
   const isDirty = ref(false);
   const loading = ref(false);
   const graphList = ref<{ id: string; name: string; description?: string; updatedAt: string }[]>([]);
+  const generatingPrompt = ref(false);
+  const graphVersion = ref(0);
+  const savedViewport = ref<{ x: number; y: number; zoom: number } | null>(null);
 
   // ─── Computed ───────────────────────────────────────────────────────
   const selectedNode = computed(() =>
@@ -41,7 +46,7 @@ export const useGraphStore = defineStore('graph', () => {
   // ─── Node CRUD ──────────────────────────────────────────────────────
 
   function addNode(type: GraphNodeType, position: { x: number; y: number }): string {
-    const id = crypto.randomUUID();
+    const id = uuid();
     const data = createDefaultNodeData(type);
     nodes.value.push({
       id,
@@ -152,7 +157,9 @@ export const useGraphStore = defineStore('graph', () => {
     selectedNodeId.value = null;
     currentGraphId.value = null;
     currentGraphName.value = 'Untitled Graph';
+    savedViewport.value = null;
     isDirty.value = false;
+    graphVersion.value++;
   }
 
   // ─── Auto-layout ──────────────────────────────────────────────────
@@ -189,7 +196,7 @@ export const useGraphStore = defineStore('graph', () => {
 
   // ─── Serialization ────────────────────────────────────────────────
 
-  function serialize(): { nodes: SerializedNode[]; edges: SerializedEdge[] } {
+  function serialize(viewport?: { x: number; y: number; zoom: number }): { nodes: SerializedNode[]; edges: SerializedEdge[]; viewport?: { x: number; y: number; zoom: number } } {
     return {
       nodes: nodes.value.map(n => ({
         id: n.id,
@@ -205,12 +212,14 @@ export const useGraphStore = defineStore('graph', () => {
         targetHandle: e.targetHandle,
         data: e.data as GraphEdgeData,
       })),
+      ...(viewport && { viewport }),
     };
   }
 
   function deserialize(config: GraphConfig) {
     currentGraphId.value = config.id;
     currentGraphName.value = config.name;
+    savedViewport.value = config.viewport ?? null;
     nodes.value = config.nodes.map(n => ({
       id: n.id,
       type: n.type,
@@ -227,6 +236,7 @@ export const useGraphStore = defineStore('graph', () => {
       data: e.data,
     }));
     isDirty.value = false;
+    graphVersion.value++;
   }
 
   // ─── Persistence ──────────────────────────────────────────────────
@@ -261,9 +271,9 @@ export const useGraphStore = defineStore('graph', () => {
     }
   }
 
-  async function saveGraph(projectPath: string) {
+  async function saveGraph(projectPath: string, viewport?: { x: number; y: number; zoom: number }) {
     const auth = useAuthStore();
-    const graphData = serialize();
+    const graphData = serialize(viewport);
     const method = currentGraphId.value ? 'PUT' : 'POST';
     const url = currentGraphId.value ? `/api/graphs/${currentGraphId.value}` : '/api/graphs';
 
@@ -295,14 +305,152 @@ export const useGraphStore = defineStore('graph', () => {
     if (currentGraphId.value === id) newGraph();
   }
 
+  // ─── AI prompt generation ──────────────────────────────────────────
+
+  function getNodeConnections(nodeId: string) {
+    const parents = edges.value
+      .filter(e => e.target === nodeId)
+      .map(e => {
+        const n = nodes.value.find(n => n.id === e.source);
+        if (!n) return null;
+        const d = n.data as NodeData;
+        return { label: d.label, nodeType: d.nodeType, description: d.description };
+      })
+      .filter(Boolean);
+
+    const children = edges.value
+      .filter(e => e.source === nodeId)
+      .map(e => {
+        const n = nodes.value.find(n => n.id === e.target);
+        if (!n) return null;
+        const d = n.data as NodeData;
+        const ed = e.data as GraphEdgeData;
+        return { label: d.label, nodeType: d.nodeType, description: d.description, edgeType: ed?.edgeType || 'unknown' };
+      })
+      .filter(Boolean);
+
+    return { parents, children };
+  }
+
+  async function generatePrompt(nodeId: string) {
+    const node = nodes.value.find(n => n.id === nodeId);
+    if (!node) return;
+
+    const auth = useAuthStore();
+    const data = node.data as NodeData;
+
+    const promptField =
+      data.nodeType === 'skill' ? 'promptTemplate' :
+      data.nodeType === 'rule' ? 'ruleText' :
+      'systemPrompt';
+
+    const existingPrompt = (data as Record<string, unknown>)[promptField] as string || '';
+
+    generatingPrompt.value = true;
+    updateNodeData(nodeId, { [promptField]: '' } as Partial<NodeData>);
+
+    try {
+      const connections = getNodeConnections(nodeId);
+      const payload: Record<string, unknown> = {
+        nodeType: data.nodeType,
+        label: data.label,
+        description: data.description,
+        connections,
+        existingPrompt: existingPrompt || undefined,
+      };
+
+      if (data.nodeType === 'agent' || data.nodeType === 'subagent' || data.nodeType === 'expert') {
+        payload.model = (data as { model: string }).model;
+      }
+      if (data.nodeType === 'agent' || data.nodeType === 'subagent') {
+        payload.permissionMode = (data as { permissionMode: string }).permissionMode;
+      }
+      if (data.nodeType === 'subagent') {
+        payload.taskDescription = (data as SubagentNodeData).taskDescription;
+      }
+      if (data.nodeType === 'expert') {
+        payload.specialty = (data as ExpertNodeData).specialty;
+      }
+      if (data.nodeType === 'skill') {
+        payload.command = (data as SkillNodeData).command;
+      }
+      if (data.nodeType === 'rule') {
+        payload.ruleType = (data as RuleNodeData).ruleType;
+        payload.scope = (data as RuleNodeData).scope;
+      }
+
+      const res = await fetch('/api/graphs/generate-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        console.error('Prompt generation failed:', err.error);
+        updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulated = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let eventType = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7);
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const d = JSON.parse(line.slice(6));
+              if (eventType === 'delta' && d.text) {
+                accumulated += d.text;
+                updateNodeData(nodeId, { [promptField]: accumulated } as Partial<NodeData>);
+              } else if (eventType === 'error') {
+                console.error('Prompt generation error:', d.error);
+                updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
+                return;
+              }
+            } catch { /* skip non-JSON */ }
+            eventType = '';
+          }
+        }
+      }
+
+      if (!accumulated.trim()) {
+        updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
+      } else {
+        updateNodeData(nodeId, { [promptField]: accumulated.trim() } as Partial<NodeData>);
+      }
+    } catch (err) {
+      console.error('Prompt generation failed:', err);
+      updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
+    } finally {
+      generatingPrompt.value = false;
+    }
+  }
+
   return {
     nodes, edges, selectedNodeId, currentGraphId, currentGraphName,
-    isDirty, loading, graphList,
+    isDirty, loading, graphList, generatingPrompt, graphVersion, savedViewport,
     selectedNode, nodeCount, edgeCount, nodesByType,
     addNode, removeNode, updateNodeData, updateNodePosition, selectNode,
     canConnect, getEdgeType, addEdge, removeEdge,
     fetchGraphList, loadGraph, saveGraph, deleteGraph,
-    newGraph, autoLayout, serialize, deserialize,
+    newGraph, autoLayout, serialize, deserialize, generatePrompt,
   };
 });
 

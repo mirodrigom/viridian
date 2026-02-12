@@ -135,7 +135,7 @@ router.post('/clone', (req, res) => {
   });
 
   // Handle client disconnect
-  req.on('close', () => {
+  res.on('close', () => {
     proc.kill();
   });
 });

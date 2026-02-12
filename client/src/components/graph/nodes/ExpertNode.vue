@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { NodeProps } from '@vue-flow/core';
 import type { ExpertNodeData } from '@/types/graph';
 import BaseNode from './BaseNode.vue';
 import { Sparkles } from 'lucide-vue-next';
 
 const props = defineProps<NodeProps>();
-const data = props.data as ExpertNodeData;
+const data = computed(() => props.data as ExpertNodeData);
 </script>
 
 <template>

@@ -73,15 +73,30 @@ async function extractSessionMeta(jsonlPath: string): Promise<{
         // Extract first user message as fallback title
         if (!title && entry.type === 'user' && entry.message?.content) {
           const content = entry.message.content;
+          let raw = '';
           if (typeof content === 'string') {
-            title = content.slice(0, 80);
+            raw = content;
           } else if (Array.isArray(content)) {
             for (const block of content) {
               if (block.type === 'text' && block.text) {
-                title = (block.text as string).slice(0, 80);
+                raw = block.text as string;
                 break;
               }
             }
+          }
+          if (raw) {
+            // Strip common prompt prefixes/instructions that don't make good titles
+            // e.g. "ultrathink before responding. Actual question here"
+            const prefixPattern = /^(ultrathink|think harder|think step by step|think carefully|think deeply|think more|before responding)[.,!?\s]*/gi;
+            let cleaned = raw;
+            // Apply repeatedly to strip chained prefixes
+            let prev = '';
+            while (cleaned !== prev) {
+              prev = cleaned;
+              cleaned = cleaned.replace(prefixPattern, '');
+            }
+            cleaned = cleaned.trim();
+            title = (cleaned || raw).slice(0, 80);
           }
         }
       } catch {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { useSettingsStore } from '@/stores/settings';
+import { useChatStore } from '@/stores/chat';
+import { useGraphStore } from '@/stores/graph';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
 import FileSidebar from './FileSidebar.vue';
@@ -14,11 +17,58 @@ import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 
 const settings = useSettingsStore();
-const activeTab = ref('chat');
+const chat = useChatStore();
+const graphStore = useGraphStore();
+const route = useRoute();
+const router = useRouter();
+
+// Derive initial tab from route meta
+const initialTab = (route.meta.tab as string) || 'chat';
+const activeTab = ref(initialTab);
 const showTerminal = ref(false);
 const showSettings = ref(false);
 const showToolsSettings = ref(false);
 const isMobile = ref(false);
+
+// Route → tab: when route changes, sync the active tab
+watch(() => route.meta.tab, (tab) => {
+  if (tab && typeof tab === 'string') {
+    activeTab.value = tab;
+  }
+});
+
+// Tab → route: when tab changes (from MainTabs click), update the URL
+const TAB_ROUTES: Record<string, string> = {
+  chat: 'project',
+  editor: 'editor',
+  git: 'git',
+  tasks: 'tasks',
+  graph: 'graph',
+};
+
+watch(activeTab, (newTab, oldTab) => {
+  if (newTab === oldTab) return;
+  // For chat, preserve session id if we had one
+  if (newTab === 'chat' && route.name === 'chat-session') return;
+  // For chat, navigate to session route if a session is active
+  if (newTab === 'chat' && chat.sessionId) {
+    if (route.name !== 'chat-session') {
+      router.replace({ name: 'chat-session', params: { sessionId: chat.sessionId } });
+    }
+    return;
+  }
+  // For graph, navigate to graph-open if a graph is loaded
+  if (newTab === 'graph' && graphStore.currentGraphId) {
+    if (route.name !== 'graph-open') {
+      router.replace({ name: 'graph-open', params: { graphId: graphStore.currentGraphId } });
+    }
+    return;
+  }
+  const targetRoute = TAB_ROUTES[newTab];
+  if (targetRoute && route.name !== targetRoute) {
+    router.replace({ name: targetRoute });
+  }
+});
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;

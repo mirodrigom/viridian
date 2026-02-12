@@ -18,6 +18,7 @@ import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
 import { setupSessionsWs } from './ws/sessions.js';
+import { setupGraphRunnerWs } from './ws/graph-runner.js';
 
 const app: Express = express();
 const server = createServer(app);
@@ -65,9 +66,10 @@ app.get('/api/me', authMiddleware, (req, res) => {
 setupChatWs(server);
 setupShellWs(server);
 setupSessionsWs(server);
+setupGraphRunnerWs(server);
 
-server.listen(config.port, () => {
-  console.log(`Server running on http://localhost:${config.port}`);
+server.listen(config.port, config.host, () => {
+  console.log(`Server running on http://${config.host}:${config.port}`);
 });
 
 export { server, app };

@@ -128,9 +128,14 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
     case 'system':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       break;
-    case 'message_start':
-      if (msg.inputTokens) session.usage.inputTokens = msg.inputTokens;
+    case 'message_start': {
+      const input = msg.inputTokens || 0;
+      const cacheCreation = msg.cacheCreationInputTokens || 0;
+      const cacheRead = msg.cacheReadInputTokens || 0;
+      // Total context = input + cache creation + cache read (matches JSONL calculation)
+      session.usage.inputTokens = input + cacheCreation + cacheRead;
       break;
+    }
     case 'message_delta':
       if (msg.outputTokens) session.usage.outputTokens = msg.outputTokens;
       break;

@@ -82,6 +82,8 @@ export interface SDKMessageDelta {
 export interface SDKMessageStart {
   type: 'message_start';
   inputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 export type SDKMessage =
@@ -111,6 +113,9 @@ export interface QueryOptions {
   images?: { name: string; dataUrl: string }[];
   sessionId?: string;            // Claude session ID for resuming
   abortSignal?: AbortSignal;     // Abort controller signal
+  noTools?: boolean;             // Disable all tools (--tools "")
+  systemPrompt?: string;         // Injected system prompt (--system-prompt)
+  appendSystemPrompt?: string;   // Appended system prompt (--append-system-prompt)
 }
 
 // ─── Binary resolution ──────────────────────────────────────────────────────
@@ -125,11 +130,7 @@ export function findClaudeBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which claude 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
-
+  // Search for native binary in VS Code extensions first (preferred over npm wrapper)
   const home = process.env.HOME || '/home';
   const searchPaths = [
     join(home, '.var/app/com.visualstudio.code/data/vscode/extensions'),
@@ -150,6 +151,12 @@ export function findClaudeBinary(): string {
       }
     } catch { /* skip */ }
   }
+
+  // Fall back to claude in PATH (may be a native install or npm wrapper)
+  try {
+    const result = execSync('which claude 2>/dev/null', { encoding: 'utf8' }).trim();
+    if (result) { resolvedPath = result; return resolvedPath; }
+  } catch { /* not in PATH */ }
 
   throw new Error(
     'Claude CLI binary not found. Set CLAUDE_PATH env var, install claude globally, or install the Claude Code VS Code extension.',
@@ -209,15 +216,27 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     args.push('--model', options.model);
   }
 
+  if (options.systemPrompt) {
+    args.push('--system-prompt', options.systemPrompt);
+  }
+
+  if (options.appendSystemPrompt) {
+    args.push('--append-system-prompt', options.appendSystemPrompt);
+  }
+
   const permMode = options.permissionMode || 'bypassPermissions';
   args.push('--permission-mode', permMode);
 
-  const DEFAULT_ALLOWED = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch', 'Task'];
-  const allowedTools = options.allowedTools?.length ? options.allowedTools : DEFAULT_ALLOWED;
-  args.push('--allowedTools', ...allowedTools);
+  if (options.noTools) {
+    args.push('--tools', '');
+  } else {
+    const DEFAULT_ALLOWED = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch', 'Task'];
+    const allowedTools = options.allowedTools?.length ? options.allowedTools : DEFAULT_ALLOWED;
+    args.push('--allowedTools', ...allowedTools);
 
-  if (options.disallowedTools?.length) {
-    args.push('--disallowedTools', ...options.disallowedTools);
+    if (options.disallowedTools?.length) {
+      args.push('--disallowedTools', ...options.disallowedTools);
+    }
   }
 
   const proc = spawn(claudeBin, args, {
@@ -297,6 +316,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   });
 
   proc.on('close', (code) => {
+
     if (buffer.trim()) {
       try {
         const event = JSON.parse(buffer.trim());
@@ -441,7 +461,12 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
     const message = event.message as Record<string, unknown> | undefined;
     const usage = message?.usage as Record<string, unknown> | undefined;
     if (usage) {
-      messages.push({ type: 'message_start', inputTokens: usage.input_tokens as number | undefined });
+      messages.push({
+        type: 'message_start',
+        inputTokens: usage.input_tokens as number | undefined,
+        cacheCreationInputTokens: usage.cache_creation_input_tokens as number | undefined,
+        cacheReadInputTokens: usage.cache_read_input_tokens as number | undefined,
+      });
     }
     return messages;
   }

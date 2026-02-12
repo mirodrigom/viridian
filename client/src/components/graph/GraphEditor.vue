@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
@@ -7,13 +7,18 @@ import { Background } from '@vue-flow/background';
 import type { Connection, NodeDragEvent } from '@vue-flow/core';
 import type { GraphNodeType } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
+import { useGraphRunnerStore } from '@/stores/graphRunner';
+import { useGraphRunner } from '@/composables/useGraphRunner';
+import { useChatStore } from '@/stores/chat';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 import GraphToolbar from './GraphToolbar.vue';
 import GraphPalette from './GraphPalette.vue';
 import GraphPropertiesPanel from './GraphPropertiesPanel.vue';
+import GraphRunnerPanel from './GraphRunnerPanel.vue';
 import SaveGraphDialog from './dialogs/SaveGraphDialog.vue';
 import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
+import RunGraphDialog from './dialogs/RunGraphDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
 import SubagentNode from './nodes/SubagentNode.vue';
@@ -29,19 +34,56 @@ import '@vue-flow/minimap/dist/style.css';
 import '@vue-flow/controls/dist/style.css';
 
 const graph = useGraphStore();
+const runner = useGraphRunnerStore();
+const chat = useChatStore();
+const { init: initRunner, runGraph, abort: abortRun } = useGraphRunner();
 const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
+const showRunDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
 const {
   fitView, onConnect, onNodeDragStop, onPaneClick, onNodeClick,
   addNodes, removeNodes, addEdges, removeEdges, project,
-  getNodes,
+  getNodes, setNodes, setEdges, findNode,
+  getViewport, setViewport,
 } = useVueFlow({
   defaultEdgeOptions: { type: 'custom' },
   connectionMode: 1, // ConnectionMode.Loose
   fitViewOnInit: true,
 });
+
+// ─── Sync VueFlow when store changes (e.g. after loading/clearing a graph) ──
+watch(
+  () => graph.graphVersion,
+  async () => {
+    setNodes(graph.nodes.map(n => ({ ...n })));
+    setEdges(graph.edges.map(e => ({ ...e })));
+    await nextTick();
+    // Allow VueFlow to measure and render nodes before adjusting viewport
+    setTimeout(() => {
+      if (graph.savedViewport) {
+        setViewport(graph.savedViewport);
+      } else {
+        fitView();
+      }
+    }, 50);
+  },
+);
+
+// ─── Sync individual node data changes from store → VueFlow ─────────
+watch(
+  () => graph.nodes.map(n => n.data),
+  () => {
+    for (const storeNode of graph.nodes) {
+      const vfNode = findNode(storeNode.id);
+      if (vfNode && vfNode.data !== storeNode.data) {
+        vfNode.data = storeNode.data;
+      }
+    }
+  },
+  { deep: true },
+);
 
 // ─── Events ─────────────────────────────────────────────────────────
 
@@ -127,11 +169,19 @@ function onKeyDown(event: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeyDown);
+  initRunner();
 });
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown);
 });
+
+// ─── Graph Runner ───────────────────────────────────────────────────
+
+function onRunGraph(prompt: string) {
+  const cwd = chat.projectPath || '/home';
+  runGraph(prompt, cwd);
+}
 
 // ─── Connection validation ──────────────────────────────────────────
 
@@ -144,8 +194,10 @@ function isValidConnection(connection: Connection): boolean {
   <div class="flex h-full flex-col">
     <GraphToolbar
       @fit-view="fitView()"
-      @save="showSaveDialog = true"
+      @save="graph.savedViewport = getViewport(); showSaveDialog = true"
       @load="showLoadDialog = true"
+      @run="showRunDialog = true"
+      @abort="abortRun()"
     />
 
     <ResizablePanelGroup direction="horizontal" class="flex-1">
@@ -208,15 +260,17 @@ function isValidConnection(connection: Connection): boolean {
 
       <ResizableHandle />
 
-      <!-- Properties -->
+      <!-- Properties / Runner Panel -->
       <ResizablePanel :default-size="26" :min-size="18" :max-size="40">
-        <GraphPropertiesPanel />
+        <GraphRunnerPanel v-if="runner.showRunnerPanel" />
+        <GraphPropertiesPanel v-else />
       </ResizablePanel>
     </ResizablePanelGroup>
 
     <!-- Dialogs -->
     <SaveGraphDialog v-model:open="showSaveDialog" />
     <LoadGraphDialog v-model:open="showLoadDialog" />
+    <RunGraphDialog v-model:open="showRunDialog" @run="onRunGraph" />
   </div>
 </template>
 

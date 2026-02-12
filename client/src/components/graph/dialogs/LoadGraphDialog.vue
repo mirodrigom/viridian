@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useGraphStore } from '@/stores/graph';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -13,6 +14,7 @@ import { Trash2, FolderOpen } from 'lucide-vue-next';
 const open = defineModel<boolean>('open', { default: false });
 const graph = useGraphStore();
 const chat = useChatStore();
+const router = useRouter();
 const loadingId = ref<string | null>(null);
 
 watch(open, (val) => {
@@ -25,6 +27,7 @@ async function onLoad(id: string) {
   loadingId.value = id;
   try {
     await graph.loadGraph(id);
+    router.replace({ name: 'graph-open', params: { graphId: id } });
     toast.success('Graph loaded');
     open.value = false;
   } catch {
@@ -35,8 +38,12 @@ async function onLoad(id: string) {
 }
 
 async function onDelete(id: string) {
+  const wasCurrent = graph.currentGraphId === id;
   try {
     await graph.deleteGraph(id);
+    if (wasCurrent) {
+      router.replace({ name: 'graph' });
+    }
     toast.success('Graph deleted');
   } catch {
     toast.error('Failed to delete graph');

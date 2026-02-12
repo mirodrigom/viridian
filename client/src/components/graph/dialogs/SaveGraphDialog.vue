@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useGraphStore } from '@/stores/graph';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -13,6 +14,7 @@ import { toast } from 'vue-sonner';
 const open = defineModel<boolean>('open', { default: false });
 const graph = useGraphStore();
 const chat = useChatStore();
+const router = useRouter();
 const saving = ref(false);
 const name = ref('');
 
@@ -24,7 +26,10 @@ async function onSave() {
   saving.value = true;
   try {
     graph.currentGraphName = name.value || 'Untitled Graph';
-    await graph.saveGraph(chat.projectPath || '');
+    const saved = await graph.saveGraph(chat.projectPath || '', graph.savedViewport ?? undefined);
+    if (saved?.id) {
+      router.replace({ name: 'graph-open', params: { graphId: saved.id } });
+    }
     toast.success('Graph saved');
     open.value = false;
   } catch (e) {

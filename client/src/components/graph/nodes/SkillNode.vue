@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { NodeProps } from '@vue-flow/core';
 import type { SkillNodeData } from '@/types/graph';
 import BaseNode from './BaseNode.vue';
 import { Zap } from 'lucide-vue-next';
 
 const props = defineProps<NodeProps>();
-const data = props.data as SkillNodeData;
+const data = computed(() => props.data as SkillNodeData);
 </script>
 
 <template>

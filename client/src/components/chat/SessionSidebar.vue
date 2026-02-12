@@ -6,8 +6,11 @@ import { useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import {
   MessageSquare, Plus,
-  Clock, RefreshCw, Trash2, Search, ArrowUpDown,
+  Clock, RefreshCw, Trash2, Search, ArrowUpDown, Loader2,
 } from 'lucide-vue-next';
 
 interface SessionItem {
@@ -111,8 +114,19 @@ async function resumeSession(session: SessionItem) {
   }
 }
 
-async function deleteSession(session: SessionItem) {
-  if (!confirm(`Delete session "${session.title.slice(0, 40)}"?`)) return;
+const deleteDialogOpen = ref(false);
+const sessionToDelete = ref<SessionItem | null>(null);
+const isDeleting = ref(false);
+
+function confirmDeleteSession(session: SessionItem) {
+  sessionToDelete.value = session;
+  deleteDialogOpen.value = true;
+}
+
+async function deleteSession() {
+  const session = sessionToDelete.value;
+  if (!session) return;
+  isDeleting.value = true;
   try {
     await fetch(`/api/sessions/${session.id}?projectDir=${encodeURIComponent(session.projectDir)}`, {
       method: 'DELETE',
@@ -123,8 +137,11 @@ async function deleteSession(session: SessionItem) {
       chat.clearMessages();
       router.replace({ name: 'project' });
     }
+    deleteDialogOpen.value = false;
   } catch (err) {
     console.error('Failed to delete session:', err);
+  } finally {
+    isDeleting.value = false;
   }
 }
 
@@ -290,12 +307,13 @@ onUnmounted(() => {
         v-if="hasUnsavedSession && !searchQuery"
         class="flex w-full items-start gap-2.5 border-b border-border border-l-2 border-l-primary bg-primary/8 px-3 py-2.5 text-left"
       >
-        <MessageSquare class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <Loader2 v-if="chat.isStreaming" class="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+        <MessageSquare v-else class="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-medium text-foreground">{{ currentSessionTitle }}</p>
           <p class="flex items-center gap-1 text-[10px] text-primary/70">
             <Clock class="h-2.5 w-2.5" />
-            Active now
+            {{ chat.isStreaming ? 'Working...' : 'Active now' }}
           </p>
         </div>
         <span class="mt-0.5 shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
@@ -314,12 +332,13 @@ onUnmounted(() => {
         }"
         @click="resumeSession(session)"
       >
-        <MessageSquare class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Loader2 v-if="chat.isStreaming && session.id === chat.sessionId" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <MessageSquare v-else class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-xs text-foreground">{{ session.title }}</p>
           <p class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Clock class="h-2.5 w-2.5" />
-            {{ formatRelativeTime(session.lastActive) }}
+            {{ chat.isStreaming && session.id === chat.sessionId ? 'Working...' : formatRelativeTime(session.lastActive) }}
           </p>
         </div>
         <div class="flex items-center gap-1">
@@ -330,7 +349,7 @@ onUnmounted(() => {
             variant="ghost"
             size="sm"
             class="hidden h-5 w-5 p-0 text-destructive/70 hover:text-destructive group-hover:inline-flex"
-            @click.stop="deleteSession(session)"
+            @click.stop="confirmDeleteSession(session)"
           >
             <Trash2 class="h-3 w-3" />
           </Button>
@@ -361,4 +380,22 @@ onUnmounted(() => {
       </Button>
     </div>
   </div>
+
+  <!-- Delete confirmation modal -->
+  <Dialog v-model:open="deleteDialogOpen">
+    <DialogContent class="sm:max-w-sm">
+      <DialogHeader>
+        <DialogTitle>Delete Session</DialogTitle>
+        <DialogDescription>
+          Are you sure you want to delete "{{ sessionToDelete?.title.slice(0, 40) }}"? This action cannot be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" @click="deleteDialogOpen = false">Cancel</Button>
+        <Button variant="destructive" :disabled="isDeleting" @click="deleteSession">
+          {{ isDeleting ? 'Deleting...' : 'Delete' }}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>

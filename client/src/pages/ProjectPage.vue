@@ -2,11 +2,13 @@
 import { onMounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
+import { useGraphStore } from '@/stores/graph';
 import { useRoute, useRouter } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
 
 const chat = useChatStore();
 const auth = useAuthStore();
+const graph = useGraphStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -20,6 +22,22 @@ onMounted(async () => {
   const sessionId = route.params.sessionId as string | undefined;
   if (sessionId && sessionId !== chat.sessionId) {
     await loadSessionFromUrl(sessionId);
+  } else if (!sessionId && route.name === 'project' && chat.sessionId) {
+    // Landing on /project with no sessionId in URL but a stale sessionId in store
+    // (e.g. from sessionStorage after a page refresh). Clear it so the next
+    // conversation correctly creates a new session and updates the URL.
+    chat.clearMessages();
+  }
+
+  // If navigated to /graph/:graphId, load that graph
+  const graphId = route.params.graphId as string | undefined;
+  if (graphId && graphId !== graph.currentGraphId) {
+    try {
+      await graph.loadGraph(graphId);
+    } catch {
+      console.error('Failed to load graph from URL');
+      router.replace({ name: 'graph' });
+    }
   }
 });
 

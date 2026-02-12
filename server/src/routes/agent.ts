@@ -135,7 +135,7 @@ router.post('/run', (req, res) => {
   });
 
   // Handle client disconnect
-  req.on('close', () => {
+  res.on('close', () => {
     abortSession(session.id);
     removeSession(session.id);
   });
@@ -229,7 +229,7 @@ router.post('/sessions/:id', (req, res) => {
     res.end();
   });
 
-  req.on('close', () => {
+  res.on('close', () => {
     abortSession(session.id);
   });
 

@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { NodeProps } from '@vue-flow/core';
 import type { SubagentNodeData } from '@/types/graph';
 import BaseNode from './BaseNode.vue';
 import { GitBranch } from 'lucide-vue-next';
 
 const props = defineProps<NodeProps>();
-const data = props.data as SubagentNodeData;
+const data = computed(() => props.data as SubagentNodeData);
 </script>
 
 <template>

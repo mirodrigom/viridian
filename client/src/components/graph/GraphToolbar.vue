@@ -1,20 +1,31 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router';
 import { useGraphStore } from '@/stores/graph';
+import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
   FilePlus, Save, FolderOpen, LayoutGrid, Maximize2,
-  Trash2, Circle,
+  Trash2, Circle, Play, Square, PanelRight,
 } from 'lucide-vue-next';
 
 const emit = defineEmits<{
   fitView: [];
   save: [];
   load: [];
+  run: [];
+  abort: [];
 }>();
 
 const graph = useGraphStore();
+const runner = useGraphRunnerStore();
+const router = useRouter();
+
+function onNewGraph() {
+  graph.newGraph();
+  router.replace({ name: 'graph' });
+}
 </script>
 
 <template>
@@ -38,7 +49,7 @@ const graph = useGraphStore();
     <TooltipProvider :delay-duration="300">
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="graph.newGraph()">
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="onNewGraph()">
             <FilePlus class="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -98,6 +109,54 @@ const graph = useGraphStore();
           </Button>
         </TooltipTrigger>
         <TooltipContent>Delete Selected</TooltipContent>
+      </Tooltip>
+
+      <div class="mx-1 h-4 w-px bg-border" />
+
+      <!-- Run / Stop -->
+      <Tooltip v-if="!runner.isRunning">
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0 text-green-500 hover:text-green-400"
+            :disabled="graph.nodeCount === 0"
+            @click="emit('run')"
+          >
+            <Play class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Run Graph</TooltipContent>
+      </Tooltip>
+
+      <Tooltip v-else>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0 text-red-500 hover:text-red-400"
+            @click="emit('abort')"
+          >
+            <Square class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Stop Run</TooltipContent>
+      </Tooltip>
+
+      <!-- Toggle Runner Panel -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            :class="runner.showRunnerPanel ? 'text-primary' : ''"
+            @click="runner.togglePanel()"
+          >
+            <PanelRight class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{{ runner.showRunnerPanel ? 'Show Properties' : 'Show Runner' }}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
 

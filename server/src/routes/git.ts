@@ -223,7 +223,7 @@ Staged diff:
 ${truncatedDiff}`;
 
     const abortController = new AbortController();
-    req.on('close', () => abortController.abort());
+    res.on('close', () => abortController.abort());
 
     (async () => {
       try {

@@ -50,6 +50,13 @@ export const useChatStore = defineStore('chat', () => {
   // Auto-scroll state — shared so status bar can toggle it
   const autoScroll = ref(true);
 
+  // Plan mode — toggled when Claude calls EnterPlanMode / ExitPlanMode
+  const inPlanMode = ref(false);
+
+  // Rate limit — timestamp (ms) until which the user is blocked
+  const rateLimitedUntil = ref<number | null>(null);
+  let rateLimitTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Incremented on every content mutation to drive auto-scroll in MessageList
   const contentVersion = ref(0);
 
@@ -81,6 +88,35 @@ export const useChatStore = defineStore('chat', () => {
     if (sessionDurationMin.value <= 0) return 0;
     return Math.round(totalTokens.value / sessionDurationMin.value);
   });
+
+  const isRateLimited = computed(() => {
+    return rateLimitedUntil.value !== null && Date.now() < rateLimitedUntil.value;
+  });
+
+  const rateLimitRemainingMs = computed(() => {
+    if (!rateLimitedUntil.value) return 0;
+    return Math.max(0, rateLimitedUntil.value - Date.now());
+  });
+
+  function setRateLimitedUntil(until: number) {
+    rateLimitedUntil.value = until;
+    // Auto-clear when timer expires
+    if (rateLimitTimer) clearTimeout(rateLimitTimer);
+    const remaining = until - Date.now();
+    if (remaining > 0) {
+      rateLimitTimer = setTimeout(() => {
+        rateLimitedUntil.value = null;
+      }, remaining);
+    }
+  }
+
+  function clearRateLimit() {
+    rateLimitedUntil.value = null;
+    if (rateLimitTimer) {
+      clearTimeout(rateLimitTimer);
+      rateLimitTimer = null;
+    }
+  }
 
   function addMessage(msg: ChatMessage) {
     messages.value.push(msg);
@@ -132,6 +168,7 @@ export const useChatStore = defineStore('chat', () => {
     oldestLoadedIndex.value = 0;
     usage.value = { inputTokens: 0, outputTokens: 0, totalCost: 0 };
     sessionStartedAt.value = null;
+    inPlanMode.value = false;
   }
 
   function setProjectPath(path: string) {
@@ -221,12 +258,14 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, isStreaming, sessionId, projectPath, activeProjectDir, usage,
     lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs,
-    sessionStartedAt, sessionDurationMin, tokensPerMin,
+    sessionStartedAt, sessionDurationMin, tokensPerMin, inPlanMode,
     totalMessages, hasMoreMessages, oldestLoadedIndex, isLoadingMore, scrollToBottomRequest, autoScroll, contentVersion,
+    rateLimitedUntil, isRateLimited, rateLimitRemainingMs,
     addMessage, updateLastAssistantContent, finishStreaming,
     updateUsage, startStreaming, clearMessages, setProjectPath,
     loadMessages, prependMessages, appendMessages,
     startThinking, updateThinking, finishThinking,
     appendToolInputDelta, updateToolInput,
+    setRateLimitedUntil, clearRateLimit,
   };
 });

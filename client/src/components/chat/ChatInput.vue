@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted } from 'vue';
+import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS, THINKING_OPTIONS, type ClaudeModel, type PermissionMode, type ThinkingMode } from '@/stores/settings';
+import { uuid } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -54,6 +55,49 @@ watch(input, saveDraft);
 watch(() => chat.sessionId, loadDraft);
 onMounted(loadDraft);
 
+// Rate limit countdown — ticks every second to update remaining time display
+const rateLimitCountdown = ref('');
+let rateLimitInterval: ReturnType<typeof setInterval> | null = null;
+
+function updateRateLimitCountdown() {
+  if (!chat.isRateLimited) {
+    rateLimitCountdown.value = '';
+    if (rateLimitInterval) {
+      clearInterval(rateLimitInterval);
+      rateLimitInterval = null;
+    }
+    return;
+  }
+  const remaining = chat.rateLimitRemainingMs;
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  if (hours > 0) {
+    rateLimitCountdown.value = `${hours}h ${minutes}m ${seconds}s`;
+  } else if (minutes > 0) {
+    rateLimitCountdown.value = `${minutes}m ${seconds}s`;
+  } else {
+    rateLimitCountdown.value = `${seconds}s`;
+  }
+}
+
+watch(() => chat.isRateLimited, (limited) => {
+  if (limited) {
+    updateRateLimitCountdown();
+    rateLimitInterval = setInterval(updateRateLimitCountdown, 1000);
+  } else {
+    rateLimitCountdown.value = '';
+    if (rateLimitInterval) {
+      clearInterval(rateLimitInterval);
+      rateLimitInterval = null;
+    }
+  }
+}, { immediate: true });
+
+onUnmounted(() => {
+  if (rateLimitInterval) clearInterval(rateLimitInterval);
+});
+
 const emit = defineEmits<{
   send: [message: string, images?: { name: string; dataUrl: string }[]];
   abort: [];
@@ -72,7 +116,7 @@ const slashCommands: SlashCommand[] = [
     const idx = models.indexOf(settings.model);
     settings.model = models[(idx + 1) % models.length] as ClaudeModel;
     settings.save();
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: `Model switched to ${settings.modelLabel}`, timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: `Model switched to ${settings.modelLabel}`, timestamp: Date.now() });
     input.value = '';
   }},
   { name: '/think', description: 'Toggle thinking mode (Standard/Think/Think Hard)', action: () => {
@@ -80,7 +124,7 @@ const slashCommands: SlashCommand[] = [
     const idx = modes.indexOf(settings.thinkingMode);
     settings.thinkingMode = modes[(idx + 1) % modes.length] as ThinkingMode;
     settings.save();
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: `Thinking mode: ${settings.thinkingLabel}`, timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: `Thinking mode: ${settings.thinkingLabel}`, timestamp: Date.now() });
     input.value = '';
   }},
   { name: '/permission', description: 'Toggle permission mode', action: () => {
@@ -88,7 +132,7 @@ const slashCommands: SlashCommand[] = [
     const idx = modes.indexOf(settings.permissionMode);
     settings.permissionMode = modes[(idx + 1) % modes.length] as PermissionMode;
     settings.save();
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: `Permission mode: ${settings.permissionLabel}`, timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: `Permission mode: ${settings.permissionLabel}`, timestamp: Date.now() });
     input.value = '';
   }},
   { name: '/status', description: 'Show current session info', action: () => {
@@ -100,7 +144,7 @@ const slashCommands: SlashCommand[] = [
       `Context: ${chat.contextPercent}%`,
       chat.usage.totalCost > 0 ? `Cost: $${chat.usage.totalCost.toFixed(4)}` : '',
     ].filter(Boolean);
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
     input.value = '';
   }},
   { name: '/cost', description: 'Show token usage and cost', action: () => {
@@ -110,12 +154,12 @@ const slashCommands: SlashCommand[] = [
       `Context: ${chat.contextPercent}% used`,
       `Total cost: $${chat.usage.totalCost.toFixed(4)}`,
     ];
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
     input.value = '';
   }},
   { name: '/help', description: 'Show available commands', action: () => {
     const lines = slashCommands.map(c => `${c.name} — ${c.description}`);
-    chat.addMessage({ id: crypto.randomUUID(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
+    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
     input.value = '';
   }},
 ];
@@ -280,7 +324,7 @@ function handleSubmit() {
   }
 
   const trimmed = input.value.trim();
-  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming) return;
+  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited) return;
   // Prepend file mentions as context
   let message = trimmed;
   if (mentionedFiles.value.length > 0) {
@@ -359,7 +403,7 @@ function autoResize() {
   const el = textarea.value;
   if (!el) return;
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
 function formatTokens(n: number): string {
@@ -374,10 +418,23 @@ const permissionIcons: Record<string, typeof Zap> = {
   plan: ClipboardList,
   default: Shield,
 };
+
+const effectivePermissionLabel = computed(() =>
+  chat.inPlanMode ? 'Plan Mode' : settings.permissionLabel
+);
+
+const effectivePermissionIcon = computed(() =>
+  chat.inPlanMode ? ClipboardList : (permissionIcons[settings.permissionMode] || Shield)
+);
 </script>
 
 <template>
-  <div class="border-t border-border bg-background px-2 py-2 md:px-4 md:py-3">
+  <div
+    class="border-t px-2 py-2 md:px-4 md:py-3 transition-colors duration-500"
+    :class="chat.isRateLimited
+      ? 'border-red-500/50 bg-red-950/30'
+      : 'border-border bg-background'"
+  >
     <!-- Status bar: model, permission, context -->
     <TooltipProvider :delay-duration="300">
       <div class="mb-2 flex flex-wrap items-center justify-center gap-1.5 md:gap-2">
@@ -398,9 +455,14 @@ const permissionIcons: Record<string, typeof Zap> = {
 
         <!-- Permission mode -->
         <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
-          <SelectTrigger class="h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">
-            <component :is="permissionIcons[settings.permissionMode] || Shield" class="h-3 w-3" />
-            <span>{{ settings.permissionLabel }}</span>
+          <SelectTrigger
+            class="h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors"
+            :class="chat.inPlanMode
+              ? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+              : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
+          >
+            <component :is="effectivePermissionIcon" class="h-3 w-3" />
+            <span>{{ effectivePermissionLabel }}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p.value" :value="p.value">
@@ -546,8 +608,12 @@ const permissionIcons: Record<string, typeof Zap> = {
 
     <!-- Text input -->
     <div
-      class="relative rounded-xl border border-border bg-card shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20"
-      :class="{ 'border-primary/50 ring-1 ring-primary/20': isDragging }"
+      class="relative rounded-xl border shadow-sm transition-colors"
+      :class="chat.isRateLimited
+        ? 'border-red-500/40 bg-red-950/20'
+        : isDragging
+          ? 'border-primary/50 ring-1 ring-primary/20 bg-card'
+          : 'border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20'"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
       @drop="handleDrop"
@@ -558,19 +624,25 @@ const permissionIcons: Record<string, typeof Zap> = {
       <textarea
         ref="textarea"
         v-model="input"
-        placeholder="Ask Claude to help with your code... (/ for commands)"
-        class="block w-full resize-none bg-transparent px-4 py-3 pr-28 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+        :placeholder="chat.isRateLimited
+          ? `Rate limited — resets in ${rateLimitCountdown}`
+          : 'Ask Claude to help with your code... (/ for commands)'"
+        :disabled="chat.isRateLimited"
+        class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-28 text-sm focus:outline-none"
+        :class="chat.isRateLimited
+          ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
+          : 'text-foreground placeholder:text-muted-foreground'"
         rows="1"
-        style="min-height: 44px; max-height: 200px"
+        style="min-height: 44px; max-height: 120px"
         @keydown="handleKeydown"
         @input="autoResize"
         @paste="handlePaste"
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-2 flex items-center gap-1">
-        <MicButton v-if="!chat.isStreaming" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!chat.isStreaming && !chat.isRateLimited" @transcript="handleVoiceTranscript" />
         <Button
-          v-if="!chat.isStreaming && attachedImages.length < MAX_IMAGES"
+          v-if="!chat.isStreaming && !chat.isRateLimited && attachedImages.length < MAX_IMAGES"
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
@@ -583,7 +655,7 @@ const permissionIcons: Record<string, typeof Zap> = {
           v-if="!chat.isStreaming"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="!input.trim() && attachedImages.length === 0"
+          :disabled="chat.isRateLimited || (!input.trim() && attachedImages.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />
@@ -599,8 +671,16 @@ const permissionIcons: Record<string, typeof Zap> = {
         </Button>
       </div>
     </div>
-    <p class="mt-1 text-center text-[10px] text-muted-foreground md:mt-1.5 md:text-[11px]">
-      Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files
+    <p
+      class="mt-1 text-center text-[10px] md:mt-1.5 md:text-[11px] transition-colors duration-500"
+      :class="chat.isRateLimited ? 'text-red-400/70 font-medium' : 'text-muted-foreground'"
+    >
+      <template v-if="chat.isRateLimited">
+        Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
+      </template>
+      <template v-else>
+        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files
+      </template>
     </p>
   </div>
 </template>

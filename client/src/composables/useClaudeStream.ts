@@ -4,6 +4,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useWebSocket } from './useWebSocket';
 import { useRouter } from 'vue-router';
+import { uuid } from '@/lib/utils';
 
 export function useClaudeStream() {
   const chat = useChatStore();
@@ -33,7 +34,7 @@ export function useClaudeStream() {
       needsNewAssistantMsg = false;
       reconnectedMidStream = false;
       const msg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         role: 'assistant',
         content: '',
         timestamp: Date.now(),
@@ -52,7 +53,7 @@ export function useClaudeStream() {
         const prev = chat.messages.findLast(m => m.role === 'assistant');
         if (prev) prev.isStreaming = false;
         const msg: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: uuid(),
           role: 'assistant',
           content: d.text,
           timestamp: Date.now(),
@@ -73,10 +74,15 @@ export function useClaudeStream() {
         totalCost?: number;
       };
       if (d.sessionId) {
-        const isNewSession = !chat.sessionId;
+        const sessionChanged = chat.sessionId !== d.sessionId;
         chat.sessionId = d.sessionId;
-        // Update URL to reflect the session (replace for first message, don't stack history)
-        if (isNewSession) {
+        // Ensure activeProjectDir is set so live-updates and message fetching work
+        if (!chat.activeProjectDir && chat.projectPath) {
+          chat.activeProjectDir = chat.projectPath;
+        }
+        // Update URL whenever the session ID changed (new session created by server,
+        // or server assigned a different session than the stale one we had in store)
+        if (sessionChanged) {
           router.replace({
             name: 'chat-session',
             params: { sessionId: d.sessionId },
@@ -104,10 +110,15 @@ export function useClaudeStream() {
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
       // Mark current assistant message as done — next text delta gets a new bubble
       needsNewAssistantMsg = true;
+
+      // Track plan mode transitions
+      if (d.tool === 'EnterPlanMode') chat.inPlanMode = true;
+      else if (d.tool === 'ExitPlanMode') chat.inPlanMode = false;
+
       // Auto-approve tools in bypassPermissions mode (except AskUserQuestion which needs user input)
       const autoApproved = settings.permissionMode === 'bypassPermissions' && d.tool !== 'AskUserQuestion';
       const msg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         role: 'system',
         content: `Tool request: ${d.tool}`,
         timestamp: Date.now(),
@@ -156,7 +167,7 @@ export function useClaudeStream() {
         chat.startStreaming();
         // Add a placeholder assistant message so deltas have somewhere to go
         const msg: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: uuid(),
           role: 'assistant',
           content: d.accumulatedText || '',
           timestamp: Date.now(),
@@ -171,8 +182,22 @@ export function useClaudeStream() {
 
     on('error', (data: unknown) => {
       const d = data as { error: string };
+
+      // Detect rate limit messages and extract reset time
+      // Examples: "resets Feb 13, 12pm", "resets Feb 13, 3:30pm", "resets Feb 13, 12am"
+      const rateLimitMatch = d.error.match(/resets?\s+(\w+\s+\d{1,2},?\s+\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
+      if (rateLimitMatch || /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit/i.test(d.error)) {
+        const resetTime = rateLimitMatch ? parseResetTime(rateLimitMatch[1]!) : null;
+        if (resetTime) {
+          chat.setRateLimitedUntil(resetTime);
+        } else {
+          // Fallback: block for 5 minutes if we can't parse the time
+          chat.setRateLimitedUntil(Date.now() + 5 * 60 * 1000);
+        }
+      }
+
       chat.addMessage({
-        id: crypto.randomUUID(),
+        id: uuid(),
         role: 'system',
         content: `Error: ${d.error}`,
         timestamp: Date.now(),
@@ -190,7 +215,7 @@ export function useClaudeStream() {
 
   function sendMessage(prompt: string, images?: { name: string; dataUrl: string }[]) {
     chat.addMessage({
-      id: crypto.randomUUID(),
+      id: uuid(),
       role: 'user',
       content: prompt,
       timestamp: Date.now(),
@@ -218,7 +243,7 @@ export function useClaudeStream() {
     const sent = send(payload);
     if (!sent) {
       chat.addMessage({
-        id: crypto.randomUUID(),
+        id: uuid(),
         role: 'system',
         content: 'Error: Not connected to server. Reconnecting…',
         timestamp: Date.now(),
@@ -258,6 +283,12 @@ export function useClaudeStream() {
       if (data.messages?.length) {
         chat.appendMessages(data.messages, { total: data.total });
       }
+      if (data.usage) {
+        chat.updateUsage({
+          inputTokens: data.usage.inputTokens || 0,
+          outputTokens: data.usage.outputTokens || 0,
+        });
+      }
     } catch (err) {
       console.error('Failed to fetch missed messages:', err);
     }
@@ -279,8 +310,49 @@ export function useClaudeStream() {
           oldestIndex: data.oldestIndex,
         });
       }
+      if (data.usage) {
+        chat.updateUsage({
+          inputTokens: data.usage.inputTokens || 0,
+          outputTokens: data.usage.outputTokens || 0,
+        });
+      }
     } catch (err) {
       console.error('Failed to reload session:', err);
+    }
+  }
+
+  /** Parse a reset time string like "Feb 13, 12pm" into a timestamp. */
+  function parseResetTime(timeStr: string): number | null {
+    try {
+      // Normalize: "Feb 13, 12pm" or "Feb 13 3:30pm"
+      const cleaned = timeStr.replace(',', '').trim();
+      const match = cleaned.match(/^(\w+)\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+      if (!match) return null;
+
+      const [, monthStr, dayStr, hourStr, minStr, ampm] = match;
+      const months: Record<string, number> = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+      };
+      const month = months[monthStr!.toLowerCase().slice(0, 3)];
+      if (month === undefined) return null;
+
+      let hour = parseInt(hourStr!, 10);
+      const minute = minStr ? parseInt(minStr, 10) : 0;
+      if (ampm!.toLowerCase() === 'pm' && hour !== 12) hour += 12;
+      if (ampm!.toLowerCase() === 'am' && hour === 12) hour = 0;
+
+      const now = new Date();
+      const resetDate = new Date(now.getFullYear(), month, parseInt(dayStr!, 10), hour, minute, 0, 0);
+
+      // If the parsed date is in the past, it might be next year
+      if (resetDate.getTime() < Date.now()) {
+        resetDate.setFullYear(resetDate.getFullYear() + 1);
+      }
+
+      return resetDate.getTime();
+    } catch {
+      return null;
     }
   }
 

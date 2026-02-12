@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
+import { claudeQuery } from '../services/claude-sdk.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -123,6 +124,164 @@ router.delete('/:id', (req: AuthRequest, res) => {
 
   db.prepare('DELETE FROM graphs WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
   res.json({ ok: true });
+});
+
+// ─── AI prompt generation ───────────────────────────────────────────────
+
+interface PromptGenInput {
+  nodeType: string;
+  label?: string;
+  description?: string;
+  model?: string;
+  permissionMode?: string;
+  specialty?: string;
+  taskDescription?: string;
+  command?: string;
+  ruleType?: string;
+  scope?: string;
+  connections?: {
+    parents: { label: string; nodeType: string; description?: string }[];
+    children: { label: string; nodeType: string; description?: string; edgeType: string }[];
+  };
+  existingPrompt?: string;
+}
+
+function buildPromptGenerationQuery(input: PromptGenInput): string {
+  const { nodeType, label, description, connections, existingPrompt } = input;
+
+  let graphContext = '';
+  if (connections) {
+    if (connections.parents.length > 0) {
+      graphContext += '\nUpstream nodes (delegate TO this node):\n';
+      for (const p of connections.parents) {
+        graphContext += `  - [${p.nodeType}] "${p.label}"${p.description ? ` — ${p.description}` : ''}\n`;
+      }
+    }
+    if (connections.children.length > 0) {
+      graphContext += '\nDownstream nodes (this node connects TO):\n';
+      for (const c of connections.children) {
+        graphContext += `  - [${c.nodeType}] "${c.label}" (${c.edgeType})${c.description ? ` — ${c.description}` : ''}\n`;
+      }
+    }
+  }
+
+  const refinementClause = existingPrompt
+    ? `\n\nThe user has an existing prompt. Refine and improve it rather than replacing it entirely:\n\`\`\`\n${existingPrompt}\n\`\`\``
+    : '';
+
+  const typeInstructions: Record<string, string> = {
+    agent: `This is a top-level orchestrator AGENT node.
+Model: ${input.model || 'unspecified'}
+Permission Mode: ${input.permissionMode || 'unspecified'}
+
+Generate a comprehensive system prompt for an AI agent orchestrator. Include:
+- Its primary role and responsibilities based on the label and description
+- Tool usage guidelines (what tools to prefer, when to delegate)
+- Delegation patterns (when to spawn subagents vs handle directly)
+- Output format expectations
+- Error handling approach`,
+
+    subagent: `This is a SUBAGENT (delegated worker) node.
+Model: ${input.model || 'unspecified'}
+Permission Mode: ${input.permissionMode || 'unspecified'}
+Task Description: ${input.taskDescription || 'unspecified'}
+
+Generate a focused worker system prompt for a delegated subagent. Include:
+- The specific task/domain this subagent handles (based on taskDescription and label)
+- How it should report results back to its parent
+- Scope boundaries (what it should and should NOT do)
+- Quality standards for its output`,
+
+    expert: `This is an EXPERT (deep specialist) node.
+Model: ${input.model || 'unspecified'}
+Specialty: ${input.specialty || 'unspecified'}
+
+Generate a specialist system prompt. Include:
+- Deep expertise description based on the specialty field
+- When this expert should be consulted
+- The format and depth of analysis expected
+- How it should communicate findings`,
+
+    skill: `This is a SKILL (reusable prompt template) node.
+Command: ${input.command || 'unspecified'}
+
+Generate a prompt template for a reusable skill. Include:
+- Clear instructions for what this skill does
+- Variable placeholders using {{variable_name}} syntax for dynamic inputs
+- Expected input format
+- Expected output format`,
+
+    rule: `This is a RULE (behavioral constraint) node.
+Rule Type: ${input.ruleType || 'guideline'}
+Scope: ${input.scope || 'project'}
+
+Generate rule/constraint text. Include:
+- Clear, enforceable ${input.ruleType || 'guideline'} statement(s)
+- Specific behaviors that are required or prohibited
+- Scope of applicability (${input.scope || 'project'}-level)`,
+  };
+
+  return `You are an expert at writing system prompts for AI agent architectures. Generate a high-quality prompt for the following node in a multi-agent graph.
+
+Node Type: ${nodeType}
+Label: "${label || 'Unnamed'}"
+${description ? `Description: "${description}"` : ''}
+
+${typeInstructions[nodeType] || 'Generate an appropriate prompt for this node.'}
+${graphContext}${refinementClause}
+
+Rules:
+- Output ONLY the raw prompt text — no markdown fences, no explanatory preamble, no meta-commentary
+- Be specific and actionable, not generic
+- Tailor the prompt to this node's specific role in the graph based on its label, description, and connections
+- If the node has downstream skills/tools/MCPs, reference them by name where useful
+- If the node has upstream parents, acknowledge the delegation context
+- Keep the prompt focused and professional`;
+}
+
+router.post('/generate-prompt', async (req: AuthRequest, res) => {
+  try {
+    const { nodeType } = req.body;
+    if (!nodeType) {
+      res.status(400).json({ error: 'nodeType is required' });
+      return;
+    }
+
+    const prompt = buildPromptGenerationQuery(req.body);
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    const abortController = new AbortController();
+    res.on('close', () => abortController.abort());
+
+    for await (const msg of claudeQuery({
+      prompt,
+      cwd: process.cwd(),
+      permissionMode: 'bypassPermissions',
+      noTools: true,
+      abortSignal: abortController.signal,
+    })) {
+      if (msg.type === 'text_delta') {
+        res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
+      } else if (msg.type === 'error') {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
+      }
+    }
+    res.write(`event: done\ndata: {}\n\n`);
+    res.end();
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate prompt' });
+    } else {
+      const msg = err instanceof Error ? err.message : 'Failed to generate prompt';
+      res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
+      res.end();
+    }
+  }
 });
 
 export default router;

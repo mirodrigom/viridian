@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { NodeProps } from '@vue-flow/core';
 import type { AgentNodeData } from '@/types/graph';
 import BaseNode from './BaseNode.vue';
 import { Bot } from 'lucide-vue-next';
 
 const props = defineProps<NodeProps>();
-const data = props.data as AgentNodeData;
+const data = computed(() => props.data as AgentNodeData);
 </script>
 
 <template>
