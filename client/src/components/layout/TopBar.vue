@@ -9,8 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import {
-  PanelRight, TerminalSquare, Settings, LogOut, FolderOpen,
-  Loader2, Moon, Sun, Trash2, Wrench,
+  TerminalSquare, Settings, LogOut, FolderOpen,
+  Loader2, Moon, Sun, Wrench,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -19,7 +19,6 @@ const settings = useSettingsStore();
 const router = useRouter();
 
 const emit = defineEmits<{
-  toggleFiles: [];
   toggleTerminal: [];
   openSettings: [];
   openToolsSettings: [];
@@ -63,15 +62,6 @@ function logout() {
       <div class="flex shrink-0 items-center gap-0.5 md:gap-1">
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('toggleFiles')">
-              <PanelRight class="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Toggle File Explorer</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger as-child>
             <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('toggleTerminal')">
               <TerminalSquare class="h-4 w-4" />
             </Button>
@@ -87,15 +77,6 @@ function logout() {
             </Button>
           </TooltipTrigger>
           <TooltipContent>Toggle Dark Mode</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="chat.clearMessages()">
-              <Trash2 class="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>New Chat</TooltipContent>
         </Tooltip>
 
         <Separator orientation="vertical" class="mx-0.5 hidden h-5 sm:block md:mx-1" />

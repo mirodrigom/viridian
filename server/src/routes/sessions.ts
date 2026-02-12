@@ -4,6 +4,7 @@ import { readdirSync, statSync, existsSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
+import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -324,10 +325,12 @@ router.get('/:id/messages', async (req, res) => {
 
             if (Array.isArray(contentBlocks)) {
               // Extract thinking text (always shown with the first assistant text)
-              const thinkingText = contentBlocks
-                .filter((b: { type: string }) => b.type === 'thinking')
-                .map((b: { thinking: string }) => b.thinking)
-                .join('\n');
+              const thinkingText = decodeUnicodeEscapes(
+                contentBlocks
+                  .filter((b: { type: string }) => b.type === 'thinking')
+                  .map((b: { thinking: string }) => b.thinking)
+                  .join('\n'),
+              );
 
               // Emit blocks in order: preserves the natural flow where tools
               // appear between text segments (e.g. text → tool → tool → text)
@@ -336,7 +339,7 @@ router.get('/:id/messages', async (req, res) => {
 
               for (const block of contentBlocks) {
                 if (block.type === 'text' && block.text) {
-                  pendingText += (pendingText ? '\n' : '') + block.text;
+                  pendingText += (pendingText ? '\n' : '') + decodeUnicodeEscapes(block.text);
                 } else if (block.type === 'tool_use') {
                   // Flush any pending text before the tool
                   if (pendingText) {
@@ -389,7 +392,7 @@ router.get('/:id/messages', async (req, res) => {
               allMessages.push({
                 id: entry.uuid || `asst-${allMessages.length}`,
                 role: 'assistant',
-                content: contentBlocks,
+                content: decodeUnicodeEscapes(contentBlocks),
                 timestamp: ts,
               });
             }

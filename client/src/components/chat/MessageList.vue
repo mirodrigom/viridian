@@ -143,14 +143,11 @@ function getViewport(): HTMLElement | null {
 }
 
 function forceScrollToEnd() {
-  // Primary: scrollIntoView on last message element (works reliably with ScrollArea)
-  const msgs = chat.messages;
-  if (msgs.length > 0) {
-    const el = document.getElementById(`msg-${msgs[msgs.length - 1]!.id}`);
-    if (el) {
-      el.scrollIntoView({ block: 'end' });
-      return;
-    }
+  // Primary: scroll anchor at the very bottom of content (below energy beam / divider)
+  const anchor = document.getElementById('scroll-anchor');
+  if (anchor) {
+    anchor.scrollIntoView({ block: 'end' });
+    return;
   }
   // Fallback: viewport scrollTop
   const viewport = getViewport();
@@ -172,19 +169,16 @@ function scrollToBottom(instant = false) {
       isLoadingSession.value = false;
     }, 600);
   } else {
-    // Streaming / toggle: smooth scroll
+    // Toggle / button click: scroll to bottom
     isProgrammaticScroll.value = true;
     nextTick(() => {
       requestAnimationFrame(() => {
-        const viewport = getViewport();
-        if (viewport) {
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-          chat.autoScroll = true;
-        }
-        // Release after smooth scroll settles
-        setTimeout(() => {
+        forceScrollToEnd();
+        chat.autoScroll = true;
+        // Release after the scroll event has been processed
+        requestAnimationFrame(() => {
           isProgrammaticScroll.value = false;
-        }, 400);
+        });
       });
     });
   }
@@ -195,8 +189,8 @@ function handleScroll() {
   if (!viewport) return;
   const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
   showScrollBtn.value = distFromBottom > 100;
-  // Don't override autoScroll during session load or programmatic scrolls
-  if (!isLoadingSession.value && !isProgrammaticScroll.value) {
+  // Don't override autoScroll during session load, programmatic scrolls, or active streaming
+  if (!isLoadingSession.value && !isProgrammaticScroll.value && !chat.isStreaming) {
     chat.autoScroll = distFromBottom < 50;
   }
 
@@ -269,7 +263,17 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
       setTimeout(forceScrollToEnd, 50);
       setTimeout(forceScrollToEnd, 150);
     } else if (chat.autoScroll) {
-      scrollToBottom(false);
+      // For tool_use/system messages and new assistant bubbles during streaming,
+      // use instant scroll to avoid smooth-scroll race conditions
+      isProgrammaticScroll.value = true;
+      nextTick(() => {
+        requestAnimationFrame(() => {
+          forceScrollToEnd();
+          requestAnimationFrame(() => {
+            isProgrammaticScroll.value = false;
+          });
+        });
+      });
     }
   }
 });
@@ -414,6 +418,9 @@ watch(scrollContainer, (el) => {
             </div>
           </div>
         </Transition>
+
+        <!-- Scroll anchor — always at the very bottom of content -->
+        <div id="scroll-anchor" aria-hidden="true" />
       </div>
     </ScrollArea>
 

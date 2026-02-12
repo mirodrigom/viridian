@@ -329,6 +329,19 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   }
 }
 
+// ─── Unicode decode helper ───────────────────────────────────────────────────
+
+/**
+ * Decode literal \uXXXX escape sequences in strings.
+ * Claude CLI sometimes writes unicode characters as literal backslash-u escapes
+ * (e.g. "\\u00ed" instead of "í") which survive JSON.parse as the literal text "\u00ed".
+ */
+export function decodeUnicodeEscapes(text: string): string {
+  return text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
+}
+
 // ─── Event processing (pure functions) ──────────────────────────────────────
 
 function processEvent(state: BlockState, event: Record<string, unknown>): SDKMessage[] {
@@ -387,9 +400,9 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
     if (!delta) return messages;
 
     if (delta.type === 'thinking_delta' && delta.thinking) {
-      messages.push({ type: 'thinking_delta', text: delta.thinking as string });
+      messages.push({ type: 'thinking_delta', text: decodeUnicodeEscapes(delta.thinking as string) });
     } else if (delta.type === 'text_delta' && delta.text) {
-      messages.push({ type: 'text_delta', text: delta.text as string });
+      messages.push({ type: 'text_delta', text: decodeUnicodeEscapes(delta.text as string) });
     } else if (delta.type === 'input_json_delta' && delta.partial_json) {
       state.currentToolInputJson += delta.partial_json as string;
       messages.push({

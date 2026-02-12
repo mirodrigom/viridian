@@ -13,6 +13,7 @@ import mcpRoutes from './routes/mcp.js';
 import apikeysRoutes from './routes/apikeys.js';
 import agentRoutes from './routes/agent.js';
 import tasksRoutes from './routes/tasks.js';
+import graphsRoutes from './routes/graphs.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
@@ -35,6 +36,7 @@ app.use('/api/mcp', mcpRoutes);
 app.use('/api/keys', apikeysRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/tasks', tasksRoutes);
+app.use('/api/graphs', graphsRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

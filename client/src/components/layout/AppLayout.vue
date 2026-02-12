@@ -15,7 +15,6 @@ import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 
 const settings = useSettingsStore();
 const activeTab = ref('chat');
-const showFiles = ref(true);
 const showTerminal = ref(false);
 const showSettings = ref(false);
 const showToolsSettings = ref(false);
@@ -24,7 +23,6 @@ const isMobile = ref(false);
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;
   if (isMobile.value) {
-    showFiles.value = false;
     showTerminal.value = false;
   }
 }
@@ -39,10 +37,6 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile);
 });
 
-function toggleFiles() {
-  showFiles.value = !showFiles.value;
-}
-
 function toggleTerminal() {
   showTerminal.value = !showTerminal.value;
 }
@@ -51,7 +45,6 @@ function toggleTerminal() {
 <template>
   <div class="flex h-screen flex-col overflow-hidden bg-background">
     <TopBar
-      @toggle-files="toggleFiles"
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"
       @open-tools-settings="showToolsSettings = true"
@@ -59,10 +52,10 @@ function toggleTerminal() {
     <ResizablePanelGroup direction="vertical" class="flex-1">
       <ResizablePanel :default-size="showTerminal ? 70 : 100" :min-size="30">
         <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel :default-size="showFiles && activeTab === 'editor' ? 75 : 100" :min-size="40">
+          <ResizablePanel :default-size="activeTab === 'editor' ? 75 : 100" :min-size="40">
             <MainTabs v-model:active-tab="activeTab" />
           </ResizablePanel>
-          <template v-if="showFiles && activeTab === 'editor'">
+          <template v-if="activeTab === 'editor' && !isMobile">
             <ResizableHandle />
             <ResizablePanel :default-size="25" :min-size="15" :max-size="40">
               <FileSidebar />
