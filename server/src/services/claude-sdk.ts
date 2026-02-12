@@ -234,6 +234,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   }
 
   if (options.agents && Object.keys(options.agents).length > 0) {
+    console.log(`[ClaudeSDK] Passing --agents with keys:`, Object.keys(options.agents));
     args.push('--agents', JSON.stringify(options.agents));
   }
 

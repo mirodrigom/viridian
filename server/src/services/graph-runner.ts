@@ -219,9 +219,19 @@ function buildAgentsConfig(
       const label = (delegate.data.label as string) || delegate.type;
       const agentKey = toAgentKey(label, usedKeys);
 
+      // Build a meaningful prompt for the sub-agent even if systemPrompt is empty
+      let agentPrompt = prompt;
+      if (!agentPrompt) {
+        const role = label || delegate.type;
+        const taskDesc = (delegate.data.taskDescription as string) || '';
+        const specialty = (delegate.data.specialty as string) || '';
+        const context = taskDesc || specialty || desc;
+        agentPrompt = `You are ${role}, a specialized ${delegate.type} agent. Your role: ${context}. Focus exclusively on tasks within your specialty and execute them thoroughly.`;
+      }
+
       agents[agentKey] = {
         description: desc,
-        prompt: prompt || `You are a ${delegate.type} agent.`,
+        prompt: agentPrompt,
         model: (delegate.data.model as string) || undefined,
         permissionMode: (delegate.data.permissionMode as string) || 'bypassPermissions',
       };
@@ -268,9 +278,42 @@ function composeSystemPrompt(resolved: ResolvedNode): string {
     parts.push(`\n## Available Skills\n${skillLines.join('\n')}`);
   }
 
-  // Delegation is now handled by --agents flag, no XML protocol needed
-
   return parts.join('\n\n');
+}
+
+/**
+ * Append explicit delegation instructions to a parent agent's system prompt.
+ * Without these, Claude tends to do all work itself instead of using the Task tool
+ * to delegate to its configured sub-agents.
+ */
+function appendDelegationInstructions(
+  systemPrompt: string,
+  agents: Record<string, AgentConfig>,
+): string {
+  const agentEntries = Object.entries(agents);
+  if (agentEntries.length === 0) return systemPrompt;
+
+  const agentList = agentEntries
+    .map(([key, config]) => `- **${key}**: ${config.description}`)
+    .join('\n');
+
+  const delegation = `
+## Delegation — IMPORTANT
+
+You are a principal orchestrator agent. You have the following specialized sub-agents available to you. You MUST delegate tasks to them using the Task tool with the appropriate \`subagent_type\`. Do NOT do their work yourself — delegate it.
+
+### Available Sub-Agents
+${agentList}
+
+### How to Delegate
+Use the Task tool to delegate work to a sub-agent:
+- Set \`subagent_type\` to the sub-agent name (e.g. "${agentEntries[0]![0]}")
+- Set \`prompt\` to a clear description of the task to perform
+- Set \`description\` to a short summary (3-5 words)
+
+You should break down the user's request and delegate each part to the most appropriate sub-agent. Only do work yourself if none of your sub-agents are suited for it.`;
+
+  return systemPrompt ? `${systemPrompt}\n${delegation}` : delegation.trim();
 }
 
 // ─── Node Execution ─────────────────────────────────────────────────────
@@ -298,9 +341,6 @@ async function executeNode(
     parentNodeId,
   });
 
-  // Compose system prompt (appended to Claude defaults, not replacing)
-  const systemPrompt = composeSystemPrompt(resolved);
-
   // Build agents config from delegation edges (flattened)
   const { agents, keyToNodeId } = buildAgentsConfig(nodeId, ctx.resolvedNodes);
 
@@ -309,7 +349,11 @@ async function executeNode(
     ctx.agentKeyToNodeId.set(key, nid);
   }
 
+  // Compose system prompt (appended to Claude defaults, not replacing)
+  // Include delegation instructions if this node has sub-agents
+  let systemPrompt = composeSystemPrompt(resolved);
   if (Object.keys(agents).length > 0) {
+    systemPrompt = appendDelegationInstructions(systemPrompt, agents);
     console.log(`[GraphRunner] Node "${nodeLabel}" agents:`, JSON.stringify(Object.keys(agents)));
   }
 
