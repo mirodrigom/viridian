@@ -56,7 +56,9 @@ export const useGitStore = defineStore('git', () => {
       });
       const data = await res.json();
       branch.value = data.current || '';
-      staged.value = data.staged || [];
+      staged.value = (data.files || [])
+        .filter((f: GitFileStatus) => f.index && f.index !== ' ' && f.index !== '?')
+        .map((f: GitFileStatus) => ({ path: f.path, index: f.index, working_dir: f.working_dir }));
       modified.value = data.modified?.map((p: string) => ({ path: p, index: ' ', working_dir: 'M' })) || [];
       untracked.value = data.not_added || [];
     } finally {
@@ -226,23 +228,52 @@ export const useGitStore = defineStore('git', () => {
   async function generateCommitMessage() {
     if (!cwd()) return;
     generatingMessage.value = true;
+    commitMessage.value = '';
     try {
       const res = await fetch('/api/git/generate-commit-message', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd() }),
       });
-      const data = await res.json();
-      if (data.error) return;
-      // Send the diff to Claude via the chat WebSocket to generate a commit message
-      // For now, generate a simple message from the diff
-      const diffText = data.diff as string;
-      const files = diffText.split('\n')
-        .filter(l => l.startsWith('diff --git'))
-        .map(l => l.replace(/^diff --git a\/(.+?) b\/.*$/, '$1'));
-      const adds = (diffText.match(/^\+[^+]/gm) || []).length;
-      const dels = (diffText.match(/^-[^-]/gm) || []).length;
-      commitMessage.value = `Update ${files.length} file${files.length > 1 ? 's' : ''} (+${adds}/-${dels})\n\nFiles: ${files.join(', ')}`;
+
+      if (!res.ok) {
+        const data = await res.json();
+        if (data.error) console.error('Commit message generation failed:', data.error);
+        return;
+      }
+
+      // Consume SSE stream
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let eventType = '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7);
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (eventType === 'delta' && data.text) {
+                commitMessage.value += data.text;
+              }
+            } catch { /* skip non-JSON */ }
+            eventType = '';
+          }
+        }
+      }
+
+      // Trim any leading/trailing whitespace from the final message
+      commitMessage.value = commitMessage.value.trim();
     } finally {
       generatingMessage.value = false;
     }

@@ -50,21 +50,23 @@ function toggleSelectAll() {
         <div
           v-for="file in git.staged"
           :key="'s-' + file.path"
-          class="group flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-accent"
+          class="group flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent"
           :class="{ 'bg-accent': git.selectedFile === file.path }"
           @click="git.fetchFileDiff(file.path)"
         >
-          <span class="truncate text-foreground">{{ file.path }}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="hidden h-5 w-5 p-0 group-hover:inline-flex"
-            title="Open diff in editor"
-            @click.stop="git.openDiffInEditor(file.path)"
-          >
-            <Columns2 class="h-3 w-3" />
-          </Button>
-          <Badge variant="default" class="ml-2 shrink-0 text-xs">staged</Badge>
+          <span class="min-w-0 flex-1 truncate text-foreground">{{ file.path }}</span>
+          <div class="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="hidden h-5 w-5 p-0 group-hover:inline-flex"
+              title="Open diff in editor"
+              @click.stop="git.openDiffInEditor(file.path)"
+            >
+              <Columns2 class="h-3 w-3" />
+            </Button>
+            <Badge variant="default" class="text-xs">staged</Badge>
+          </div>
         </div>
       </div>
     </div>

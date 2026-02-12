@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import * as gitService from '../services/git.js';
+import { claudeQuery } from '../services/claude-sdk.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -201,9 +202,53 @@ router.post('/generate-commit-message', async (req, res) => {
       res.status(400).json({ error: 'No staged changes to describe' });
       return;
     }
-    // Truncate diff to avoid blowing token limits
     const truncatedDiff = diff.length > 8000 ? diff.slice(0, 8000) + '\n... (truncated)' : diff;
-    res.json({ diff: truncatedDiff });
+
+    // Stream commit message from Claude via SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    const prompt = `You are a git commit message generator. Based on the following staged diff, write a concise, conventional commit message.
+
+Rules:
+- First line: short summary (max 72 chars), imperative mood (e.g. "Add", "Fix", "Update", "Refactor")
+- If needed, add a blank line followed by a brief body explaining the "why"
+- Do NOT use markdown, code fences, or any formatting — output only the raw commit message text
+- Do NOT include a "Co-Authored-By" line
+
+Staged diff:
+${truncatedDiff}`;
+
+    const abortController = new AbortController();
+    req.on('close', () => abortController.abort());
+
+    (async () => {
+      try {
+        for await (const msg of claudeQuery({
+          prompt,
+          cwd,
+          permissionMode: 'plan',
+          allowedTools: [],
+          abortSignal: abortController.signal,
+        })) {
+          if (msg.type === 'text_delta') {
+            res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
+          }
+          if (msg.type === 'error') {
+            res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
+          }
+        }
+        res.write(`event: done\ndata: {}\n\n`);
+        res.end();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to generate commit message';
+        res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
+        res.end();
+      }
+    })();
   } catch (err) {
     res.status(500).json({ error: 'Failed to generate commit message' });
   }
