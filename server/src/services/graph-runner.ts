@@ -48,6 +48,7 @@ interface ExecutionContext {
   emitter: EventEmitter;
   abortController: AbortController;
   resolvedNodes: Map<string, ResolvedNode>;
+  agentKeyToNodeId: Map<string, string>; // agent label key → nodeId (for delegation detection)
   sessionIds: Map<string, string>; // nodeId → Claude session ID (for --resume)
   outputTexts: Map<string, string>; // nodeId → accumulated output
   usages: Map<string, { inputTokens: number; outputTokens: number }>;
@@ -149,15 +150,47 @@ interface AgentConfig {
 }
 
 /**
+ * Sanitize a node label into a valid agent key for Claude CLI's --agents flag.
+ * Claude uses this key as the `subagent_type` in Task tool calls, so it must be
+ * a clean, readable identifier (e.g. "BackendDev", "CodeReviewer").
+ */
+function toAgentKey(label: string, usedKeys: Set<string>): string {
+  // Remove non-alphanumeric chars (except spaces/hyphens/underscores), then PascalCase
+  let key = label
+    .replace(/[^a-zA-Z0-9\s_-]/g, '')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('');
+
+  if (!key) key = 'Agent';
+
+  // Deduplicate: append a number if key already exists
+  const base = key;
+  let counter = 2;
+  while (usedKeys.has(key)) {
+    key = `${base}${counter++}`;
+  }
+  usedKeys.add(key);
+  return key;
+}
+
+/**
  * Walk the delegation tree from a root node and collect ALL reachable delegate
  * nodes into a flat agents config. Sub-agents can't spawn other sub-agents in
  * Claude CLI, so we flatten the hierarchy so the root reaches all delegates.
+ *
+ * Returns both the agents config (keyed by readable label) and a mapping from
+ * agent key → nodeId for delegation detection.
  */
 function buildAgentsConfig(
   rootNodeId: string,
   resolvedNodes: Map<string, ResolvedNode>,
-): Record<string, AgentConfig> {
+): { agents: Record<string, AgentConfig>; keyToNodeId: Map<string, string> } {
   const agents: Record<string, AgentConfig> = {};
+  const keyToNodeId = new Map<string, string>();
+  const nodeIdToKey = new Map<string, string>();
+  const usedKeys = new Set<string>();
   const visited = new Set<string>();
   const queue = [rootNodeId];
 
@@ -170,7 +203,7 @@ function buildAgentsConfig(
     if (!resolved) continue;
 
     for (const delegate of resolved.delegates) {
-      if (agents[delegate.id]) continue; // already added
+      if (nodeIdToKey.has(delegate.id)) continue; // already added
 
       const delegateResolved = resolvedNodes.get(delegate.id);
       const prompt = composeSystemPrompt(delegateResolved || {
@@ -183,19 +216,25 @@ function buildAgentsConfig(
         || (delegate.data.label as string)
         || delegate.type;
 
-      agents[delegate.id] = {
+      const label = (delegate.data.label as string) || delegate.type;
+      const agentKey = toAgentKey(label, usedKeys);
+
+      agents[agentKey] = {
         description: desc,
         prompt: prompt || `You are a ${delegate.type} agent.`,
         model: (delegate.data.model as string) || undefined,
         permissionMode: (delegate.data.permissionMode as string) || 'bypassPermissions',
       };
 
+      keyToNodeId.set(agentKey, delegate.id);
+      nodeIdToKey.set(delegate.id, agentKey);
+
       // Enqueue delegate's own delegates for flattening
       queue.push(delegate.id);
     }
   }
 
-  return agents;
+  return { agents, keyToNodeId };
 }
 
 // ─── System Prompt Composition ──────────────────────────────────────────
@@ -263,7 +302,16 @@ async function executeNode(
   const systemPrompt = composeSystemPrompt(resolved);
 
   // Build agents config from delegation edges (flattened)
-  const agents = buildAgentsConfig(nodeId, ctx.resolvedNodes);
+  const { agents, keyToNodeId } = buildAgentsConfig(nodeId, ctx.resolvedNodes);
+
+  // Merge key→nodeId mapping into context for delegation detection
+  for (const [key, nid] of keyToNodeId) {
+    ctx.agentKeyToNodeId.set(key, nid);
+  }
+
+  if (Object.keys(agents).length > 0) {
+    console.log(`[GraphRunner] Node "${nodeLabel}" agents:`, JSON.stringify(Object.keys(agents)));
+  }
 
   // Build query options
   const model = resolved.node.data.model as string || undefined;
@@ -354,23 +402,25 @@ function processNodeMessage(
       break;
     }
     case 'tool_input_complete': {
-      // Detect Task tool calls that match delegate node IDs → emit delegation event.
+      // Detect Task tool calls that match delegate agent keys → emit delegation event.
       // Must be done here (not in tool_use) because tool_use fires at content_block_start
       // with an empty input — the full input is only available at content_block_stop.
       if (msg.tool === 'Task') {
         const agentType = msg.input.subagent_type as string | undefined;
         if (agentType) {
-          const delegateResolved = ctx.resolvedNodes.get(agentType);
-          if (delegateResolved) {
+          // agentType is the readable label key (e.g. "BackendDev"), resolve to nodeId
+          const delegateNodeId = ctx.agentKeyToNodeId.get(agentType);
+          const delegateResolved = delegateNodeId ? ctx.resolvedNodes.get(delegateNodeId) : null;
+          if (delegateResolved && delegateNodeId) {
             const childLabel = delegateResolved.node.data.label as string || agentType;
             ctx.emitter.emit('delegation', {
               parentNodeId: nodeId,
-              childNodeId: agentType,
+              childNodeId: delegateNodeId,
               childLabel,
               task: (msg.input.prompt as string) || '',
             });
             ctx.emitter.emit('node_started', {
-              nodeId: agentType,
+              nodeId: delegateNodeId,
               nodeLabel: childLabel,
               nodeType: delegateResolved.node.type,
               inputPrompt: (msg.input.prompt as string) || '',
@@ -437,6 +487,7 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     emitter,
     abortController,
     resolvedNodes: resolved,
+    agentKeyToNodeId: new Map(),
     sessionIds: new Map(),
     outputTexts: new Map(),
     usages: new Map(),
