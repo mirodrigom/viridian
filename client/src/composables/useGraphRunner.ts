@@ -1,87 +1,91 @@
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphStore } from '@/stores/graph';
-import { useWebSocket } from './useWebSocket';
+
+let initialized = false;
 
 export function useGraphRunner() {
   const runner = useGraphRunnerStore();
   const graph = useGraphStore();
-  const { connected, connect, send, on, disconnect } = useWebSocket('/ws/graph-runner');
 
   function init() {
-    connect();
+    // Only wire up handlers once — the WebSocket lives in the store
+    if (initialized) return;
+    initialized = true;
 
-    on('run_started', (data: unknown) => {
+    runner.wsConnect();
+
+    runner.wsOn('run_started', (data: unknown) => {
       runner.onRunStarted(data as { runId: string; rootNodeId: string });
     });
 
-    on('node_started', (data: unknown) => {
+    runner.wsOn('node_started', (data: unknown) => {
       runner.onNodeStarted(data as {
         nodeId: string; nodeLabel: string; nodeType: string;
         inputPrompt: string; parentNodeId: string | null;
       });
     });
 
-    on('node_delta', (data: unknown) => {
+    runner.wsOn('node_delta', (data: unknown) => {
       runner.onNodeDelta(data as { nodeId: string; text: string });
     });
 
-    on('node_thinking_start', (data: unknown) => {
+    runner.wsOn('node_thinking_start', (data: unknown) => {
       runner.onNodeThinkingStart(data as { nodeId: string });
     });
 
-    on('node_thinking_delta', (data: unknown) => {
+    runner.wsOn('node_thinking_delta', (data: unknown) => {
       runner.onNodeThinkingDelta(data as { nodeId: string; text: string });
     });
 
-    on('node_thinking_end', (data: unknown) => {
+    runner.wsOn('node_thinking_end', (data: unknown) => {
       runner.onNodeThinkingEnd(data as { nodeId: string });
     });
 
-    on('node_tool_use', (data: unknown) => {
+    runner.wsOn('node_tool_use', (data: unknown) => {
       runner.onNodeToolUse(data as {
         nodeId: string; tool: string;
         input: Record<string, unknown>; requestId: string;
       });
     });
 
-    on('node_completed', (data: unknown) => {
+    runner.wsOn('node_completed', (data: unknown) => {
       runner.onNodeCompleted(data as {
         nodeId: string; outputText: string;
         usage: { inputTokens: number; outputTokens: number };
       });
     });
 
-    on('node_failed', (data: unknown) => {
+    runner.wsOn('node_failed', (data: unknown) => {
       runner.onNodeFailed(data as { nodeId: string; error: string });
     });
 
-    on('delegation', (data: unknown) => {
+    runner.wsOn('delegation', (data: unknown) => {
       runner.onDelegation(data as {
         parentNodeId: string; childNodeId: string;
         childLabel: string; task: string;
       });
     });
 
-    on('result_return', (data: unknown) => {
+    runner.wsOn('result_return', (data: unknown) => {
       runner.onResultReturn(data as {
         parentNodeId: string; childNodeId: string;
         childLabel: string; result: string;
       });
     });
 
-    on('run_completed', (data: unknown) => {
+    runner.wsOn('run_completed', (data: unknown) => {
       runner.onRunCompleted(data as { runId: string; finalOutput: string });
     });
 
-    on('run_failed', (data: unknown) => {
+    runner.wsOn('run_failed', (data: unknown) => {
       runner.onRunFailed(data as { runId: string; error: string });
     });
 
-    on('run_aborted', (data: unknown) => {
+    runner.wsOn('run_aborted', (data: unknown) => {
       runner.onRunAborted(data as { runId: string });
     });
 
-    on('error', (data: unknown) => {
+    runner.wsOn('error', (data: unknown) => {
       const d = data as { error: string };
       console.error('[GraphRunner WS]', d.error);
     });
@@ -90,7 +94,7 @@ export function useGraphRunner() {
   function runGraph(prompt: string, cwd: string) {
     runner.reset();
     const graphData = graph.serialize();
-    send({
+    runner.wsSend({
       type: 'run_graph',
       graphData,
       prompt,
@@ -99,8 +103,8 @@ export function useGraphRunner() {
   }
 
   function abort() {
-    send({ type: 'abort_run' });
+    runner.wsSend({ type: 'abort_run' });
   }
 
-  return { connected, init, runGraph, abort, disconnect };
+  return { connected: runner.wsConnected, init, runGraph, abort };
 }

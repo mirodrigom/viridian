@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { useAuthStore } from '@/stores/auth';
 import type {
   GraphRun, NodeExecution,
   TimelineEntry,
@@ -11,10 +12,109 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   const showRunnerPanel = ref(false);
   const selectedNodeId = ref<string | null>(null);
 
+  // ─── WebSocket (lives in store so it persists across tab switches) ─
+  let ws: WebSocket | null = null;
+  const wsConnected = ref(false);
+  const handlers = new Map<string, Set<(data: unknown) => void>>();
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempts = 0;
+  let intentionalClose = false;
+
+  const MAX_RECONNECT_DELAY = 10_000;
+  const BASE_RECONNECT_DELAY = 500;
+
+  function wsConnect() {
+    if (ws) {
+      intentionalClose = true;
+      ws.close();
+      ws = null;
+    }
+    intentionalClose = false;
+
+    const auth = useAuthStore();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const url = `${protocol}//${host}/ws/graph-runner?token=${auth.token}`;
+
+    const socket = new WebSocket(url);
+
+    socket.onopen = () => {
+      wsConnected.value = true;
+      reconnectAttempts = 0;
+    };
+
+    socket.onclose = () => {
+      wsConnected.value = false;
+      ws = null;
+      if (!intentionalClose) {
+        scheduleReconnect();
+      }
+    };
+
+    socket.onerror = () => {
+      // onerror is always followed by onclose
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const type = data.type as string;
+        const typeHandlers = handlers.get(type);
+        if (typeHandlers) {
+          typeHandlers.forEach(handler => handler(data));
+        }
+      } catch {
+        // ignore non-JSON
+      }
+    };
+
+    ws = socket;
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    const delay = Math.min(BASE_RECONNECT_DELAY * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
+    reconnectAttempts++;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      wsConnect();
+    }, delay);
+  }
+
+  function wsSend(data: Record<string, unknown>): boolean {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+      return true;
+    }
+    return false;
+  }
+
+  function wsOn(type: string, handler: (data: unknown) => void) {
+    if (!handlers.has(type)) {
+      handlers.set(type, new Set());
+    }
+    handlers.get(type)!.add(handler);
+  }
+
+  function wsDisconnect() {
+    intentionalClose = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    ws?.close();
+    ws = null;
+    wsConnected.value = false;
+  }
+
   // ─── Computed ───────────────────────────────────────────────────────
   const isRunning = computed(() => currentRun.value?.status === 'running');
 
+  // Use a version counter to force reactivity on execution status changes
+  const execVersion = ref(0);
+
   const activeNodeIds = computed(() => {
+    execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
     for (const [id, exec] of Object.entries(currentRun.value.executions)) {
@@ -24,6 +124,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   });
 
   const completedNodeIds = computed(() => {
+    execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
     for (const [id, exec] of Object.entries(currentRun.value.executions)) {
@@ -33,6 +134,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   });
 
   const failedNodeIds = computed(() => {
+    execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
     for (const [id, exec] of Object.entries(currentRun.value.executions)) {
@@ -40,6 +142,18 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     }
     return ids;
   });
+
+  /** Get the execution status for a specific node (reactive-friendly) */
+  function nodeExecStatus(nodeId: string): 'running' | 'completed' | 'failed' | null {
+    execVersion.value; // track
+    if (!currentRun.value) return null;
+    const exec = currentRun.value.executions[nodeId];
+    if (!exec) return null;
+    return exec.status === 'running' ? 'running'
+      : exec.status === 'completed' ? 'completed'
+      : exec.status === 'failed' ? 'failed'
+      : null;
+  }
 
   const timeline = computed(() => currentRun.value?.timeline ?? []);
 
@@ -95,6 +209,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     };
 
     currentRun.value.executions[data.nodeId] = exec;
+    execVersion.value++;
 
     // Track parent→child relationship
     if (data.parentNodeId) {
@@ -159,6 +274,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
       exec.outputText = data.outputText;
       exec.completedAt = Date.now();
       exec.usage = data.usage;
+      execVersion.value++;
       // Mark all running tool calls as completed
       for (const tc of exec.toolCalls) {
         if (tc.status === 'running') tc.status = 'completed';
@@ -174,6 +290,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
       exec.status = 'failed';
       exec.error = data.error;
       exec.completedAt = Date.now();
+      execVersion.value++;
     }
     addTimeline('node_failed', data.nodeId, exec?.nodeLabel ?? data.nodeId, `Failed: ${data.error}`);
   }
@@ -245,13 +362,15 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
 
   return {
     // State
-    currentRun, showRunnerPanel, selectedNodeId,
+    currentRun, showRunnerPanel, selectedNodeId, wsConnected,
     // Computed
     isRunning, activeNodeIds, completedNodeIds, failedNodeIds, timeline, selectedExecution,
     // Actions
     onRunStarted, onNodeStarted, onNodeDelta, onNodeThinkingStart, onNodeThinkingDelta,
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,
-    selectExecution, togglePanel, reset,
+    selectExecution, togglePanel, reset, nodeExecStatus,
+    // WebSocket
+    wsConnect, wsSend, wsOn, wsDisconnect,
   };
 });

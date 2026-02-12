@@ -306,7 +306,7 @@ watch(scrollContainer, (el) => {
 </script>
 
 <template>
-  <div class="relative h-full">
+  <div class="relative h-full transition-colors duration-700" :class="chat.isRateLimited ? 'bg-red-950/40' : ''">
     <!-- Search bar -->
     <Transition
       enter-active-class="transition duration-150 ease-out"

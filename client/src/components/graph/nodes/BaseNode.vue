@@ -18,13 +18,8 @@ const runner = useGraphRunnerStore();
 
 const config = computed(() => NODE_CONFIG[props.data.nodeType]);
 
-// Execution state
-const execStatus = computed(() => {
-  if (runner.activeNodeIds.has(props.id)) return 'running';
-  if (runner.completedNodeIds.has(props.id)) return 'completed';
-  if (runner.failedNodeIds.has(props.id)) return 'failed';
-  return null;
-});
+// Execution state — uses store method for reliable reactivity
+const execStatus = computed(() => runner.nodeExecStatus(props.id));
 
 // Determine which source handles this node type has
 const sourceHandles = computed(() => {

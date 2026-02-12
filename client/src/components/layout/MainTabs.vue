@@ -109,7 +109,9 @@ function badgeFor(tab: string): number | null {
     <TabsContent value="tasks" class="mt-0 flex-1 overflow-hidden">
       <TaskBoard />
     </TabsContent>
-    <TabsContent value="graph" class="mt-0 flex-1 overflow-hidden">
+    <TabsContent value="graph" class="mt-0 flex-1 overflow-hidden" :force-mount="true"
+      :style="{ display: activeTab === 'graph' ? undefined : 'none' }"
+    >
       <GraphEditor />
     </TabsContent>
   </Tabs>
