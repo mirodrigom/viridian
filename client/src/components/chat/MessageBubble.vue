@@ -154,16 +154,13 @@ function formatTime(ts: number) {
               :class="{ 'rotate-90': thinkingOpen }"
             />
             <Brain class="h-3.5 w-3.5" />
-            <span v-if="message.isThinking" class="flex items-center gap-1.5">
-              Thinking
-              <span class="inline-flex gap-0.5">
-                <span class="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:0ms]" />
-                <span class="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:150ms]" />
-                <span class="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:300ms]" />
-              </span>
-            </span>
+            <span v-if="message.isThinking">Thinking</span>
             <span v-else>View thinking</span>
           </CollapsibleTrigger>
+          <div v-if="message.isThinking" class="ai-thinking-beam mb-2">
+            <div class="energy-beam" />
+            <div class="energy-beam secondary" />
+          </div>
           <CollapsibleContent>
             <div class="mb-3 max-h-64 overflow-auto rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">{{ message.thinking }}</div>
           </CollapsibleContent>

@@ -10,7 +10,7 @@ function handleClose(e: Event, path: string) {
 </script>
 
 <template>
-  <div v-if="files.openFiles.length > 0" class="flex items-center gap-0 overflow-x-auto border-b border-border bg-muted/30">
+  <div v-if="files.openFiles.length > 0" class="flex shrink-0 items-center gap-0 overflow-x-auto border-b border-border bg-muted/30">
     <button
       v-for="file in files.openFiles"
       :key="file.path"

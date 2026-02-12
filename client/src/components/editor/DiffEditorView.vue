@@ -12,7 +12,7 @@ import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-vue-next';
 
@@ -44,12 +44,40 @@ function createMergeView(data: DiffData) {
   }
   if (!container.value) return;
 
+  const isDark = settings.darkMode;
+
+  const diffTheme = EditorView.theme({
+    '&': {
+      backgroundColor: 'var(--background)',
+      color: 'var(--foreground)',
+    },
+    '.cm-gutters': {
+      backgroundColor: isDark ? 'var(--background)' : 'var(--muted)',
+      color: 'var(--muted-foreground)',
+      borderRight: '1px solid var(--border)',
+    },
+    '.cm-activeLine': {
+      backgroundColor: 'var(--accent)',
+    },
+    '.cm-activeLineGutter': {
+      backgroundColor: 'var(--accent)',
+    },
+    '.cm-cursor, .cm-dropCursor': {
+      borderLeftColor: isDark ? '#528bff' : 'var(--foreground)',
+    },
+    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
+      backgroundColor: isDark ? '#3E4451' : 'var(--accent)',
+    },
+  }, { dark: isDark });
+
   const sharedExtensions = [
     lineNumbers(),
     bracketMatching(),
-    syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     getLanguageExtension(data.language),
-    oneDark,
+    diffTheme,
+    isDark
+      ? syntaxHighlighting(oneDarkHighlightStyle, { fallback: true })
+      : syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
     EditorState.readOnly.of(true),
     EditorView.theme({
       '&': { height: '100%', fontSize: `${settings.editorFontSize}px` },

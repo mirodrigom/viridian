@@ -5,8 +5,9 @@ import { useAuthStore } from '@/stores/auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
-import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2 } from 'lucide-vue-next';
+import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2, CheckCircle2 } from 'lucide-vue-next';
 import MessageBubble from './MessageBubble.vue';
+import { playResponseCompleteSound } from '@/composables/useNotificationSound';
 
 const chat = useChatStore();
 const auth = useAuthStore();
@@ -97,6 +98,28 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 import { onMounted, onUnmounted } from 'vue';
 onMounted(() => document.addEventListener('keydown', handleGlobalKeydown));
 onUnmounted(() => document.removeEventListener('keydown', handleGlobalKeydown));
+
+// Response-complete notification: shows a divider + plays a sound when Claude finishes
+const showResponseComplete = ref(false);
+const responseCompleteTime = ref('');
+let hadStreaming = false;
+
+watch(() => chat.isStreaming, (streaming) => {
+  if (streaming) {
+    hadStreaming = true;
+    showResponseComplete.value = false;
+  } else if (hadStreaming) {
+    hadStreaming = false;
+    showResponseComplete.value = true;
+    responseCompleteTime.value = new Date().toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+    playResponseCompleteSound();
+  }
+});
 
 // Timeline grouping: consecutive Claude-side messages (assistant, tool, system) share one header
 function isClaudeSide(role: string): boolean {
@@ -363,6 +386,34 @@ watch(scrollContainer, (el) => {
             @reject-tool="(id) => emit('rejectTool', id)"
           />
         </div>
+
+        <!-- Energy beam: visible while Claude is streaming -->
+        <div v-if="chat.isStreaming" class="ai-thinking-beam mx-4">
+          <div class="energy-beam" />
+          <div class="energy-beam secondary" />
+        </div>
+
+        <!-- Response complete divider -->
+        <Transition
+          enter-active-class="transition duration-400 ease-out"
+          enter-from-class="opacity-0 scale-95"
+          enter-to-class="opacity-100 scale-100"
+          leave-active-class="transition duration-200 ease-in"
+          leave-from-class="opacity-100"
+          leave-to-class="opacity-0"
+        >
+          <div v-if="showResponseComplete && !chat.isStreaming" class="response-complete-divider mx-4 my-3">
+            <div class="flex items-center gap-2">
+              <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+              <div class="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1">
+                <CheckCircle2 class="h-3 w-3 text-primary" />
+                <span class="text-[11px] font-medium text-primary/80">Response complete</span>
+                <span class="text-[10px] text-muted-foreground">{{ responseCompleteTime }}</span>
+              </div>
+              <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+            </div>
+          </div>
+        </Transition>
       </div>
     </ScrollArea>
 

@@ -21,18 +21,18 @@ const creatingBranch = ref(false);
 
 onMounted(() => {
   git.fetchStatus();
+  git.fetchBranches();
+  git.fetchLog();
 });
 
-function toggleBranches() {
-  showBranches.value = !showBranches.value;
-  if (showBranches.value && git.branches.length === 0) {
+function onBranchesToggle(open: boolean) {
+  if (open && git.branches.length === 0) {
     git.fetchBranches();
   }
 }
 
-function toggleHistory() {
-  showHistory.value = !showHistory.value;
-  if (showHistory.value && git.log.length === 0) {
+function onHistoryToggle(open: boolean) {
+  if (open && git.log.length === 0) {
     git.fetchLog();
   }
 }
@@ -152,10 +152,9 @@ function formatDate(dateStr: string) {
         </div>
 
         <!-- Branch management -->
-        <Collapsible v-model:open="showBranches">
+        <Collapsible v-model:open="showBranches" @update:open="onBranchesToggle">
           <CollapsibleTrigger
             class="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
-            @click.prevent="toggleBranches"
           >
             <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': showBranches }" />
             <GitBranch class="h-3.5 w-3.5" />
@@ -197,10 +196,9 @@ function formatDate(dateStr: string) {
         </Collapsible>
 
         <!-- Commit history -->
-        <Collapsible v-model:open="showHistory">
+        <Collapsible v-model:open="showHistory" @update:open="onHistoryToggle">
           <CollapsibleTrigger
             class="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
-            @click.prevent="toggleHistory"
           >
             <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': showHistory }" />
             <History class="h-3.5 w-3.5" />

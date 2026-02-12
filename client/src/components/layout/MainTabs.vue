@@ -93,9 +93,9 @@ function badgeFor(tab: string): number | null {
     </TabsContent>
     <TabsContent value="editor" class="mt-0 flex-1 overflow-hidden">
       <DiffEditorView v-if="files.diffData" />
-      <div v-else class="flex h-full flex-col">
+      <div v-else class="flex h-full min-h-0 flex-col">
         <EditorTabs />
-        <EditorView class="flex-1" />
+        <EditorView class="min-h-0 flex-1" />
       </div>
     </TabsContent>
     <TabsContent value="git" class="mt-0 flex-1 overflow-hidden">
