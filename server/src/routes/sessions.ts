@@ -159,7 +159,7 @@ router.get('/', async (req, res) => {
     if (projectFilter) {
       const encoded = projectFilter.replace(/\//g, '-');
       console.log(`[sessions] Filtering for encoded path: ${encoded}`);
-      projectDirs = projectDirs.filter(d => d === encoded || encoded.startsWith(d + '-'));
+      projectDirs = projectDirs.filter(d => d === encoded);
       console.log(`[sessions] Matched ${projectDirs.length} dirs: ${projectDirs.join(', ')}`);
     }
 

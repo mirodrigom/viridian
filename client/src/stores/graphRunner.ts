@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   GraphRun, NodeExecution,
-  TimelineEntry,
+  TimelineEntry, EdgeFlowState,
 } from '@/types/graph-runner';
 
 export const useGraphRunnerStore = defineStore('graphRunner', () => {
@@ -11,6 +11,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   const currentRun = ref<GraphRun | null>(null);
   const showRunnerPanel = ref(false);
   const selectedNodeId = ref<string | null>(null);
+  const activeEdgeFlows = ref<Record<string, EdgeFlowState>>({});
 
   // ─── WebSocket (lives in store so it persists across tab switches) ─
   let ws: WebSocket | null = null;
@@ -303,6 +304,16 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
       currentRun.value.executions[data.parentNodeId]?.nodeLabel ?? data.parentNodeId,
       `Delegated to ${data.childLabel}: ${data.task.slice(0, 100)}`,
     );
+
+    // Trigger edge flow animation
+    const edgeId = `e-${data.parentNodeId}-${data.childNodeId}`;
+    const startedAt = Date.now();
+    activeEdgeFlows.value[edgeId] = { direction: 'forward', type: 'delegation', startedAt };
+    setTimeout(() => {
+      if (activeEdgeFlows.value[edgeId]?.startedAt === startedAt) {
+        delete activeEdgeFlows.value[edgeId];
+      }
+    }, 1500);
   }
 
   function onResultReturn(data: { parentNodeId: string; childNodeId: string; childLabel: string; result: string }) {
@@ -310,6 +321,16 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     addTimeline('result_return', data.childNodeId, data.childLabel,
       `Returned result to parent (${data.result.length} chars)`,
     );
+
+    // Trigger reverse edge flow animation
+    const edgeId = `e-${data.parentNodeId}-${data.childNodeId}`;
+    const startedAt = Date.now();
+    activeEdgeFlows.value[edgeId] = { direction: 'reverse', type: 'result_return', startedAt };
+    setTimeout(() => {
+      if (activeEdgeFlows.value[edgeId]?.startedAt === startedAt) {
+        delete activeEdgeFlows.value[edgeId];
+      }
+    }, 1500);
   }
 
   // ─── Actions: Run Completion ──────────────────────────────────────
@@ -319,6 +340,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value.status = 'completed';
     currentRun.value.completedAt = Date.now();
     currentRun.value.finalOutput = data.finalOutput;
+    activeEdgeFlows.value = {};
   }
 
   function onRunFailed(data: { runId: string; error: string }) {
@@ -326,12 +348,14 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value.status = 'failed';
     currentRun.value.completedAt = Date.now();
     addTimeline('node_failed', '', 'Runner', `Run failed: ${data.error}`);
+    activeEdgeFlows.value = {};
   }
 
   function onRunAborted(_data: { runId: string }) {
     if (!currentRun.value) return;
     currentRun.value.status = 'aborted';
     currentRun.value.completedAt = Date.now();
+    activeEdgeFlows.value = {};
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────
@@ -358,11 +382,12 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   function reset() {
     currentRun.value = null;
     selectedNodeId.value = null;
+    activeEdgeFlows.value = {};
   }
 
   return {
     // State
-    currentRun, showRunnerPanel, selectedNodeId, wsConnected,
+    currentRun, showRunnerPanel, selectedNodeId, wsConnected, activeEdgeFlows,
     // Computed
     isRunning, activeNodeIds, completedNodeIds, failedNodeIds, timeline, selectedExecution,
     // Actions

@@ -2,6 +2,13 @@
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborted';
 export type NodeExecStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+// ─── Edge Flow Animation ──────────────────────────────────────────────
+export interface EdgeFlowState {
+  direction: 'forward' | 'reverse';
+  type: 'delegation' | 'result_return';
+  startedAt: number;
+}
+
 // ─── Tool Call Tracking ────────────────────────────────────────────────
 export interface ToolCallEntry {
   tool: string;

@@ -1,5 +1,6 @@
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphStore } from '@/stores/graph';
+import { toast } from 'vue-sonner';
 
 let initialized = false;
 
@@ -56,7 +57,9 @@ export function useGraphRunner() {
     });
 
     runner.wsOn('node_failed', (data: unknown) => {
-      runner.onNodeFailed(data as { nodeId: string; error: string });
+      const d = data as { nodeId: string; error: string };
+      runner.onNodeFailed(d);
+      toast.error(`Node failed: ${d.error.slice(0, 200)}`, { duration: 6000 });
     });
 
     runner.wsOn('delegation', (data: unknown) => {
@@ -78,7 +81,9 @@ export function useGraphRunner() {
     });
 
     runner.wsOn('run_failed', (data: unknown) => {
-      runner.onRunFailed(data as { runId: string; error: string });
+      const d = data as { runId: string; error: string };
+      runner.onRunFailed(d);
+      toast.error(`Run failed: ${d.error.slice(0, 200)}`, { duration: 8000 });
     });
 
     runner.wsOn('run_aborted', (data: unknown) => {
@@ -88,6 +93,7 @@ export function useGraphRunner() {
     runner.wsOn('error', (data: unknown) => {
       const d = data as { error: string };
       console.error('[GraphRunner WS]', d.error);
+      toast.error(`Graph error: ${d.error.slice(0, 200)}`, { duration: 6000 });
     });
   }
 

@@ -21,6 +21,17 @@ const config = computed(() => NODE_CONFIG[props.data.nodeType]);
 // Execution state — uses store method for reliable reactivity
 const execStatus = computed(() => runner.nodeExecStatus(props.id));
 
+// Non-executable nodes (skill/mcp/rule) pulse when their parent agent is running
+const NON_EXEC_TYPES = new Set(['skill', 'mcp', 'rule']);
+const hasRunningParent = computed(() => {
+  if (!runner.isRunning || execStatus.value) return false;
+  if (!NON_EXEC_TYPES.has(props.data.nodeType)) return false;
+  // Check if any edge targeting this node has a source that is actively running
+  return graph.edges.some(
+    e => e.target === props.id && runner.activeNodeIds.has(e.source),
+  );
+});
+
 // Determine which source handles this node type has
 const sourceHandles = computed(() => {
   const rules = CONNECTION_RULES[props.data.nodeType];
@@ -78,6 +89,7 @@ function onDelete() {
       execStatus === 'running' ? 'ring-2 ring-yellow-500/70 shadow-lg shadow-yellow-500/10 exec-pulse' : '',
       execStatus === 'completed' ? 'ring-2 ring-green-500/50 shadow-lg shadow-green-500/10' : '',
       execStatus === 'failed' ? 'ring-2 ring-red-500/50 shadow-lg shadow-red-500/10' : '',
+      hasRunningParent ? 'ring-1 ring-yellow-400/30 auxiliary-pulse' : '',
     ]"
     @click="execStatus ? runner.selectExecution(id) : undefined"
   >
@@ -146,5 +158,14 @@ function onDelete() {
 @keyframes exec-glow {
   0%, 100% { box-shadow: 0 0 8px oklch(0.8 0.15 85 / 20%); }
   50% { box-shadow: 0 0 16px oklch(0.8 0.15 85 / 40%); }
+}
+
+.auxiliary-pulse {
+  animation: auxiliary-glow 2.5s ease-in-out infinite;
+}
+
+@keyframes auxiliary-glow {
+  0%, 100% { box-shadow: 0 0 4px oklch(0.8 0.12 85 / 10%); }
+  50% { box-shadow: 0 0 10px oklch(0.8 0.12 85 / 25%); }
 }
 </style>
