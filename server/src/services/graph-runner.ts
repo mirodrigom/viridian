@@ -484,11 +484,14 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     usages: new Map(),
   };
 
-  // Emit run_started
-  emitter.emit('run_started', { runId, rootNodeId: rootNode.id });
+  // Run asynchronously — defer so callers can wire listeners before events fire
+  setTimeout(() => {
+    emitter.emit('run_started', { runId, rootNodeId: rootNode.id });
+  }, 0);
 
-  // Run asynchronously
   (async () => {
+    // Wait one tick so run_started is emitted first
+    await new Promise(resolve => setTimeout(resolve, 0));
     try {
       const finalOutput = await executeNode(ctx, rootNode.id, prompt, null);
       emitter.emit('run_completed', { runId, finalOutput });

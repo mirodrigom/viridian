@@ -100,12 +100,16 @@ export function useGraphRunner() {
   function runGraph(prompt: string, cwd: string) {
     runner.reset();
     const graphData = graph.serialize();
-    runner.wsSend({
+    const sent = runner.wsSend({
       type: 'run_graph',
       graphData,
       prompt,
       cwd,
     });
+    if (!sent) {
+      toast.error('Graph runner not connected. Reconnecting...', { duration: 4000 });
+      runner.wsConnect();
+    }
   }
 
   function abort() {
