@@ -45,8 +45,8 @@ const reversePath = computed(() => {
 const labelX = computed(() => (props.sourceX + props.targetX) / 2);
 const labelY = computed(() => (props.sourceY + props.targetY) / 2);
 
-// Edge flow animation state
-const edgeFlow = computed(() => runner.activeEdgeFlows[props.id] ?? null);
+// Edge flow animation state (playback-aware)
+const edgeFlow = computed(() => runner.effectiveEdgeFlows[props.id] ?? null);
 
 // Active edge: source or target node is currently running
 const isActiveEdge = computed(() => {

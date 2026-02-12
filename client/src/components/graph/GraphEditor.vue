@@ -16,6 +16,7 @@ import GraphToolbar from './GraphToolbar.vue';
 import GraphPalette from './GraphPalette.vue';
 import GraphPropertiesPanel from './GraphPropertiesPanel.vue';
 import GraphRunnerPanel from './GraphRunnerPanel.vue';
+import GraphTimelineScrubber from './GraphTimelineScrubber.vue';
 import SaveGraphDialog from './dialogs/SaveGraphDialog.vue';
 import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
 import RunGraphDialog from './dialogs/RunGraphDialog.vue';
@@ -199,6 +200,8 @@ function isValidConnection(connection: Connection): boolean {
       @run="showRunDialog = true"
       @abort="abortRun()"
     />
+
+    <GraphTimelineScrubber v-if="runner.currentRun" />
 
     <ResizablePanelGroup direction="horizontal" class="flex-1">
       <!-- Palette -->

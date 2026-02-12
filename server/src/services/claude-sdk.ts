@@ -11,29 +11,41 @@
  */
 
 import { spawn, execSync, type ChildProcess } from 'child_process';
-import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'fs';
+import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { v4 as uuid } from 'uuid';
+
+const DEBUG_LOG = '/tmp/graph-runner-debug.log';
+function debugLog(msg: string) {
+  const ts = new Date().toISOString().slice(11, 23);
+  const line = `[${ts}] ${msg}\n`;
+  try { appendFileSync(DEBUG_LOG, line); } catch { /* ignore */ }
+  console.log(msg);
+}
 
 // ─── Message types emitted by the SDK ───────────────────────────────────────
 
 export interface SDKTextDelta {
   type: 'text_delta';
   text: string;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKThinkingStart {
   type: 'thinking_start';
+  parentToolUseId?: string | null;
 }
 
 export interface SDKThinkingDelta {
   type: 'thinking_delta';
   text: string;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKThinkingEnd {
   type: 'thinking_end';
+  parentToolUseId?: string | null;
 }
 
 export interface SDKToolUse {
@@ -41,6 +53,7 @@ export interface SDKToolUse {
   tool: string;
   requestId: string;
   input: Record<string, unknown>;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKToolInputDelta {
@@ -49,6 +62,7 @@ export interface SDKToolInputDelta {
   tool: string | null;
   partialJson: string;
   accumulatedJson: string;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKToolInputComplete {
@@ -56,6 +70,7 @@ export interface SDKToolInputComplete {
   requestId: string | null;
   tool: string | null;
   input: Record<string, unknown>;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKError {
@@ -77,6 +92,7 @@ export interface SDKResult {
 export interface SDKMessageDelta {
   type: 'message_delta';
   outputTokens?: number;
+  parentToolUseId?: string | null;
 }
 
 export interface SDKMessageStart {
@@ -84,6 +100,15 @@ export interface SDKMessageStart {
   inputTokens?: number;
   cacheCreationInputTokens?: number;
   cacheReadInputTokens?: number;
+  parentToolUseId?: string | null;
+}
+
+export interface SDKSubagentResult {
+  type: 'subagent_result';
+  toolUseId: string;
+  status: string;
+  content: string;
+  agentId?: string;
 }
 
 export type SDKMessage =
@@ -98,7 +123,8 @@ export type SDKMessage =
   | SDKSystem
   | SDKResult
   | SDKMessageDelta
-  | SDKMessageStart;
+  | SDKMessageStart
+  | SDKSubagentResult;
 
 // ─── Query options ──────────────────────────────────────────────────────────
 
@@ -108,12 +134,14 @@ export interface QueryOptions {
   model?: string;
   permissionMode?: string;
   maxOutputTokens?: number;
+  tools?: string[];              // Restrict available tools (--tools "Task,TodoWrite")
   allowedTools?: string[];
   disallowedTools?: string[];
   images?: { name: string; dataUrl: string }[];
   sessionId?: string;            // Claude session ID for resuming
   abortSignal?: AbortSignal;     // Abort controller signal
   noTools?: boolean;             // Disable all tools (--tools "")
+  disableSlashCommands?: boolean; // Disable built-in skills (--disable-slash-commands)
   systemPrompt?: string;         // Injected system prompt (--system-prompt)
   appendSystemPrompt?: string;   // Appended system prompt (--append-system-prompt)
   agents?: Record<string, {      // Custom sub-agents (--agents)
@@ -180,6 +208,7 @@ interface BlockState {
   currentToolId: string | null;
   currentToolName: string | null;
   claudeSessionId?: string;
+  currentParentToolUseId: string | null; // tracks which agent (parent/sub) owns current events
 }
 
 // ─── Core query function — returns AsyncGenerator ───────────────────────────
@@ -234,8 +263,12 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   }
 
   if (options.agents && Object.keys(options.agents).length > 0) {
-    console.log(`[ClaudeSDK] Passing --agents with keys:`, Object.keys(options.agents));
+    debugLog(`[ClaudeSDK] Passing --agents with keys: [${Object.keys(options.agents).join(', ')}]`);
     args.push('--agents', JSON.stringify(options.agents));
+  }
+
+  if (options.disableSlashCommands) {
+    args.push('--disable-slash-commands');
   }
 
   const permMode = options.permissionMode || 'bypassPermissions';
@@ -243,6 +276,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
 
   if (options.noTools) {
     args.push('--tools', '');
+  } else if (options.tools?.length) {
+    // --tools REPLACES the available tool set (e.g. --tools "Task" means ONLY Task)
+    args.push('--tools', options.tools.join(','));
   } else {
     const DEFAULT_ALLOWED = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch', 'Task'];
     const allowedTools = options.allowedTools?.length ? options.allowedTools : DEFAULT_ALLOWED;
@@ -253,8 +289,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     }
   }
 
-  console.log(`[ClaudeSDK] Spawning: ${claudeBin} ${args.map(a => a.length > 200 ? a.slice(0, 200) + '...[truncated]' : a).join(' ')}`);
-  console.log(`[ClaudeSDK] Full args count: ${args.length}, has --agents: ${args.includes('--agents')}, has --append-system-prompt: ${args.includes('--append-system-prompt')}`);
+  // Log FULL CLI args for debugging (mask the prompt to keep it short)
+  const debugArgs = args.map((a, i) => args[i - 1] === '-p' ? `"${a.slice(0, 80)}..."` : a);
+  debugLog(`[ClaudeSDK] FULL CLI: claude ${debugArgs.join(' ')}`);
 
   const proc = spawn(claudeBin, args, {
     cwd: options.cwd,
@@ -297,6 +334,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     currentToolInputJson: '',
     currentToolId: null,
     currentToolName: null,
+    currentParentToolUseId: null,
   };
 
   let buffer = '';
@@ -382,9 +420,17 @@ export function decodeUnicodeEscapes(text: string): string {
 // ─── Event processing (pure functions) ──────────────────────────────────────
 
 function processEvent(state: BlockState, event: Record<string, unknown>): SDKMessage[] {
+  // Log every raw event type (except noisy stream_event internals)
+  if (event.type !== 'stream_event') {
+    debugLog(`[ClaudeSDK] event: type="${event.type}", keys=[${Object.keys(event).join(',')}]${event.parent_tool_use_id ? `, ptui="${event.parent_tool_use_id}"` : ''}`);
+  }
+
   if (event.type === 'stream_event') {
     const inner = event.event as Record<string, unknown> | undefined;
     if (!inner) return [];
+    // Track which agent (parent vs sub-agent) owns the current stream events
+    const parentToolUseId = (event.parent_tool_use_id as string | null) ?? null;
+    state.currentParentToolUseId = parentToolUseId;
     return processStreamEvent(state, inner);
   }
 
@@ -399,7 +445,105 @@ function processEvent(state: BlockState, event: Record<string, unknown>): SDKMes
   }
 
   if (event.type === 'assistant') {
-    return []; // already handled via streaming
+    const parentToolUseId = (event.parent_tool_use_id as string | null) ?? null;
+    // Sub-agent messages come as complete `assistant` messages (not stream_events).
+    // Extract tool calls and text from them.
+    if (parentToolUseId) {
+      const messages: SDKMessage[] = [];
+      const message = event.message as Record<string, unknown> | undefined;
+      const content = message?.content as Array<Record<string, unknown>> | undefined;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_use') {
+            messages.push({
+              type: 'tool_use',
+              tool: (block.name as string) || '',
+              requestId: (block.id as string) || '',
+              input: (block.input as Record<string, unknown>) || {},
+              parentToolUseId,
+            });
+          } else if (block.type === 'text' && block.text) {
+            messages.push({
+              type: 'text_delta',
+              text: decodeUnicodeEscapes(block.text as string),
+              parentToolUseId,
+            });
+          }
+        }
+      }
+      return messages;
+    }
+    return []; // root assistant messages already handled via streaming
+  }
+
+  // Detect sub-agent completion via user messages (tool_result in message.content)
+  if (event.type === 'user') {
+    debugLog(`[ClaudeSDK] user event: keys=[${Object.keys(event).join(',')}]`);
+    const msg = event.message as Record<string, unknown> | undefined;
+    const msgContent = msg?.content as Record<string, unknown>[] | undefined;
+
+    // Strategy 1: Check top-level tool_use_result (some CLI versions)
+    const toolUseResult = event.tool_use_result as Record<string, unknown> | undefined;
+    if (toolUseResult) {
+      debugLog(`[ClaudeSDK] user event has tool_use_result: status="${toolUseResult.status}", keys=[${Object.keys(toolUseResult).join(',')}]`);
+    }
+
+    // Strategy 2: Check message.content for tool_result blocks (standard CLI format)
+    let toolUseId = '';
+    let resultText = '';
+    let found = false;
+
+    if (Array.isArray(msgContent)) {
+      for (const block of msgContent) {
+        if (block.type === 'tool_result') {
+          toolUseId = (block.tool_use_id as string) || '';
+          // Extract text from content (can be string, array of text blocks, or undefined)
+          const blockContent = block.content;
+          if (typeof blockContent === 'string') {
+            resultText = blockContent;
+          } else if (Array.isArray(blockContent)) {
+            resultText = (blockContent as Record<string, unknown>[])
+              .filter(c => c.type === 'text')
+              .map(c => c.text as string)
+              .join('\n');
+          }
+          found = true;
+          break;
+        }
+      }
+    }
+
+    // Also try top-level tool_use_result content if message.content didn't have it
+    if (!found && toolUseResult && toolUseResult.status === 'completed') {
+      const content = toolUseResult.content;
+      if (Array.isArray(content)) {
+        resultText = (content as Record<string, unknown>[])
+          .filter(c => typeof c === 'object' && c !== null && c.type === 'text')
+          .map(c => c.text as string)
+          .join('\n');
+      } else if (typeof content === 'string') {
+        resultText = content;
+      }
+      // Find toolUseId from message content
+      if (Array.isArray(msgContent)) {
+        const toolResult = msgContent.find((c) => c.type === 'tool_result');
+        if (toolResult) toolUseId = (toolResult.tool_use_id as string) || '';
+      }
+      found = true;
+    }
+
+    if (found && toolUseId) {
+      debugLog(`[ClaudeSDK] subagent_result detected: toolUseId="${toolUseId}", resultLen=${resultText.length}`);
+      return [{
+        type: 'subagent_result',
+        toolUseId,
+        status: 'completed',
+        content: resultText,
+        agentId: toolUseResult?.agentId as string | undefined,
+      }];
+    } else if (found) {
+      debugLog(`[ClaudeSDK] WARN: user event has tool_result but no tool_use_id!`);
+    }
   }
 
   return [];
@@ -407,6 +551,7 @@ function processEvent(state: BlockState, event: Record<string, unknown>): SDKMes
 
 function processStreamEvent(state: BlockState, event: Record<string, unknown>): SDKMessage[] {
   const messages: SDKMessage[] = [];
+  const ptui = state.currentParentToolUseId;
 
   if (event.type === 'content_block_start') {
     const block = event.content_block as Record<string, unknown> | undefined;
@@ -414,7 +559,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
 
     if (block.type === 'thinking') {
       state.currentBlockType = 'thinking';
-      messages.push({ type: 'thinking_start' });
+      messages.push({ type: 'thinking_start', parentToolUseId: ptui });
     } else if (block.type === 'tool_use') {
       state.currentBlockType = 'tool_use';
       state.currentToolId = (block.id as string) || null;
@@ -425,6 +570,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
         tool: (block.name as string) || '',
         requestId: (block.id as string) || '',
         input: (block.input as Record<string, unknown>) || {},
+        parentToolUseId: ptui,
       });
     } else if (block.type === 'text') {
       state.currentBlockType = 'text';
@@ -437,9 +583,9 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
     if (!delta) return messages;
 
     if (delta.type === 'thinking_delta' && delta.thinking) {
-      messages.push({ type: 'thinking_delta', text: decodeUnicodeEscapes(delta.thinking as string) });
+      messages.push({ type: 'thinking_delta', text: decodeUnicodeEscapes(delta.thinking as string), parentToolUseId: ptui });
     } else if (delta.type === 'text_delta' && delta.text) {
-      messages.push({ type: 'text_delta', text: decodeUnicodeEscapes(delta.text as string) });
+      messages.push({ type: 'text_delta', text: decodeUnicodeEscapes(delta.text as string), parentToolUseId: ptui });
     } else if (delta.type === 'input_json_delta' && delta.partial_json) {
       state.currentToolInputJson += delta.partial_json as string;
       messages.push({
@@ -448,6 +594,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
         tool: state.currentToolName,
         partialJson: delta.partial_json as string,
         accumulatedJson: state.currentToolInputJson,
+        parentToolUseId: ptui,
       });
     }
     return messages;
@@ -455,18 +602,22 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
 
   if (event.type === 'content_block_stop') {
     if (state.currentBlockType === 'thinking') {
-      messages.push({ type: 'thinking_end' });
+      messages.push({ type: 'thinking_end', parentToolUseId: ptui });
     }
     if (state.currentBlockType === 'tool_use') {
       let parsedInput: Record<string, unknown> = {};
       try {
         if (state.currentToolInputJson) parsedInput = JSON.parse(state.currentToolInputJson);
-      } catch { /* leave empty */ }
+      } catch (e) {
+        debugLog(`[ClaudeSDK] WARN: Failed to parse tool input JSON (tool=${state.currentToolName}, len=${state.currentToolInputJson.length}): ${e}`);
+      }
+      debugLog(`[ClaudeSDK] tool_input_complete: tool="${state.currentToolName}", requestId="${state.currentToolId}", inputKeys=[${Object.keys(parsedInput).join(',')}], ptui=${ptui}`);
       messages.push({
         type: 'tool_input_complete',
         requestId: state.currentToolId,
         tool: state.currentToolName,
         input: parsedInput,
+        parentToolUseId: ptui,
       });
       state.currentToolInputJson = '';
     }
@@ -483,6 +634,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
         inputTokens: usage.input_tokens as number | undefined,
         cacheCreationInputTokens: usage.cache_creation_input_tokens as number | undefined,
         cacheReadInputTokens: usage.cache_read_input_tokens as number | undefined,
+        parentToolUseId: ptui,
       });
     }
     return messages;
@@ -491,7 +643,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
   if (event.type === 'message_delta') {
     const usage = event.usage as Record<string, unknown> | undefined;
     if (usage) {
-      messages.push({ type: 'message_delta', outputTokens: usage.output_tokens as number | undefined });
+      messages.push({ type: 'message_delta', outputTokens: usage.output_tokens as number | undefined, parentToolUseId: ptui });
     }
     return messages;
   }

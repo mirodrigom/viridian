@@ -46,12 +46,18 @@ export type TimelineEntryType =
   | 'tool_use'
   | 'message';
 
+export interface TimelineEntryMeta {
+  parentNodeId?: string;
+  childNodeId?: string;
+}
+
 export interface TimelineEntry {
   timestamp: number;
   type: TimelineEntryType;
   nodeId: string;
   nodeLabel: string;
   detail: string;
+  meta?: TimelineEntryMeta;
 }
 
 // ─── Full run state ────────────────────────────────────────────────────

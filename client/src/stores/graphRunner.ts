@@ -3,7 +3,8 @@ import { ref, computed } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import type {
   GraphRun, NodeExecution,
-  TimelineEntry, EdgeFlowState,
+  TimelineEntry, TimelineEntryMeta, EdgeFlowState,
+  NodeExecStatus,
 } from '@/types/graph-runner';
 
 export const useGraphRunnerStore = defineStore('graphRunner', () => {
@@ -12,6 +13,12 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   const showRunnerPanel = ref(false);
   const selectedNodeId = ref<string | null>(null);
   const activeEdgeFlows = ref<Record<string, EdgeFlowState>>({});
+
+  // ─── Playback State ────────────────────────────────────────────────
+  const playbackMode = ref(false);
+  const playbackTimeMs = ref(0);
+  const playbackPlaying = ref(false);
+  const playbackSpeed = ref(1);
 
   // ─── WebSocket (lives in store so it persists across tab switches) ─
   let ws: WebSocket | null = null;
@@ -108,18 +115,56 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     wsConnected.value = false;
   }
 
-  // ─── Computed ───────────────────────────────────────────────────────
+  // ─── Computed: Playback time bounds ────────────────────────────────
   const isRunning = computed(() => currentRun.value?.status === 'running');
+
+  const runStartMs = computed(() => currentRun.value?.startedAt ?? 0);
+  const runEndMs = computed(() => {
+    if (!currentRun.value) return 0;
+    return currentRun.value.completedAt ?? Date.now();
+  });
+  const runDurationMs = computed(() => Math.max(1, runEndMs.value - runStartMs.value));
+  const playbackRatio = computed(() => {
+    if (!playbackMode.value || runDurationMs.value <= 1) return 1;
+    return Math.max(0, Math.min(1, (playbackTimeMs.value - runStartMs.value) / runDurationMs.value));
+  });
+
+  // ─── Computed: Playback-aware timeline ────────────────────────────
+  const effectiveTimeline = computed<TimelineEntry[]>(() => {
+    if (!currentRun.value) return [];
+    const all = currentRun.value.timeline;
+    if (!playbackMode.value) return all;
+    return all.filter(e => e.timestamp <= playbackTimeMs.value);
+  });
 
   // Use a version counter to force reactivity on execution status changes
   const execVersion = ref(0);
+
+  /** Derive node status from timeline events (playback-aware) */
+  function nodeStatusFromTimeline(nodeId: string): NodeExecStatus | null {
+    const entries = effectiveTimeline.value;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]!;
+      if (e.nodeId !== nodeId) continue;
+      if (e.type === 'node_complete') return 'completed';
+      if (e.type === 'node_failed') return 'failed';
+      if (e.type === 'node_start') return 'running';
+    }
+    return null;
+  }
 
   const activeNodeIds = computed(() => {
     execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
-    for (const [id, exec] of Object.entries(currentRun.value.executions)) {
-      if (exec.status === 'running') ids.add(id);
+    if (playbackMode.value) {
+      for (const [id] of Object.entries(currentRun.value.executions)) {
+        if (nodeStatusFromTimeline(id) === 'running') ids.add(id);
+      }
+    } else {
+      for (const [id, exec] of Object.entries(currentRun.value.executions)) {
+        if (exec.status === 'running') ids.add(id);
+      }
     }
     return ids;
   });
@@ -128,8 +173,14 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
-    for (const [id, exec] of Object.entries(currentRun.value.executions)) {
-      if (exec.status === 'completed') ids.add(id);
+    if (playbackMode.value) {
+      for (const [id] of Object.entries(currentRun.value.executions)) {
+        if (nodeStatusFromTimeline(id) === 'completed') ids.add(id);
+      }
+    } else {
+      for (const [id, exec] of Object.entries(currentRun.value.executions)) {
+        if (exec.status === 'completed') ids.add(id);
+      }
     }
     return ids;
   });
@@ -138,16 +189,26 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     execVersion.value; // track
     if (!currentRun.value) return new Set<string>();
     const ids = new Set<string>();
-    for (const [id, exec] of Object.entries(currentRun.value.executions)) {
-      if (exec.status === 'failed') ids.add(id);
+    if (playbackMode.value) {
+      for (const [id] of Object.entries(currentRun.value.executions)) {
+        if (nodeStatusFromTimeline(id) === 'failed') ids.add(id);
+      }
+    } else {
+      for (const [id, exec] of Object.entries(currentRun.value.executions)) {
+        if (exec.status === 'failed') ids.add(id);
+      }
     }
     return ids;
   });
 
-  /** Get the execution status for a specific node (reactive-friendly) */
+  /** Get the execution status for a specific node (reactive-friendly, playback-aware) */
   function nodeExecStatus(nodeId: string): 'running' | 'completed' | 'failed' | null {
     execVersion.value; // track
     if (!currentRun.value) return null;
+    if (playbackMode.value) {
+      const s = nodeStatusFromTimeline(nodeId);
+      return s === 'pending' ? null : s;
+    }
     const exec = currentRun.value.executions[nodeId];
     if (!exec) return null;
     return exec.status === 'running' ? 'running'
@@ -163,9 +224,36 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     return currentRun.value.executions[selectedNodeId.value] ?? null;
   });
 
+  // ─── Computed: Playback-aware edge flows ──────────────────────────
+  const EDGE_FLOW_WINDOW = 1500;
+
+  const effectiveEdgeFlows = computed<Record<string, EdgeFlowState>>(() => {
+    if (!playbackMode.value) return activeEdgeFlows.value;
+    const flows: Record<string, EdgeFlowState> = {};
+    for (const entry of effectiveTimeline.value) {
+      if (entry.type === 'delegation' && entry.meta?.parentNodeId && entry.meta?.childNodeId) {
+        const edgeId = `e-${entry.meta.parentNodeId}-${entry.meta.childNodeId}`;
+        if (playbackTimeMs.value - entry.timestamp < EDGE_FLOW_WINDOW && playbackTimeMs.value >= entry.timestamp) {
+          flows[edgeId] = { direction: 'forward', type: 'delegation', startedAt: entry.timestamp };
+        }
+      }
+      if (entry.type === 'result_return' && entry.meta?.parentNodeId && entry.meta?.childNodeId) {
+        const edgeId = `e-${entry.meta.parentNodeId}-${entry.meta.childNodeId}`;
+        if (playbackTimeMs.value - entry.timestamp < EDGE_FLOW_WINDOW && playbackTimeMs.value >= entry.timestamp) {
+          flows[edgeId] = { direction: 'reverse', type: 'result_return', startedAt: entry.timestamp };
+        }
+      }
+    }
+    return flows;
+  });
+
   // ─── Actions: Initialize Run ───────────────────────────────────────
 
   function onRunStarted(data: { runId: string; rootNodeId: string }) {
+    // Exit playback mode on new run
+    playbackMode.value = false;
+    playbackPlaying.value = false;
+
     currentRun.value = {
       runId: data.runId,
       graphId: null,
@@ -212,7 +300,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value.executions[data.nodeId] = exec;
     execVersion.value++;
 
-    // Track parent→child relationship
+    // Track parent->child relationship
     if (data.parentNodeId) {
       const parentExec = currentRun.value.executions[data.parentNodeId];
       if (parentExec) parentExec.childExecutionIds.push(data.nodeId);
@@ -303,6 +391,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     addTimeline('delegation', data.parentNodeId,
       currentRun.value.executions[data.parentNodeId]?.nodeLabel ?? data.parentNodeId,
       `Delegated to ${data.childLabel}: ${data.task.slice(0, 100)}`,
+      { parentNodeId: data.parentNodeId, childNodeId: data.childNodeId },
     );
 
     // Trigger edge flow animation
@@ -320,6 +409,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     if (!currentRun.value) return;
     addTimeline('result_return', data.childNodeId, data.childLabel,
       `Returned result to parent (${data.result.length} chars)`,
+      { parentNodeId: data.parentNodeId, childNodeId: data.childNodeId },
     );
 
     // Trigger reverse edge flow animation
@@ -358,9 +448,42 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     activeEdgeFlows.value = {};
   }
 
+  // ─── Actions: Playback Controls ───────────────────────────────────
+
+  function enterPlayback() {
+    playbackMode.value = true;
+    playbackPlaying.value = false;
+    playbackTimeMs.value = runStartMs.value;
+    execVersion.value++;
+  }
+
+  function exitPlayback() {
+    playbackMode.value = false;
+    playbackPlaying.value = false;
+    execVersion.value++;
+  }
+
+  function setPlaybackTime(ms: number) {
+    playbackTimeMs.value = Math.max(runStartMs.value, Math.min(ms, runEndMs.value));
+    execVersion.value++;
+  }
+
+  function setPlaybackRatio(ratio: number) {
+    setPlaybackTime(runStartMs.value + ratio * runDurationMs.value);
+  }
+
+  function togglePlayPause() {
+    if (!playbackMode.value) enterPlayback();
+    playbackPlaying.value = !playbackPlaying.value;
+  }
+
+  function setPlaybackSpeed(speed: number) {
+    playbackSpeed.value = speed;
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────
 
-  function addTimeline(type: TimelineEntry['type'], nodeId: string, nodeLabel: string, detail: string) {
+  function addTimeline(type: TimelineEntry['type'], nodeId: string, nodeLabel: string, detail: string, meta?: TimelineEntryMeta) {
     if (!currentRun.value) return;
     currentRun.value.timeline.push({
       timestamp: Date.now(),
@@ -368,6 +491,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
       nodeId,
       nodeLabel,
       detail,
+      ...(meta ? { meta } : {}),
     });
   }
 
@@ -383,18 +507,28 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value = null;
     selectedNodeId.value = null;
     activeEdgeFlows.value = {};
+    playbackMode.value = false;
+    playbackPlaying.value = false;
+    playbackTimeMs.value = 0;
   }
 
   return {
     // State
     currentRun, showRunnerPanel, selectedNodeId, wsConnected, activeEdgeFlows,
+    // Playback state
+    playbackMode, playbackTimeMs, playbackPlaying, playbackSpeed,
     // Computed
     isRunning, activeNodeIds, completedNodeIds, failedNodeIds, timeline, selectedExecution,
+    runStartMs, runEndMs, runDurationMs, playbackRatio,
+    effectiveTimeline, effectiveEdgeFlows,
     // Actions
     onRunStarted, onNodeStarted, onNodeDelta, onNodeThinkingStart, onNodeThinkingDelta,
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,
     selectExecution, togglePanel, reset, nodeExecStatus,
+    // Playback actions
+    enterPlayback, exitPlayback, setPlaybackTime, setPlaybackRatio,
+    togglePlayPause, setPlaybackSpeed,
     // WebSocket
     wsConnect, wsSend, wsOn, wsDisconnect,
   };

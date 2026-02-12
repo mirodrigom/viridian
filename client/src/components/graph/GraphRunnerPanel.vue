@@ -13,10 +13,11 @@ const runner = useGraphRunnerStore();
 const activeTab = ref('timeline');
 const timelineEnd = ref<HTMLDivElement>();
 
-// Auto-scroll timeline
+// Auto-scroll timeline (only when not in playback mode)
 watch(
-  () => runner.timeline.length,
+  () => runner.effectiveTimeline.length,
   async () => {
+    if (runner.playbackMode) return;
     await nextTick();
     timelineEnd.value?.scrollIntoView({ behavior: 'smooth' });
   },
@@ -139,7 +140,7 @@ function selectNode(nodeId: string) {
         <ScrollArea class="h-full">
           <div class="space-y-0.5 p-3">
             <div
-              v-for="(entry, i) in runner.timeline"
+              v-for="(entry, i) in runner.effectiveTimeline"
               :key="i"
               class="group flex items-start gap-2 rounded px-2 py-1.5 text-xs transition-colors hover:bg-accent/50"
               :class="entry.nodeId ? 'cursor-pointer' : ''"
