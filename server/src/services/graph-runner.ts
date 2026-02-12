@@ -2,8 +2,8 @@
  * Graph Execution Runner — orchestrates multi-agent graph execution.
  *
  * Resolves the graph into an execution tree, composes system prompts per node,
- * spawns Claude CLI sessions, intercepts delegation requests, routes them to
- * child nodes, and streams all events via EventEmitter.
+ * and uses Claude CLI's native --agents flag for sub-agent delegation.
+ * All delegation happens through Claude's built-in Task tool — no XML parsing.
  */
 
 import { EventEmitter } from 'events';
@@ -136,6 +136,68 @@ export function findRootNode(graphData: GraphData, resolved: Map<string, Resolve
   return agentRoot || roots[0] || null;
 }
 
+// ─── Agents Config (for --agents flag) ──────────────────────────────────
+
+interface AgentConfig {
+  description: string;
+  prompt: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  model?: string;
+  permissionMode?: string;
+  maxTurns?: number;
+}
+
+/**
+ * Walk the delegation tree from a root node and collect ALL reachable delegate
+ * nodes into a flat agents config. Sub-agents can't spawn other sub-agents in
+ * Claude CLI, so we flatten the hierarchy so the root reaches all delegates.
+ */
+function buildAgentsConfig(
+  rootNodeId: string,
+  resolvedNodes: Map<string, ResolvedNode>,
+): Record<string, AgentConfig> {
+  const agents: Record<string, AgentConfig> = {};
+  const visited = new Set<string>();
+  const queue = [rootNodeId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+
+    const resolved = resolvedNodes.get(currentId);
+    if (!resolved) continue;
+
+    for (const delegate of resolved.delegates) {
+      if (agents[delegate.id]) continue; // already added
+
+      const delegateResolved = resolvedNodes.get(delegate.id);
+      const prompt = composeSystemPrompt(delegateResolved || {
+        node: delegate, skills: [], mcps: [], rules: [], delegates: [],
+      });
+
+      const desc = (delegate.data.description as string)
+        || (delegate.data.taskDescription as string)
+        || (delegate.data.specialty as string)
+        || (delegate.data.label as string)
+        || delegate.type;
+
+      agents[delegate.id] = {
+        description: desc,
+        prompt: prompt || `You are a ${delegate.type} agent.`,
+        model: (delegate.data.model as string) || undefined,
+        permissionMode: (delegate.data.permissionMode as string) || 'bypassPermissions',
+      };
+
+      // Enqueue delegate's own delegates for flattening
+      queue.push(delegate.id);
+    }
+  }
+
+  return agents;
+}
+
 // ─── System Prompt Composition ──────────────────────────────────────────
 
 function composeSystemPrompt(resolved: ResolvedNode): string {
@@ -167,51 +229,9 @@ function composeSystemPrompt(resolved: ResolvedNode): string {
     parts.push(`\n## Available Skills\n${skillLines.join('\n')}`);
   }
 
-  // 4. Delegation section (only if there are delegates)
-  if (resolved.delegates.length > 0) {
-    const delegateLines = resolved.delegates.map(d => {
-      const desc = d.data.description as string || d.data.taskDescription as string || d.data.specialty as string || '';
-      return `- **${d.data.label || d.type}** (id: \`${d.id}\`): ${desc || 'No description'}`;
-    });
-
-    parts.push(`\n## Available Delegates\nYou can delegate tasks to the following agents:\n${delegateLines.join('\n')}`);
-
-    parts.push(`\n## Delegation Protocol
-When you need to delegate a task to one of your available delegates, output a delegation block in this exact format:
-
-<delegate target="nodeId">
-Describe the task you want the delegate to perform here.
-</delegate>
-
-Rules:
-- Replace "nodeId" with the actual id of the delegate (shown above)
-- You can delegate to multiple agents in a single response — use one <delegate> block per delegation
-- After delegating, STOP your response and wait. The orchestrator will execute the delegate and return results to you
-- You will receive the delegate's response and can then continue your work
-- Only delegate when the task genuinely requires the delegate's capabilities`);
-  }
+  // Delegation is now handled by --agents flag, no XML protocol needed
 
   return parts.join('\n\n');
-}
-
-// ─── Delegation Parsing ─────────────────────────────────────────────────
-
-interface DelegationRequest {
-  targetNodeId: string;
-  task: string;
-}
-
-function parseDelegations(text: string): DelegationRequest[] {
-  const delegations: DelegationRequest[] = [];
-  const regex = /<delegate\s+target="([^"]+)">([\s\S]*?)<\/delegate>/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    delegations.push({
-      targetNodeId: match[1]!,
-      task: match[2]!.trim(),
-    });
-  }
-  return delegations;
 }
 
 // ─── Node Execution ─────────────────────────────────────────────────────
@@ -239,8 +259,11 @@ async function executeNode(
     parentNodeId,
   });
 
-  // Compose system prompt
+  // Compose system prompt (appended to Claude defaults, not replacing)
   const systemPrompt = composeSystemPrompt(resolved);
+
+  // Build agents config from delegation edges (flattened)
+  const agents = buildAgentsConfig(nodeId, ctx.resolvedNodes);
 
   // Build query options
   const model = resolved.node.data.model as string || undefined;
@@ -252,7 +275,6 @@ async function executeNode(
   let inputTokens = 0;
   let outputTokens = 0;
   let accumulatedText = '';
-  let sessionId = ctx.sessionIds.get(nodeId);
 
   try {
     const stream = claudeQuery({
@@ -260,10 +282,10 @@ async function executeNode(
       cwd: ctx.cwd,
       model,
       permissionMode,
-      sessionId,
       allowedTools,
       disallowedTools,
-      systemPrompt: systemPrompt || undefined,
+      appendSystemPrompt: systemPrompt || undefined,
+      agents: Object.keys(agents).length > 0 ? agents : undefined,
       abortSignal: ctx.abortController.signal,
     });
 
@@ -273,106 +295,13 @@ async function executeNode(
         onText: (text) => { accumulatedText += text; },
         onInputTokens: (t) => { inputTokens = t; },
         onOutputTokens: (t) => { outputTokens = t; },
-        onSessionId: (sid) => { ctx.sessionIds.set(nodeId, sid); sessionId = sid; },
+        onSessionId: (sid) => { ctx.sessionIds.set(nodeId, sid); },
       });
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : 'Unknown error';
     ctx.emitter.emit('node_failed', { nodeId, error });
     throw err;
-  }
-
-  // Check for delegations in the output
-  const delegations = parseDelegations(accumulatedText);
-
-  if (delegations.length > 0) {
-    // Execute delegations sequentially
-    const delegationResults: { childLabel: string; childId: string; result: string }[] = [];
-
-    for (const delegation of delegations) {
-      const childResolved = ctx.resolvedNodes.get(delegation.targetNodeId);
-      if (!childResolved) {
-        ctx.emitter.emit('node_failed', {
-          nodeId: delegation.targetNodeId,
-          error: `Delegation target ${delegation.targetNodeId} not found`,
-        });
-        continue;
-      }
-
-      const childLabel = childResolved.node.data.label as string || delegation.targetNodeId;
-
-      // Emit delegation event
-      ctx.emitter.emit('delegation', {
-        parentNodeId: nodeId,
-        childNodeId: delegation.targetNodeId,
-        childLabel,
-        task: delegation.task,
-      });
-
-      try {
-        // Recursively execute the child node
-        const childResult = await executeNode(ctx, delegation.targetNodeId, delegation.task, nodeId);
-
-        // Emit result_return event
-        ctx.emitter.emit('result_return', {
-          parentNodeId: nodeId,
-          childNodeId: delegation.targetNodeId,
-          childLabel,
-          result: childResult,
-        });
-
-        delegationResults.push({ childLabel, childId: delegation.targetNodeId, result: childResult });
-      } catch (err) {
-        const error = err instanceof Error ? err.message : 'Delegation failed';
-        delegationResults.push({ childLabel, childId: delegation.targetNodeId, result: `[ERROR] ${error}` });
-      }
-    }
-
-    // Re-prompt the parent with child results using --resume
-    const resultsPrompt = delegationResults.map(r =>
-      `## Results from ${r.childLabel} (${r.childId})\n\n${r.result}`,
-    ).join('\n\n---\n\n');
-
-    const resumePrompt = `The following delegates have completed their tasks. Review their results and continue:\n\n${resultsPrompt}`;
-
-    // Recursive call with resume — the node keeps its session
-    try {
-      const resumeStream = claudeQuery({
-        prompt: resumePrompt,
-        cwd: ctx.cwd,
-        model,
-        permissionMode,
-        sessionId,
-        allowedTools,
-        disallowedTools,
-        abortSignal: ctx.abortController.signal,
-      });
-
-      let resumeText = '';
-      for await (const msg of resumeStream) {
-        if (ctx.abortController.signal.aborted) break;
-        processNodeMessage(ctx, nodeId, msg, {
-          onText: (text) => { resumeText += text; accumulatedText += text; },
-          onInputTokens: (t) => { inputTokens += t; },
-          onOutputTokens: (t) => { outputTokens += t; },
-          onSessionId: (sid) => { ctx.sessionIds.set(nodeId, sid); },
-        });
-      }
-
-      // Check for further delegations (recursive)
-      const furtherDelegations = parseDelegations(resumeText);
-      if (furtherDelegations.length > 0) {
-        // For safety, limit delegation depth — just log a warning for now
-        ctx.emitter.emit('node_delta', {
-          nodeId,
-          text: '\n\n[Runner: Further delegation detected but skipped to prevent infinite loops]\n',
-        });
-      }
-    } catch (err) {
-      // Resume failed, but we already have the initial output
-      const error = err instanceof Error ? err.message : 'Resume failed';
-      ctx.emitter.emit('node_delta', { nodeId, text: `\n\n[Resume error: ${error}]\n` });
-    }
   }
 
   // Store final output
@@ -415,7 +344,7 @@ function processNodeMessage(
     case 'thinking_end':
       ctx.emitter.emit('node_thinking_end', { nodeId });
       break;
-    case 'tool_use':
+    case 'tool_use': {
       ctx.emitter.emit('node_tool_use', {
         nodeId,
         tool: msg.tool,
@@ -423,6 +352,35 @@ function processNodeMessage(
         requestId: msg.requestId,
       });
       break;
+    }
+    case 'tool_input_complete': {
+      // Detect Task tool calls that match delegate node IDs → emit delegation event.
+      // Must be done here (not in tool_use) because tool_use fires at content_block_start
+      // with an empty input — the full input is only available at content_block_stop.
+      if (msg.tool === 'Task') {
+        const agentType = msg.input.subagent_type as string | undefined;
+        if (agentType) {
+          const delegateResolved = ctx.resolvedNodes.get(agentType);
+          if (delegateResolved) {
+            const childLabel = delegateResolved.node.data.label as string || agentType;
+            ctx.emitter.emit('delegation', {
+              parentNodeId: nodeId,
+              childNodeId: agentType,
+              childLabel,
+              task: (msg.input.prompt as string) || '',
+            });
+            ctx.emitter.emit('node_started', {
+              nodeId: agentType,
+              nodeLabel: childLabel,
+              nodeType: delegateResolved.node.type,
+              inputPrompt: (msg.input.prompt as string) || '',
+              parentNodeId: nodeId,
+            });
+          }
+        }
+      }
+      break;
+    }
     case 'message_start': {
       const input = (msg.inputTokens || 0)
         + (msg.cacheCreationInputTokens || 0)

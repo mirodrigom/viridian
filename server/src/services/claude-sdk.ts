@@ -116,6 +116,15 @@ export interface QueryOptions {
   noTools?: boolean;             // Disable all tools (--tools "")
   systemPrompt?: string;         // Injected system prompt (--system-prompt)
   appendSystemPrompt?: string;   // Appended system prompt (--append-system-prompt)
+  agents?: Record<string, {      // Custom sub-agents (--agents)
+    description: string;
+    prompt: string;
+    tools?: string[];
+    disallowedTools?: string[];
+    model?: string;
+    permissionMode?: string;
+    maxTurns?: number;
+  }>;
 }
 
 // ─── Binary resolution ──────────────────────────────────────────────────────
@@ -222,6 +231,10 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
 
   if (options.appendSystemPrompt) {
     args.push('--append-system-prompt', options.appendSystemPrompt);
+  }
+
+  if (options.agents && Object.keys(options.agents).length > 0) {
+    args.push('--agents', JSON.stringify(options.agents));
   }
 
   const permMode = options.permissionMode || 'bypassPermissions';
