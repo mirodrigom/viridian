@@ -231,12 +231,22 @@ router.get('/:id/messages', async (req, res) => {
       return;
     }
 
+    // Pagination params
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const before = req.query.before !== undefined
+      ? parseInt(req.query.before as string)
+      : undefined;
+    const after = req.query.after !== undefined
+      ? parseInt(req.query.after as string)
+      : undefined;
+
     interface ParsedMessage {
       id: string;
       role: 'user' | 'assistant' | 'system';
       content: string;
       timestamp: number;
       thinking?: string;
+      images?: { name: string; dataUrl: string }[];
       toolUse?: {
         tool: string;
         input: Record<string, unknown>;
@@ -245,7 +255,13 @@ router.get('/:id/messages', async (req, res) => {
       };
     }
 
-    const messages: ParsedMessage[] = [];
+    const allMessages: ParsedMessage[] = [];
+
+    // Track the latest usage data from assistant entries
+    let lastInputTokens = 0;
+    let lastOutputTokens = 0;
+    let lastCacheCreation = 0;
+    let lastCacheRead = 0;
 
     await new Promise<void>((resolve) => {
       const rl = createInterface({
@@ -259,72 +275,119 @@ router.get('/:id/messages', async (req, res) => {
           const entry = JSON.parse(line);
 
           if (entry.type === 'user' && entry.message?.content) {
-            const content = typeof entry.message.content === 'string'
-              ? entry.message.content
-              : Array.isArray(entry.message.content)
-                ? entry.message.content
-                    .filter((b: { type: string }) => b.type === 'text')
-                    .map((b: { text: string }) => b.text)
-                    .join('\n')
-                : '';
-            if (content) {
-              messages.push({
-                id: entry.uuid || `user-${messages.length}`,
+            let content = '';
+            let images: { name: string; dataUrl: string }[] | undefined;
+
+            if (typeof entry.message.content === 'string') {
+              content = entry.message.content;
+            } else if (Array.isArray(entry.message.content)) {
+              content = entry.message.content
+                .filter((b: { type: string }) => b.type === 'text')
+                .map((b: { text: string }) => b.text)
+                .join('\n');
+
+              // Extract image blocks (base64-encoded images from Claude Code)
+              const imageBlocks = entry.message.content.filter(
+                (b: { type: string }) => b.type === 'image'
+              );
+              if (imageBlocks.length > 0) {
+                images = imageBlocks.map((b: { source?: { media_type?: string; data?: string } }, i: number) => ({
+                  name: `image-${i + 1}`,
+                  dataUrl: `data:${b.source?.media_type || 'image/png'};base64,${b.source?.data || ''}`,
+                }));
+              }
+            }
+
+            if (content || images?.length) {
+              allMessages.push({
+                id: entry.uuid || `user-${allMessages.length}`,
                 role: 'user',
-                content,
+                content: content || '(image)',
                 timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
+                images,
               });
             }
           }
 
           if (entry.type === 'assistant' && entry.message?.content) {
+            // Extract usage from assistant entries (latest values = current context window)
+            const usage = entry.message?.usage;
+            if (usage) {
+              if (usage.input_tokens) lastInputTokens = usage.input_tokens;
+              if (usage.output_tokens) lastOutputTokens = usage.output_tokens;
+              if (usage.cache_creation_input_tokens) lastCacheCreation = usage.cache_creation_input_tokens;
+              if (usage.cache_read_input_tokens) lastCacheRead = usage.cache_read_input_tokens;
+            }
+
             const contentBlocks = entry.message.content;
             const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
 
             if (Array.isArray(contentBlocks)) {
-              // Extract thinking text
+              // Extract thinking text (always shown with the first assistant text)
               const thinkingText = contentBlocks
                 .filter((b: { type: string }) => b.type === 'thinking')
                 .map((b: { thinking: string }) => b.thinking)
                 .join('\n');
 
-              // Extract text content
-              const textContent = contentBlocks
-                .filter((b: { type: string }) => b.type === 'text')
-                .map((b: { text: string }) => b.text)
-                .join('\n');
+              // Emit blocks in order: preserves the natural flow where tools
+              // appear between text segments (e.g. text → tool → tool → text)
+              let pendingText = '';
+              let thinkingUsed = false;
 
-              // Emit assistant message with thinking
-              if (textContent || thinkingText) {
-                messages.push({
-                  id: entry.uuid || `asst-${messages.length}`,
-                  role: 'assistant',
-                  content: textContent,
-                  timestamp: ts,
-                  thinking: thinkingText || undefined,
-                });
-              }
-
-              // Emit tool use messages
               for (const block of contentBlocks) {
-                if (block.type === 'tool_use') {
-                  messages.push({
-                    id: block.id || `tool-${messages.length}`,
+                if (block.type === 'text' && block.text) {
+                  pendingText += (pendingText ? '\n' : '') + block.text;
+                } else if (block.type === 'tool_use') {
+                  // Flush any pending text before the tool
+                  if (pendingText) {
+                    allMessages.push({
+                      id: entry.uuid || `asst-${allMessages.length}`,
+                      role: 'assistant',
+                      content: pendingText,
+                      timestamp: ts,
+                      thinking: !thinkingUsed ? (thinkingText || undefined) : undefined,
+                    });
+                    pendingText = '';
+                    thinkingUsed = true;
+                  } else if (!thinkingUsed && thinkingText) {
+                    // No text before first tool — emit empty assistant msg with thinking
+                    allMessages.push({
+                      id: entry.uuid || `asst-${allMessages.length}`,
+                      role: 'assistant',
+                      content: '',
+                      timestamp: ts,
+                      thinking: thinkingText,
+                    });
+                    thinkingUsed = true;
+                  }
+                  allMessages.push({
+                    id: block.id || `tool-${allMessages.length}`,
                     role: 'system',
                     content: `Tool request: ${block.name}`,
                     timestamp: ts,
                     toolUse: {
                       tool: block.name,
                       input: block.input || {},
-                      requestId: block.id || `tool-${messages.length}`,
+                      requestId: block.id || `tool-${allMessages.length}`,
                       status: 'approved',
                     },
                   });
                 }
               }
+
+              // Flush remaining text
+              if (pendingText) {
+                allMessages.push({
+                  id: `asst-${allMessages.length}`,
+                  role: 'assistant',
+                  content: pendingText,
+                  timestamp: ts,
+                  thinking: !thinkingUsed ? (thinkingText || undefined) : undefined,
+                });
+              }
             } else if (typeof contentBlocks === 'string' && contentBlocks) {
-              messages.push({
-                id: entry.uuid || `asst-${messages.length}`,
+              allMessages.push({
+                id: entry.uuid || `asst-${allMessages.length}`,
                 role: 'assistant',
                 content: contentBlocks,
                 timestamp: ts,
@@ -340,7 +403,49 @@ router.get('/:id/messages', async (req, res) => {
       rl.on('error', () => resolve());
     });
 
-    res.json({ messages });
+    const total = allMessages.length;
+
+    // Context window usage: input_tokens from the last assistant response is the
+    // best proxy for how much of the 200k context is used.
+    // Total effective input = input_tokens + cache_creation + cache_read
+    const contextTokens = lastInputTokens + lastCacheCreation + lastCacheRead;
+    const usageData = {
+      inputTokens: contextTokens,
+      outputTokens: lastOutputTokens,
+    };
+
+    // Delta mode: return messages after a given index
+    if (after !== undefined) {
+      const startIdx = Math.max(0, after);
+      const deltaMessages = allMessages.slice(startIdx);
+      res.json({
+        messages: deltaMessages,
+        total,
+        hasMore: false,
+        oldestIndex: startIdx,
+        usage: usageData,
+      });
+      return;
+    }
+
+    // Pagination mode
+    let endIndex: number;
+    let startIndex: number;
+
+    if (before !== undefined) {
+      // Load older messages: return `limit` messages ending before `before`
+      endIndex = Math.min(before, total);
+      startIndex = Math.max(0, endIndex - limit);
+    } else {
+      // Initial load: return the last `limit` messages
+      endIndex = total;
+      startIndex = Math.max(0, total - limit);
+    }
+
+    const messages = allMessages.slice(startIndex, endIndex);
+    const hasMore = startIndex > 0;
+
+    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData });
   } catch (err) {
     console.error('[sessions] Error loading messages:', err);
     res.status(500).json({ error: 'Failed to load session messages' });

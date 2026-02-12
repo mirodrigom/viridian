@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { watch, computed } from 'vue';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
@@ -13,7 +13,7 @@ import GitView from '@/components/git/GitView.vue';
 import TaskBoard from '@/components/tasks/TaskBoard.vue';
 import { useTasksStore } from '@/stores/tasks';
 
-const activeTab = ref('chat');
+const activeTab = defineModel<string>('activeTab', { default: 'chat' });
 const files = useFilesStore();
 const chat = useChatStore();
 const git = useGitStore();

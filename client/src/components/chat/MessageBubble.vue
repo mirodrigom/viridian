@@ -11,7 +11,7 @@ import {
   ChevronRight, Check, X, AlertCircle, Brain,
   FileText, FileOutput, Pencil, TerminalSquare,
   FolderSearch, Search, ListTodo, Globe,
-  Wrench, Bot,
+  Wrench, Bot, MessageCircleQuestion,
 } from 'lucide-vue-next';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 
@@ -20,10 +20,12 @@ const props = withDefaults(defineProps<{
   searchQuery?: string;
   isSearchMatch?: boolean;
   isActiveResult?: boolean;
+  isGroupStart?: boolean;
 }>(), {
   searchQuery: '',
   isSearchMatch: false,
   isActiveResult: false,
+  isGroupStart: true,
 });
 
 const emit = defineEmits<{
@@ -44,6 +46,7 @@ const TOOL_ICONS: Record<string, Component> = {
   WebFetch: Globe,
   WebSearch: Search,
   Task: Bot,
+  AskUserQuestion: MessageCircleQuestion,
 };
 
 const toolIcon = computed(() => {
@@ -123,17 +126,23 @@ function formatTime(ts: number) {
   <!-- Assistant message -->
   <div
     v-else-if="message.role === 'assistant'"
-    class="px-4 py-3 transition-colors"
-    :class="{ 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult }"
+    class="px-4 transition-colors"
+    :class="[
+      isGroupStart ? 'pt-3' : 'pt-0.5',
+      { 'pb-1': true, 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult },
+    ]"
   >
     <div class="flex items-start gap-2.5">
-      <Avatar class="h-8 w-8 shrink-0 border border-primary/20">
+      <!-- Avatar: visible on group start, invisible spacer on continuation -->
+      <Avatar v-if="isGroupStart" class="h-8 w-8 shrink-0 border border-primary/20">
         <AvatarFallback class="bg-primary/10 p-1">
           <ClaudeLogo :size="16" class="text-primary" />
         </AvatarFallback>
       </Avatar>
+      <div v-else class="w-8 shrink-0" />
+
       <div class="min-w-0 flex-1">
-        <p class="mb-1.5 text-sm font-semibold text-foreground">Claude</p>
+        <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">Claude</p>
 
         <!-- Thinking block (collapsible) -->
         <Collapsible v-if="message.thinking || message.isThinking" v-model:open="thinkingOpen">
@@ -165,13 +174,12 @@ function formatTime(ts: number) {
           v-html="renderedContent"
         />
         <span v-if="message.isStreaming" class="ml-0.5 inline-block h-4 w-0.5 animate-pulse rounded-full bg-primary" />
-        <p class="mt-1.5 text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
       </div>
     </div>
   </div>
 
   <!-- Tool use -->
-  <div v-else-if="message.toolUse" class="py-2 pl-[3.25rem] pr-4">
+  <div v-else-if="message.toolUse" class="py-0.5 pl-[3.25rem] pr-4">
     <div class="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <!-- Tool header -->
       <div class="flex items-center gap-2.5 border-b border-border bg-muted/30 px-3.5 py-2.5">
@@ -183,13 +191,20 @@ function formatTime(ts: number) {
         >
           <component :is="toolIcon" class="h-3 w-3" />
         </div>
-        <span class="text-sm font-medium text-foreground">{{ message.toolUse.tool }}</span>
+        <span class="text-sm font-medium text-foreground">{{ message.toolUse.tool === 'AskUserQuestion' ? 'Question' : message.toolUse.tool }}</span>
         <Badge
-          v-if="message.toolUse.status === 'pending'"
+          v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'"
           variant="outline"
           class="ml-auto text-[10px]"
         >
           Awaiting approval ({{ approvalTimeLeft }}s)
+        </Badge>
+        <Badge
+          v-else-if="message.toolUse.status === 'pending' && message.toolUse.tool === 'AskUserQuestion'"
+          variant="outline"
+          class="ml-auto text-[10px]"
+        >
+          Awaiting answer
         </Badge>
         <Badge
           v-else-if="message.toolUse.status === 'rejected'"
@@ -203,8 +218,8 @@ function formatTime(ts: number) {
       <!-- Tool-specific visualization -->
       <ToolView :tool-use="message.toolUse" />
 
-      <!-- Approval buttons (when pending) -->
-      <div v-if="message.toolUse.status === 'pending'" class="flex gap-2 border-t border-border bg-muted/10 px-3.5 py-2.5">
+      <!-- Approval buttons (when pending, not for AskUserQuestion which has its own modal) -->
+      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'" class="flex gap-2 border-t border-border bg-muted/10 px-3.5 py-2.5">
         <Button size="sm" class="h-7 gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
           <Check class="h-3.5 w-3.5" />
           Allow
@@ -215,11 +230,10 @@ function formatTime(ts: number) {
         </Button>
       </div>
     </div>
-    <p class="mt-1 text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
   </div>
 
   <!-- System message (errors, info) -->
-  <div v-else class="flex items-center gap-2 px-4 py-2 pl-[3.25rem]">
+  <div v-else class="flex items-center gap-2 px-4 py-1 pl-[3.25rem]">
     <AlertCircle v-if="message.content.startsWith('Error')" class="h-3.5 w-3.5 shrink-0 text-destructive" />
     <p
       class="text-xs"

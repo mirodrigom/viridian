@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, provide, onMounted, onUnmounted } from 'vue';
 import { useClaudeStream } from '@/composables/useClaudeStream';
+import { useChatStore } from '@/stores/chat';
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -9,14 +10,19 @@ import {
 import SessionSidebar from './SessionSidebar.vue';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
+import TodoTimeline from './TodoTimeline.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { PanelLeft } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 
+const chat = useChatStore();
 const { init, sendMessage, respondToTool, abort } = useClaudeStream();
+provide('respondToTool', respondToTool);
 const showToolsSettings = ref(false);
 const showMobileSidebar = ref(false);
 const isMobile = ref(false);
+
+const hasTodos = computed(() => chat.latestTodos.length > 0);
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;
@@ -47,7 +53,7 @@ defineExpose({ showToolsSettings });
         />
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel :default-size="78" :min-size="50">
+      <ResizablePanel :default-size="hasTodos ? 58 : 78" :min-size="40">
         <div class="flex h-full flex-col">
           <MessageList
             class="flex-1 overflow-hidden"
@@ -57,6 +63,12 @@ defineExpose({ showToolsSettings });
           <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
         </div>
       </ResizablePanel>
+      <template v-if="hasTodos">
+        <ResizableHandle />
+        <ResizablePanel :default-size="20" :min-size="14" :max-size="35">
+          <TodoTimeline />
+        </ResizablePanel>
+      </template>
     </ResizablePanelGroup>
 
     <!-- Mobile: overlay sidebar + full-width chat -->

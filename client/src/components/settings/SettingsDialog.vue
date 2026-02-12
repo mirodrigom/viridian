@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS } from '@/stores/settings';
+import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -17,10 +17,7 @@ import {
 import McpSettingsDialog from './McpSettingsDialog.vue';
 import ApiKeysDialog from './ApiKeysDialog.vue';
 import { Server, Key } from 'lucide-vue-next';
-import { LOCALE_OPTIONS, setLocale, type SupportedLocale } from '@/i18n';
-import { useI18n } from 'vue-i18n';
 
-const { locale } = useI18n();
 const settings = useSettingsStore();
 const auth = useAuthStore();
 const chat = useChatStore();
@@ -84,23 +81,6 @@ async function saveGitConfig() {
           <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Appearance</h4>
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <Label>Dark Mode</Label>
-              <Switch :checked="settings.darkMode" @update:checked="settings.toggleDarkMode" />
-            </div>
-            <div class="flex items-center justify-between">
-              <Label>Language</Label>
-              <Select :model-value="locale" @update:model-value="(v: any) => setLocale(v as SupportedLocale)">
-                <SelectTrigger class="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="l in LOCALE_OPTIONS" :key="l.value" :value="l.value">
-                    {{ l.nativeLabel }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="flex items-center justify-between">
               <Label>Editor Font Size</Label>
               <Select :model-value="String(settings.fontSize)" @update:model-value="(v: any) => { settings.fontSize = Number(v); settings.save(); }">
                 <SelectTrigger class="w-24">
@@ -113,73 +93,6 @@ async function saveGitConfig() {
                   <SelectItem value="14">14px</SelectItem>
                   <SelectItem value="16">16px</SelectItem>
                   <SelectItem value="18">18px</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
-        <!-- Claude Settings -->
-        <div>
-          <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Claude</h4>
-          <div class="space-y-4">
-            <div class="space-y-2">
-              <Label>Model</Label>
-              <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="m in MODEL_OPTIONS" :key="m.value" :value="m.value">
-                    {{ m.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div class="space-y-2">
-              <Label>Permission Mode</Label>
-              <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p.value" :value="p.value">
-                    {{ p.icon }} {{ p.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <Label>Max Context Window</Label>
-              <Select :model-value="String(settings.maxTokens)" @update:model-value="(v: any) => { settings.maxTokens = Number(v); settings.save(); }">
-                <SelectTrigger class="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="100000">100k tokens</SelectItem>
-                  <SelectItem value="128000">128k tokens</SelectItem>
-                  <SelectItem value="200000">200k tokens</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div class="flex items-center justify-between">
-              <Label>Max Output Tokens</Label>
-              <Select :model-value="String(settings.maxOutputTokens)" @update:model-value="(v: any) => { settings.maxOutputTokens = Number(v); settings.save(); }">
-                <SelectTrigger class="w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="4096">4k tokens</SelectItem>
-                  <SelectItem value="8192">8k tokens</SelectItem>
-                  <SelectItem value="16384">16k tokens</SelectItem>
-                  <SelectItem value="32768">32k tokens</SelectItem>
-                  <SelectItem value="65536">64k tokens</SelectItem>
-                  <SelectItem value="0">Unlimited</SelectItem>
                 </SelectContent>
               </Select>
             </div>

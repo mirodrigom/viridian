@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useChatStore } from '@/stores/chat';
 import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS, type ClaudeModel, type PermissionMode } from '@/stores/settings';
 import { useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import {
 import { useVersionCheck } from '@/composables/useVersionCheck';
 
 const auth = useAuthStore();
+const chat = useChatStore();
 const settings = useSettingsStore();
 const router = useRouter();
 
@@ -119,7 +121,8 @@ function openProject(path?: string) {
   recentPaths.value = paths.slice(0, 5);
   localStorage.setItem('recentPaths', JSON.stringify(recentPaths.value));
 
-  router.push({ name: 'project', query: { path: target } });
+  chat.setProjectPath(target);
+  router.push({ name: 'project' });
 }
 
 function logout() {

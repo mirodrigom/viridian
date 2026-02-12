@@ -20,6 +20,11 @@ const router = createRouter({
       name: 'project',
       component: () => import('@/pages/ProjectPage.vue'),
     },
+    {
+      path: '/chat/:sessionId',
+      name: 'chat-session',
+      component: () => import('@/pages/ProjectPage.vue'),
+    },
   ],
 });
 

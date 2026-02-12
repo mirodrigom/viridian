@@ -79,6 +79,11 @@ export interface SDKMessageDelta {
   outputTokens?: number;
 }
 
+export interface SDKMessageStart {
+  type: 'message_start';
+  inputTokens?: number;
+}
+
 export type SDKMessage =
   | SDKTextDelta
   | SDKThinkingStart
@@ -90,7 +95,8 @@ export type SDKMessage =
   | SDKError
   | SDKSystem
   | SDKResult
-  | SDKMessageDelta;
+  | SDKMessageDelta
+  | SDKMessageStart;
 
 // ─── Query options ──────────────────────────────────────────────────────────
 
@@ -181,27 +187,26 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     }
   }
 
+  // Build prompt — prepend image paths so Claude can read them with its Read tool
+  let prompt = options.prompt;
+  if (imagePaths.length > 0) {
+    const imageRefs = imagePaths.map(p => p).join('\n');
+    prompt = `[Attached images — use the Read tool to view them]\n${imageRefs}\n\n${prompt}`;
+  }
+
   const args = [
-    '-p', options.prompt,
+    '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
   ];
 
-  for (const imgPath of imagePaths) {
-    args.push('--image', imgPath);
-  }
-
   if (options.sessionId) {
-    args.push('--session-id', options.sessionId, '--resume');
+    args.push('--resume', options.sessionId);
   }
 
   if (options.model) {
     args.push('--model', options.model);
-  }
-
-  if (options.maxOutputTokens && options.maxOutputTokens > 0) {
-    args.push('--max-tokens', String(options.maxOutputTokens));
   }
 
   const permMode = options.permissionMode || 'bypassPermissions';
@@ -416,6 +421,15 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
       state.currentToolInputJson = '';
     }
     state.currentBlockType = null;
+    return messages;
+  }
+
+  if (event.type === 'message_start') {
+    const message = event.message as Record<string, unknown> | undefined;
+    const usage = message?.usage as Record<string, unknown> | undefined;
+    if (usage) {
+      messages.push({ type: 'message_start', inputTokens: usage.input_tokens as number | undefined });
+    }
     return messages;
   }
 

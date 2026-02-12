@@ -32,21 +32,75 @@ export function setupSessionsWs(server: Server) {
     });
   });
 
+  // Keepalive: ping every 30s
+  const PING_INTERVAL = 30_000;
+
   wss.on('connection', (ws: WebSocket) => {
     clients.add(ws);
-    ws.on('close', () => clients.delete(ws));
+    let alive = true;
+
+    const pingTimer = setInterval(() => {
+      if (!alive) {
+        ws.terminate();
+        return;
+      }
+      alive = false;
+      ws.ping();
+    }, PING_INTERVAL);
+
+    ws.on('pong', () => { alive = true; });
+
+    ws.on('close', () => {
+      clearInterval(pingTimer);
+      clients.delete(ws);
+    });
   });
 
   // Watch for JSONL file changes in Claude projects dir
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // Use directory watch with depth:1 (projectDir/session.jsonl) + polling for reliability
+  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  const watcher = watch(join(CLAUDE_DIR, '**/*.jsonl'), {
+  const watcher = watch(CLAUDE_DIR, {
     ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
+    depth: 1,
+    usePolling: true,
+    interval: 2000,
+    binaryInterval: 2000,
+    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 300 },
   });
 
-  function broadcast() {
-    const msg = JSON.stringify({ type: 'sessions_updated', timestamp: Date.now() });
+  watcher.on('ready', () => {
+    const watched = watcher.getWatched();
+    const dirs = Object.keys(watched);
+    const fileCount = dirs.reduce((sum, d) => sum + watched[d]!.length, 0);
+    console.log(`[sessions-ws] Watcher ready — ${dirs.length} dirs, ${fileCount} files`);
+  });
+
+  watcher.on('error', (err: unknown) => {
+    console.error(`[sessions-ws] Watcher error:`, err);
+  });
+
+  function isJsonlFile(filePath: string): boolean {
+    return filePath.endsWith('.jsonl') && !filePath.includes('agent-');
+  }
+
+  function broadcastFileChange(filePath: string, eventType: 'change' | 'add' | 'unlink') {
+    if (!isJsonlFile(filePath)) return;
+
+    // Extract projectDir and sessionId from the path
+    const relative = filePath.replace(CLAUDE_DIR + '/', '');
+    const parts = relative.split('/');
+    const changedFile = parts.length === 2
+      ? { projectDir: parts[0], sessionId: parts[1]!.replace('.jsonl', ''), eventType }
+      : undefined;
+
+    console.log(`[sessions-ws] File ${eventType}: ${relative} → broadcast to ${clients.size} clients`, changedFile ? `(project=${changedFile.projectDir}, session=${changedFile.sessionId})` : '(no match)');
+
+    const msg = JSON.stringify({
+      type: 'sessions_updated',
+      timestamp: Date.now(),
+      changedFile,
+    });
     for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(msg);
@@ -54,19 +108,31 @@ export function setupSessionsWs(server: Server) {
     }
   }
 
-  watcher.on('add', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(broadcast, 1000);
+  watcher.on('add', (filePath: string) => {
+    if (!isJsonlFile(filePath)) return;
+    if (debounceTimers.has(filePath)) clearTimeout(debounceTimers.get(filePath)!);
+    debounceTimers.set(filePath, setTimeout(() => {
+      debounceTimers.delete(filePath);
+      broadcastFileChange(filePath, 'add');
+    }, 1000));
   });
 
-  watcher.on('change', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(broadcast, 1000);
+  watcher.on('change', (filePath: string) => {
+    if (!isJsonlFile(filePath)) return;
+    if (debounceTimers.has(filePath)) clearTimeout(debounceTimers.get(filePath)!);
+    debounceTimers.set(filePath, setTimeout(() => {
+      debounceTimers.delete(filePath);
+      broadcastFileChange(filePath, 'change');
+    }, 500));
   });
 
-  watcher.on('unlink', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(broadcast, 500);
+  watcher.on('unlink', (filePath: string) => {
+    if (!isJsonlFile(filePath)) return;
+    if (debounceTimers.has(filePath)) clearTimeout(debounceTimers.get(filePath)!);
+    debounceTimers.set(filePath, setTimeout(() => {
+      debounceTimers.delete(filePath);
+      broadcastFileChange(filePath, 'unlink');
+    }, 500));
   });
 
   console.log(`[sessions-ws] Watching ${CLAUDE_DIR} for JSONL changes`);

@@ -1,17 +1,37 @@
+import { watch } from 'vue';
 import { useChatStore, type ChatMessage } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
+import { useAuthStore } from '@/stores/auth';
 import { useWebSocket } from './useWebSocket';
+import { useRouter } from 'vue-router';
 
 export function useClaudeStream() {
   const chat = useChatStore();
   const settings = useSettingsStore();
+  const auth = useAuthStore();
+  const router = useRouter();
   const { connected, connect, send, on, disconnect } = useWebSocket('/ws/chat');
 
   function init() {
     connect();
 
+    // Track whether the next text delta needs a fresh assistant message
+    // (set after a tool_use so text after tools gets its own bubble, matching reload layout)
+    let needsNewAssistantMsg = false;
+    // Track whether we reconnected mid-stream so we can do a full refresh on stream_end
+    let reconnectedMidStream = false;
+
+    // When WS connects (or reconnects), check if active session is still streaming
+    watch(connected, (isConnected) => {
+      if (isConnected && chat.sessionId) {
+        send({ type: 'check_session', sessionId: chat.sessionId });
+      }
+    });
+
     on('stream_start', () => {
       chat.startStreaming();
+      needsNewAssistantMsg = false;
+      reconnectedMidStream = false;
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -24,10 +44,28 @@ export function useClaudeStream() {
 
     on('stream_delta', (data: unknown) => {
       const d = data as { text: string };
-      chat.updateLastAssistantContent(d.text);
+      if (needsNewAssistantMsg) {
+        // Text arriving after a tool — create a new assistant message
+        // so the layout matches the reload path (text → tool → text split)
+        needsNewAssistantMsg = false;
+        // Clear isStreaming on the previous assistant message
+        const prev = chat.messages.findLast(m => m.role === 'assistant');
+        if (prev) prev.isStreaming = false;
+        const msg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: d.text,
+          timestamp: Date.now(),
+          isStreaming: true,
+        };
+        chat.addMessage(msg);
+      } else {
+        chat.updateLastAssistantContent(d.text);
+      }
     });
 
     on('stream_end', (data: unknown) => {
+      needsNewAssistantMsg = false;
       const d = data as {
         sessionId?: string;
         claudeSessionId?: string;
@@ -35,7 +73,15 @@ export function useClaudeStream() {
         totalCost?: number;
       };
       if (d.sessionId) {
+        const isNewSession = !chat.sessionId;
         chat.sessionId = d.sessionId;
+        // Update URL to reflect the session (replace for first message, don't stack history)
+        if (isNewSession) {
+          router.replace({
+            name: 'chat-session',
+            params: { sessionId: d.sessionId },
+          });
+        }
       }
       if (d.usage) {
         chat.updateUsage({
@@ -45,12 +91,21 @@ export function useClaudeStream() {
         });
       }
       chat.finishStreaming();
+
+      // If we reconnected mid-stream, we likely missed tool events and intermediate
+      // messages. Do a full reload from disk to get the complete conversation.
+      if (reconnectedMidStream && chat.sessionId && chat.activeProjectDir) {
+        reconnectedMidStream = false;
+        reloadSession(chat.sessionId, chat.activeProjectDir);
+      }
     });
 
     on('tool_use', (data: unknown) => {
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
-      // Auto-approve tools in bypassPermissions mode
-      const autoApproved = settings.permissionMode === 'bypassPermissions';
+      // Mark current assistant message as done — next text delta gets a new bubble
+      needsNewAssistantMsg = true;
+      // Auto-approve tools in bypassPermissions mode (except AskUserQuestion which needs user input)
+      const autoApproved = settings.permissionMode === 'bypassPermissions' && d.tool !== 'AskUserQuestion';
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'system',
@@ -87,6 +142,31 @@ export function useClaudeStream() {
     on('tool_input_complete', (data: unknown) => {
       const d = data as { requestId: string; input: Record<string, unknown> };
       chat.updateToolInput(d.requestId, d.input);
+    });
+
+    on('session_status', (data: unknown) => {
+      const d = data as {
+        sessionId: string;
+        isStreaming: boolean;
+        accumulatedText?: string;
+      };
+      if (d.isStreaming) {
+        // Session is still actively streaming on server — restore streaming state
+        reconnectedMidStream = true;
+        chat.startStreaming();
+        // Add a placeholder assistant message so deltas have somewhere to go
+        const msg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: d.accumulatedText || '',
+          timestamp: Date.now(),
+          isStreaming: true,
+        };
+        chat.addMessage(msg);
+      } else if (d.sessionId && d.sessionId === chat.sessionId && chat.activeProjectDir) {
+        // Session finished while we were disconnected — fetch missed messages
+        fetchMissedMessages(d.sessionId, chat.activeProjectDir);
+      }
     });
 
     on('error', (data: unknown) => {
@@ -135,14 +215,25 @@ export function useClaudeStream() {
     if (images?.length) {
       payload.images = images.map(img => ({ name: img.name, dataUrl: img.dataUrl }));
     }
-    send(payload);
+    const sent = send(payload);
+    if (!sent) {
+      chat.addMessage({
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: 'Error: Not connected to server. Reconnecting…',
+        timestamp: Date.now(),
+      });
+    }
   }
 
-  function respondToTool(requestId: string, approved: boolean) {
-    send({ type: 'tool_response', requestId, approved });
+  function respondToTool(requestId: string, approved: boolean, answers?: Record<string, string>) {
+    send({ type: 'tool_response', requestId, approved, answers });
     const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
     if (msg?.toolUse) {
       msg.toolUse.status = approved ? 'approved' : 'rejected';
+      if (answers) {
+        msg.toolUse.input._userAnswers = answers;
+      }
     }
   }
 
@@ -150,5 +241,48 @@ export function useClaudeStream() {
     send({ type: 'abort' });
   }
 
-  return { connected, init, sendMessage, respondToTool, abort, disconnect };
+  function checkSession(sessionId: string) {
+    send({ type: 'check_session', sessionId });
+  }
+
+  /** Reload messages from disk after a reconnect where streaming already finished. */
+  async function fetchMissedMessages(sessionId: string, projectDir: string) {
+    try {
+      const afterIndex = chat.messages.length + chat.oldestLoadedIndex;
+      const res = await fetch(
+        `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&after=${afterIndex}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.messages?.length) {
+        chat.appendMessages(data.messages, { total: data.total });
+      }
+    } catch (err) {
+      console.error('Failed to fetch missed messages:', err);
+    }
+  }
+
+  /** Full reload of session messages (used after mid-stream reconnect to get accurate state). */
+  async function reloadSession(sessionId: string, projectDir: string) {
+    try {
+      const res = await fetch(
+        `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&limit=50`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.messages?.length) {
+        chat.loadMessages(data.messages, {
+          total: data.total,
+          hasMore: data.hasMore,
+          oldestIndex: data.oldestIndex,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to reload session:', err);
+    }
+  }
+
+  return { connected, init, sendMessage, respondToTool, abort, disconnect, checkSession };
 }

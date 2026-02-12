@@ -6,12 +6,12 @@ import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS, THINKING_OPTIONS, 
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select';
 import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
+  ArrowDownToLine, ArrowDownFromLine,
 } from 'lucide-vue-next';
-import TokenUsageChart from './TokenUsageChart.vue';
 import MicButton from './MicButton.vue';
 
 const MAX_IMAGES = 5;
@@ -258,6 +258,13 @@ function handleVoiceTranscript(text: string, mode: string) {
 }
 
 function executeCommand(cmd: SlashCommand) {
+  // Clear draft for the current session before the command runs,
+  // otherwise the command text (e.g. "/clear") gets persisted and
+  // reappears when navigating back to this session.
+  const key = chat.sessionId || '_new';
+  const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+  delete drafts[key];
+  localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
   cmd.action();
   nextTick(() => autoResize());
 }
@@ -377,7 +384,7 @@ const permissionIcons: Record<string, typeof Zap> = {
         <!-- Model selector -->
         <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
           <SelectTrigger class="h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">
-            <SelectValue />
+            <span>{{ settings.modelLabel }}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="m in MODEL_OPTIONS" :key="m.value" :value="m.value">
@@ -393,7 +400,7 @@ const permissionIcons: Record<string, typeof Zap> = {
         <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
           <SelectTrigger class="h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">
             <component :is="permissionIcons[settings.permissionMode] || Shield" class="h-3 w-3" />
-            <SelectValue />
+            <span>{{ settings.permissionLabel }}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p.value" :value="p.value">
@@ -412,7 +419,7 @@ const permissionIcons: Record<string, typeof Zap> = {
         <Select :model-value="settings.thinkingMode" @update:model-value="(v: any) => { settings.thinkingMode = v; settings.save(); }">
           <SelectTrigger class="h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground">
             <Brain class="h-3 w-3" />
-            <SelectValue />
+            <span>{{ settings.thinkingLabel }}</span>
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="t in THINKING_OPTIONS" :key="t.value" :value="t.value">
@@ -424,18 +431,20 @@ const permissionIcons: Record<string, typeof Zap> = {
           </SelectContent>
         </Select>
 
-        <!-- Context usage (donut chart) -->
-        <Tooltip v-if="chat.totalTokens > 0">
+        <!-- Context usage (progress bar) -->
+        <Tooltip>
           <TooltipTrigger as-child>
-            <div class="flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-0.5 cursor-default">
-              <TokenUsageChart
-                :input-tokens="chat.usage.inputTokens"
-                :output-tokens="chat.usage.outputTokens"
-                :size="22"
-              />
+            <div class="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-0.5 cursor-default">
               <span class="text-[10px] tabular-nums text-muted-foreground">
                 {{ chat.contextPercent }}%
               </span>
+              <div class="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                <div
+                  class="h-full rounded-full transition-all duration-300"
+                  :class="chat.contextPercent > 80 ? 'bg-destructive' : chat.contextPercent > 50 ? 'bg-yellow-500' : 'bg-primary'"
+                  :style="{ width: `${Math.max(chat.contextPercent, 2)}%` }"
+                />
+              </div>
             </div>
           </TooltipTrigger>
           <TooltipContent>
@@ -452,9 +461,27 @@ const permissionIcons: Record<string, typeof Zap> = {
               <div v-if="chat.lastResponseMs">Last: {{ (chat.lastResponseMs / 1000).toFixed(1) }}s</div>
               <div v-if="chat.tokensPerMin > 0">Rate: {{ formatTokens(chat.tokensPerMin) }}/min</div>
               <div v-if="chat.usage.totalCost > 0">Cost: ${{ chat.usage.totalCost.toFixed(4) }}</div>
-              <div class="border-t border-border pt-1 text-muted-foreground">Limit resets in {{ chat.rateLimitReset }}</div>
+              <div v-if="chat.sessionDurationMin > 0" class="border-t border-border pt-1 text-muted-foreground">Session: {{ chat.sessionDurationMin }}min</div>
             </div>
           </TooltipContent>
+        </Tooltip>
+
+        <!-- Auto-scroll toggle -->
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              class="flex h-6 items-center gap-1 rounded-md px-2 text-[11px] transition-colors"
+              :class="chat.autoScroll
+                ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
+              @click="chat.autoScroll = !chat.autoScroll"
+            >
+              <ArrowDownToLine v-if="chat.autoScroll" class="h-3 w-3" />
+              <ArrowDownFromLine v-else class="h-3 w-3" />
+              <span class="hidden sm:inline">{{ chat.autoScroll ? 'Auto-scroll' : 'Scroll locked' }}</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{{ chat.autoScroll ? 'Auto-scroll enabled — click to disable' : 'Auto-scroll disabled — click to enable' }}</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

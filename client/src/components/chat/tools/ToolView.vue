@@ -6,6 +6,7 @@ import ToolRead from './ToolRead.vue';
 import ToolWrite from './ToolWrite.vue';
 import ToolGrepGlob from './ToolGrepGlob.vue';
 import ToolTodoWrite from './ToolTodoWrite.vue';
+import ToolAskUserQuestion from './ToolAskUserQuestion.vue';
 import ToolDefault from './ToolDefault.vue';
 
 defineProps<{ toolUse: ToolUseInfo }>();
@@ -19,6 +20,7 @@ const TOOL_COMPONENTS: Record<string, unknown> = {
   Grep: ToolGrepGlob,
   Glob: ToolGrepGlob,
   TodoWrite: ToolTodoWrite,
+  AskUserQuestion: ToolAskUserQuestion,
 };
 </script>
 

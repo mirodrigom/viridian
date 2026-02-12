@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { useChatStore } from '@/stores/chat';
+import { useAuthStore } from '@/stores/auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
-import { ArrowDown, Search, X, ChevronUp, ChevronDown } from 'lucide-vue-next';
+import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2 } from 'lucide-vue-next';
 import MessageBubble from './MessageBubble.vue';
 
 const chat = useChatStore();
-const scrollContainer = ref<HTMLElement | null>(null);
+const auth = useAuthStore();
+const scrollContainer = ref<any>(null);
 const showScrollBtn = ref(false);
-const isAutoScroll = ref(true);
+const isLoadingSession = ref(false); // Prevents handleScroll from overriding autoScroll during session load
+const isProgrammaticScroll = ref(false); // Prevents handleScroll from disabling autoScroll during programmatic scrolls
 
 // Search state
 const showSearch = ref(false);
@@ -95,18 +98,73 @@ import { onMounted, onUnmounted } from 'vue';
 onMounted(() => document.addEventListener('keydown', handleGlobalKeydown));
 onUnmounted(() => document.removeEventListener('keydown', handleGlobalKeydown));
 
-function getViewport(): HTMLElement | null {
-  return scrollContainer.value?.querySelector('[data-radix-scroll-area-viewport]') ?? null;
+// Timeline grouping: consecutive Claude-side messages (assistant, tool, system) share one header
+function isClaudeSide(role: string): boolean {
+  return role === 'assistant' || role === 'system';
 }
 
-function scrollToBottom() {
-  nextTick(() => {
-    const viewport = getViewport();
-    if (viewport) {
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-      isAutoScroll.value = true;
+function isGroupStart(idx: number): boolean {
+  if (idx === 0) return true;
+  const curr = chat.messages[idx]!;
+  const prev = chat.messages[idx - 1]!;
+  if (curr.role === 'user') return true;
+  return !(isClaudeSide(curr.role) && isClaudeSide(prev.role));
+}
+
+function getViewport(): HTMLElement | null {
+  const raw = scrollContainer.value;
+  if (!raw) return null;
+  // ScrollArea is a Vue component — access its root DOM element via $el
+  const el: HTMLElement | undefined = raw.$el ?? raw;
+  return el?.querySelector?.('[data-radix-scroll-area-viewport]') ?? null;
+}
+
+function forceScrollToEnd() {
+  // Primary: scrollIntoView on last message element (works reliably with ScrollArea)
+  const msgs = chat.messages;
+  if (msgs.length > 0) {
+    const el = document.getElementById(`msg-${msgs[msgs.length - 1]!.id}`);
+    if (el) {
+      el.scrollIntoView({ block: 'end' });
+      return;
     }
-  });
+  }
+  // Fallback: viewport scrollTop
+  const viewport = getViewport();
+  if (viewport) {
+    viewport.scrollTop = viewport.scrollHeight;
+  }
+}
+
+function scrollToBottom(instant = false) {
+  if (instant) {
+    // Session load: multiple attempts while DOM renders
+    isLoadingSession.value = true;
+    nextTick(forceScrollToEnd);
+    setTimeout(forceScrollToEnd, 100);
+    setTimeout(forceScrollToEnd, 300);
+    setTimeout(() => {
+      forceScrollToEnd();
+      chat.autoScroll = true;
+      isLoadingSession.value = false;
+    }, 600);
+  } else {
+    // Streaming / toggle: smooth scroll
+    isProgrammaticScroll.value = true;
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        const viewport = getViewport();
+        if (viewport) {
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+          chat.autoScroll = true;
+        }
+        // Release after smooth scroll settles
+        setTimeout(() => {
+          isProgrammaticScroll.value = false;
+        }, 400);
+      });
+    });
+  }
 }
 
 function handleScroll() {
@@ -114,23 +172,97 @@ function handleScroll() {
   if (!viewport) return;
   const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
   showScrollBtn.value = distFromBottom > 100;
-  isAutoScroll.value = distFromBottom < 50;
+  // Don't override autoScroll during session load or programmatic scrolls
+  if (!isLoadingSession.value && !isProgrammaticScroll.value) {
+    chat.autoScroll = distFromBottom < 50;
+  }
+
+  // Trigger load-more when near top
+  if (viewport.scrollTop < 100 && chat.hasMoreMessages && !chat.isLoadingMore) {
+    loadOlderMessages();
+  }
 }
 
-// Reset auto-scroll when switching conversations so messages watcher scrolls to bottom
-watch(() => chat.sessionId, () => {
-  isAutoScroll.value = true;
+async function loadOlderMessages() {
+  if (chat.isLoadingMore || !chat.hasMoreMessages || !chat.sessionId || !chat.activeProjectDir) return;
+  chat.isLoadingMore = true;
+
+  const viewport = getViewport();
+  const oldScrollHeight = viewport?.scrollHeight || 0;
+
+  try {
+    const res = await fetch(
+      `/api/sessions/${chat.sessionId}/messages?projectDir=${encodeURIComponent(chat.activeProjectDir)}&limit=50&before=${chat.oldestLoadedIndex}`,
+      { headers: { Authorization: `Bearer ${auth.token}` } },
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.messages?.length) {
+      chat.prependMessages(data.messages, {
+        hasMore: data.hasMore,
+        oldestIndex: data.oldestIndex,
+      });
+
+      // Preserve scroll position after prepend
+      nextTick(() => {
+        requestAnimationFrame(() => {
+          if (viewport) {
+            const newScrollHeight = viewport.scrollHeight;
+            viewport.scrollTop = newScrollHeight - oldScrollHeight;
+          }
+        });
+      });
+    }
+  } catch (err) {
+    console.error('Failed to load older messages:', err);
+  } finally {
+    chat.isLoadingMore = false;
+  }
+}
+
+// Scroll to bottom when a session is loaded (triggered explicitly by store)
+watch(() => chat.scrollToBottomRequest, () => {
+  chat.autoScroll = true;
+  scrollToBottom(true);
 });
 
-// Auto-scroll on new messages if user is at bottom
-watch(() => chat.messages.length, () => {
-  if (isAutoScroll.value) scrollToBottom();
+// When autoScroll is toggled on (e.g. clicking the button), immediately scroll to bottom
+watch(() => chat.autoScroll, (enabled) => {
+  if (enabled) {
+    scrollToBottom(false);
+  }
 });
-watch(() => chat.lastMessage?.content, () => {
-  if (isAutoScroll.value) {
+
+// Auto-scroll on new messages during streaming (single message appended)
+watch(() => chat.messages.length, (newLen, oldLen) => {
+  if (oldLen > 0 && newLen > oldLen) {
+    // Always scroll to bottom when the user sends a message, even if scrolled up
+    const lastMsg = chat.messages[newLen - 1];
+    if (lastMsg?.role === 'user') {
+      chat.autoScroll = true;
+      // Use multiple attempts like session load — ensures ScrollArea renders the new message
+      nextTick(forceScrollToEnd);
+      setTimeout(forceScrollToEnd, 50);
+      setTimeout(forceScrollToEnd, 150);
+    } else if (chat.autoScroll) {
+      scrollToBottom(false);
+    }
+  }
+});
+// Auto-scroll on streaming content updates (text deltas appended to any assistant message)
+watch(() => chat.contentVersion, () => {
+  if (chat.autoScroll) {
+    isProgrammaticScroll.value = true;
     nextTick(() => {
-      const viewport = getViewport();
-      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+      requestAnimationFrame(() => {
+        const viewport = getViewport();
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
+        // Release the flag after the scroll event has been processed
+        requestAnimationFrame(() => {
+          isProgrammaticScroll.value = false;
+        });
+      });
     });
   }
 });
@@ -199,6 +331,23 @@ watch(scrollContainer, (el) => {
 
       <!-- Messages -->
       <div v-else class="py-2" :class="{ 'pt-12': showSearch }">
+        <!-- Load older messages indicator -->
+        <div v-if="chat.hasMoreMessages" class="flex justify-center py-3">
+          <div v-if="chat.isLoadingMore" class="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 class="h-3 w-3 animate-spin" />
+            Loading older messages...
+          </div>
+          <Button
+            v-else
+            variant="ghost"
+            size="sm"
+            class="text-xs text-muted-foreground"
+            @click="loadOlderMessages"
+          >
+            Load older messages ({{ chat.oldestLoadedIndex }} remaining)
+          </Button>
+        </div>
+
         <div
           v-for="(msg, idx) in chat.messages"
           :key="msg.id"
@@ -209,6 +358,7 @@ watch(scrollContainer, (el) => {
             :search-query="searchQuery"
             :is-search-match="matchingIds.has(msg.id)"
             :is-active-result="searchResults[searchResultIndex] === idx"
+            :is-group-start="isGroupStart(idx)"
             @approve-tool="(id) => emit('approveTool', id)"
             @reject-tool="(id) => emit('rejectTool', id)"
           />

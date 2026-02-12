@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 
 export interface ToolUseInfo {
   tool: string;
@@ -30,14 +30,40 @@ export interface TokenUsage {
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const isStreaming = ref(false);
-  const sessionId = ref<string | null>(null);
-  const projectPath = ref<string | null>(null);
+  const sessionId = ref<string | null>(sessionStorage.getItem('chat-sessionId'));
+  const projectPath = ref<string | null>(sessionStorage.getItem('chat-projectPath'));
+  const activeProjectDir = ref<string | null>(sessionStorage.getItem('chat-activeProjectDir'));
   const usage = ref<TokenUsage>({ inputTokens: 0, outputTokens: 0, totalCost: 0 });
   const streamStartTime = ref<number | null>(null);
   const lastResponseMs = ref(0);
   const sessionStartedAt = ref<number | null>(null);
 
+  // Pagination state
+  const totalMessages = ref(0);
+  const hasMoreMessages = ref(false);
+  const oldestLoadedIndex = ref(0);
+  const isLoadingMore = ref(false);
+
+  // Scroll trigger — incremented after loadMessages to signal MessageList to scroll
+  const scrollToBottomRequest = ref(0);
+
+  // Auto-scroll state — shared so status bar can toggle it
+  const autoScroll = ref(true);
+
+  // Incremented on every content mutation to drive auto-scroll in MessageList
+  const contentVersion = ref(0);
+
   const lastMessage = computed(() => messages.value[messages.value.length - 1]);
+
+  // Latest TodoWrite todos — extracted from the most recent TodoWrite tool call
+  const latestTodos = computed(() => {
+    const todoMessages = messages.value.filter(m => m.toolUse?.tool === 'TodoWrite');
+    if (todoMessages.length === 0) return [];
+    const last = todoMessages[todoMessages.length - 1]!;
+    const todos = last.toolUse!.input.todos;
+    if (!Array.isArray(todos)) return [];
+    return todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
+  });
 
   const totalTokens = computed(() => usage.value.inputTokens + usage.value.outputTokens);
 
@@ -56,21 +82,6 @@ export const useChatStore = defineStore('chat', () => {
     return Math.round(totalTokens.value / sessionDurationMin.value);
   });
 
-  /** Next rate limit reset: midnight Pacific Time (UTC-8 / UTC-7 DST) */
-  const rateLimitReset = computed(() => {
-    const now = new Date();
-    // Use Pacific Time offset via formatting
-    const ptStr = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
-    const ptNow = new Date(ptStr);
-    const ptMidnight = new Date(ptNow);
-    ptMidnight.setDate(ptMidnight.getDate() + 1);
-    ptMidnight.setHours(0, 0, 0, 0);
-    const diffMs = ptMidnight.getTime() - ptNow.getTime();
-    const hours = Math.floor(diffMs / 3600000);
-    const mins = Math.floor((diffMs % 3600000) / 60000);
-    return `${hours}h ${mins}m`;
-  });
-
   function addMessage(msg: ChatMessage) {
     messages.value.push(msg);
   }
@@ -79,6 +90,7 @@ export const useChatStore = defineStore('chat', () => {
     const last = messages.value.findLast(m => m.role === 'assistant');
     if (last) {
       last.content += text;
+      contentVersion.value++;
     }
   }
 
@@ -88,9 +100,12 @@ export const useChatStore = defineStore('chat', () => {
       lastResponseMs.value = Date.now() - streamStartTime.value;
       streamStartTime.value = null;
     }
-    const last = messages.value.findLast(m => m.role === 'assistant');
-    if (last) {
-      last.isStreaming = false;
+    // Clear isStreaming on all assistant messages (there may be multiple
+    // when text was split around tool_use blocks during streaming)
+    for (const msg of messages.value) {
+      if (msg.role === 'assistant' && msg.isStreaming) {
+        msg.isStreaming = false;
+      }
     }
   }
 
@@ -111,6 +126,10 @@ export const useChatStore = defineStore('chat', () => {
   function clearMessages() {
     messages.value = [];
     sessionId.value = null;
+    activeProjectDir.value = null;
+    totalMessages.value = 0;
+    hasMoreMessages.value = false;
+    oldestLoadedIndex.value = 0;
     usage.value = { inputTokens: 0, outputTokens: 0, totalCost: 0 };
     sessionStartedAt.value = null;
   }
@@ -119,8 +138,28 @@ export const useChatStore = defineStore('chat', () => {
     projectPath.value = path;
   }
 
-  function loadMessages(msgs: ChatMessage[]) {
+  function loadMessages(msgs: ChatMessage[], meta?: { total: number; hasMore: boolean; oldestIndex: number }) {
     messages.value = msgs;
+    if (meta) {
+      totalMessages.value = meta.total;
+      hasMoreMessages.value = meta.hasMore;
+      oldestLoadedIndex.value = meta.oldestIndex;
+    }
+    // Signal MessageList to scroll to bottom
+    scrollToBottomRequest.value++;
+  }
+
+  function prependMessages(msgs: ChatMessage[], meta: { hasMore: boolean; oldestIndex: number }) {
+    messages.value = [...msgs, ...messages.value];
+    hasMoreMessages.value = meta.hasMore;
+    oldestLoadedIndex.value = meta.oldestIndex;
+  }
+
+  function appendMessages(msgs: ChatMessage[], meta?: { total: number }) {
+    messages.value = [...messages.value, ...msgs];
+    if (meta) {
+      totalMessages.value = meta.total;
+    }
   }
 
   function startThinking() {
@@ -165,13 +204,29 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Persist session identity across page reloads so we can detect active streaming
+  watch(sessionId, (v) => {
+    if (v) sessionStorage.setItem('chat-sessionId', v);
+    else sessionStorage.removeItem('chat-sessionId');
+  });
+  watch(activeProjectDir, (v) => {
+    if (v) sessionStorage.setItem('chat-activeProjectDir', v);
+    else sessionStorage.removeItem('chat-activeProjectDir');
+  });
+  watch(projectPath, (v) => {
+    if (v) sessionStorage.setItem('chat-projectPath', v);
+    else sessionStorage.removeItem('chat-projectPath');
+  });
+
   return {
-    messages, isStreaming, sessionId, projectPath, usage,
-    lastMessage, totalTokens, contextPercent, lastResponseMs,
-    sessionStartedAt, sessionDurationMin, tokensPerMin, rateLimitReset,
+    messages, isStreaming, sessionId, projectPath, activeProjectDir, usage,
+    lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs,
+    sessionStartedAt, sessionDurationMin, tokensPerMin,
+    totalMessages, hasMoreMessages, oldestLoadedIndex, isLoadingMore, scrollToBottomRequest, autoScroll, contentVersion,
     addMessage, updateLastAssistantContent, finishStreaming,
     updateUsage, startStreaming, clearMessages, setProjectPath,
-    loadMessages, startThinking, updateThinking, finishThinking,
+    loadMessages, prependMessages, appendMessages,
+    startThinking, updateThinking, finishThinking,
     appendToolInputDelta, updateToolInput,
   };
 });

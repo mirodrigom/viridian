@@ -14,6 +14,7 @@ import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 
 const settings = useSettingsStore();
+const activeTab = ref('chat');
 const showFiles = ref(true);
 const showTerminal = ref(false);
 const showSettings = ref(false);
@@ -58,10 +59,10 @@ function toggleTerminal() {
     <ResizablePanelGroup direction="vertical" class="flex-1">
       <ResizablePanel :default-size="showTerminal ? 70 : 100" :min-size="30">
         <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel :default-size="showFiles ? 75 : 100" :min-size="40">
-            <MainTabs />
+          <ResizablePanel :default-size="showFiles && activeTab === 'editor' ? 75 : 100" :min-size="40">
+            <MainTabs v-model:active-tab="activeTab" />
           </ResizablePanel>
-          <template v-if="showFiles">
+          <template v-if="showFiles && activeTab === 'editor'">
             <ResizableHandle />
             <ResizablePanel :default-size="25" :min-size="15" :max-size="40">
               <FileSidebar />

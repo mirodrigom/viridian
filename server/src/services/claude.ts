@@ -10,6 +10,10 @@ interface ClaudeSession {
   cwd: string;
   emitter: EventEmitter;
   abortController?: AbortController;
+  usage: { inputTokens: number; outputTokens: number };
+  isStreaming: boolean;
+  /** Accumulated assistant text during current streaming response (for reconnecting clients). */
+  accumulatedText: string;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
@@ -20,6 +24,9 @@ export function createSession(cwd: string): ClaudeSession {
     process: null,
     cwd,
     emitter: new EventEmitter(),
+    usage: { inputTokens: 0, outputTokens: 0 },
+    isStreaming: false,
+    accumulatedText: '',
   };
   activeSessions.set(session.id, session);
   return session;
@@ -44,7 +51,9 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
 
   const abortController = new AbortController();
   session.abortController = abortController;
+  session.isStreaming = true;
 
+  session.accumulatedText = '';
   session.emitter.emit('stream_start');
 
   // Run the SDK generator in the background
@@ -68,6 +77,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      session.isStreaming = false;
       session.emitter.emit('error', { error: errorMsg });
       session.emitter.emit('stream_end', { sessionId: session.id });
     }
@@ -78,6 +88,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
 function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
   switch (msg.type) {
     case 'text_delta':
+      session.accumulatedText += msg.text;
       session.emitter.emit('stream_delta', { text: msg.text });
       break;
     case 'thinking_start':
@@ -117,16 +128,24 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
     case 'system':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       break;
+    case 'message_start':
+      if (msg.inputTokens) session.usage.inputTokens = msg.inputTokens;
+      break;
     case 'message_delta':
-      session.emitter.emit('message_delta', { outputTokens: msg.outputTokens });
+      if (msg.outputTokens) session.usage.outputTokens = msg.outputTokens;
       break;
     case 'result':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       session.process = null;
+      session.isStreaming = false;
       session.emitter.emit('stream_end', {
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
         exitCode: msg.exitCode,
+        usage: {
+          input_tokens: session.usage.inputTokens,
+          output_tokens: session.usage.outputTokens,
+        },
       });
       break;
   }
@@ -142,6 +161,16 @@ export function abortSession(sessionId: string) {
     session.process.kill('SIGTERM');
     session.process = null;
   }
+}
+
+export function isSessionStreaming(sessionId: string): boolean {
+  const session = activeSessions.get(sessionId);
+  return session?.isStreaming ?? false;
+}
+
+export function getSessionAccumulatedText(sessionId: string): string {
+  const session = activeSessions.get(sessionId);
+  return session?.accumulatedText ?? '';
 }
 
 export function removeSession(sessionId: string) {
