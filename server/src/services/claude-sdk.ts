@@ -111,6 +111,14 @@ export interface SDKSubagentResult {
   agentId?: string;
 }
 
+export interface SDKControlRequest {
+  type: 'control_request';
+  requestId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  toolUseId?: string;
+}
+
 export type SDKMessage =
   | SDKTextDelta
   | SDKThinkingStart
@@ -124,7 +132,8 @@ export type SDKMessage =
   | SDKResult
   | SDKMessageDelta
   | SDKMessageStart
-  | SDKSubagentResult;
+  | SDKSubagentResult
+  | SDKControlRequest;
 
 // ─── Query options ──────────────────────────────────────────────────────────
 
@@ -140,6 +149,7 @@ export interface QueryOptions {
   images?: { name: string; dataUrl: string }[];
   sessionId?: string;            // Claude session ID for resuming
   abortSignal?: AbortSignal;     // Abort controller signal
+  onStdinReady?: (write: (data: string) => void) => void; // Callback to receive stdin writer for bidirectional communication
   noTools?: boolean;             // Disable all tools (--tools "")
   disableSlashCommands?: boolean; // Disable built-in skills (--disable-slash-commands)
   systemPrompt?: string;         // Injected system prompt (--system-prompt)
@@ -242,6 +252,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   const args = [
     '-p', prompt,
     '--output-format', 'stream-json',
+    '--input-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
   ];
@@ -299,7 +310,16 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  proc.stdin!.end();
+  // Keep stdin open for bidirectional communication (control_request/control_response)
+  if (options.onStdinReady) {
+    options.onStdinReady((data: string) => {
+      if (proc.stdin && !proc.stdin.destroyed) {
+        proc.stdin.write(data + '\n');
+      }
+    });
+  } else {
+    proc.stdin!.end();
+  }
 
   // Abort support
   if (options.abortSignal) {
@@ -371,6 +391,10 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   });
 
   proc.on('close', (code) => {
+    // Close stdin if still open
+    if (proc.stdin && !proc.stdin.destroyed) {
+      proc.stdin.end();
+    }
 
     if (buffer.trim()) {
       try {
@@ -423,6 +447,21 @@ function processEvent(state: BlockState, event: Record<string, unknown>): SDKMes
   // Log every raw event type (except noisy stream_event internals)
   if (event.type !== 'stream_event') {
     debugLog(`[ClaudeSDK] event: type="${event.type}", keys=[${Object.keys(event).join(',')}]${event.parent_tool_use_id ? `, ptui="${event.parent_tool_use_id}"` : ''}`);
+  }
+
+  if (event.type === 'control_request') {
+    const request = event.request as Record<string, unknown> | undefined;
+    if (request?.subtype === 'can_use_tool') {
+      debugLog(`[ClaudeSDK] control_request: tool="${request.tool_name}", request_id="${event.request_id}"`);
+      return [{
+        type: 'control_request',
+        requestId: event.request_id as string,
+        toolName: request.tool_name as string,
+        toolInput: (request.input as Record<string, unknown>) || {},
+        toolUseId: request.tool_use_id as string | undefined,
+      }];
+    }
+    return [];
   }
 
   if (event.type === 'stream_event') {

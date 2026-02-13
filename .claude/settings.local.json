@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(flatpak-spawn --host bash -c \"export PATH=\"\"$HOME/.local/share/pnpm:$HOME/.nvm/versions/node/*/bin:$PATH\"\" && cd /home/rodrigom/Documents/proyects/claude-code-web/server && which pnpm && pnpm add minimatch @types/minimatch\")",
+      "Bash(flatpak-spawn --host bash -c 'kill $\\(lsof -ti:3010\\) 2>/dev/null; kill $\\(lsof -ti:5175\\) 2>/dev/null; echo \"\"killed\"\"')",
+      "Bash(flatpak-spawn --host bash -c 'export PATH=\"\"/home/rodrigom/.local/share/fnm/aliases/default/bin:$PATH\"\" && cd /home/rodrigom/Documents/proyects/claude-code-web && pnpm dev')",
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git branch:*)"
+    ]
+  }
+}

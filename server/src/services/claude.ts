@@ -14,6 +14,8 @@ interface ClaudeSession {
   isStreaming: boolean;
   /** Accumulated assistant text during current streaming response (for reconnecting clients). */
   accumulatedText: string;
+  /** Write function for stdin bidirectional communication (permission responses). */
+  stdinWrite?: (data: string) => void;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
@@ -60,17 +62,21 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   // Run the SDK generator in the background
   (async () => {
     try {
+      const permMode = options?.permissionMode || 'bypassPermissions';
       const stream = claudeQuery({
         prompt,
         cwd: session.cwd,
         model: options?.model,
-        permissionMode: options?.permissionMode,
+        permissionMode: permMode,
         maxOutputTokens: options?.maxOutputTokens,
         allowedTools: options?.allowedTools,
         disallowedTools: options?.disallowedTools,
         images: options?.images,
         sessionId: session.claudeSessionId,
         abortSignal: abortController.signal,
+        onStdinReady: (write) => {
+          session.stdinWrite = write;
+        },
       });
 
       for await (const msg of stream) {
@@ -140,10 +146,19 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
     case 'message_delta':
       if (msg.outputTokens) session.usage.outputTokens = msg.outputTokens;
       break;
+    case 'control_request':
+      session.emitter.emit('control_request', {
+        requestId: msg.requestId,
+        toolName: msg.toolName,
+        toolInput: msg.toolInput,
+        toolUseId: msg.toolUseId,
+      });
+      break;
     case 'result':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       session.process = null;
       session.isStreaming = false;
+      session.stdinWrite = undefined;
       session.emitter.emit('stream_end', {
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
@@ -155,6 +170,23 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
       });
       break;
   }
+}
+
+export function respondToPermission(sessionId: string, requestId: string, approved: boolean) {
+  const session = activeSessions.get(sessionId);
+  if (!session?.stdinWrite) return;
+
+  const response = approved
+    ? {
+        type: 'control_response',
+        response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow' } },
+      }
+    : {
+        type: 'control_response',
+        response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'User denied the tool request' } },
+      };
+
+  session.stdinWrite(JSON.stringify(response));
 }
 
 export function abortSession(sessionId: string) {

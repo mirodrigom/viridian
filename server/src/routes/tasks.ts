@@ -1,11 +1,28 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { unlinkSync } from 'fs';
+import { join } from 'path';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
+
+/** Delete the JSONL session file that Claude CLI creates, so it doesn't appear in the chat sidebar. */
+function cleanupClaudeSession(sessionId: string | undefined, projectPath: string) {
+  if (!sessionId) return;
+  try {
+    const encodedCwd = projectPath.replace(/\//g, '-');
+    const jsonlPath = join(process.env.HOME || '/home', '.claude', 'projects', encodedCwd, `${sessionId}.jsonl`);
+    unlinkSync(jsonlPath);
+  } catch { /* ignore if file doesn't exist */ }
+  try {
+    const db = getDb();
+    const encodedCwd = projectPath.replace(/\//g, '-');
+    db.prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(encodedCwd, sessionId);
+  } catch { /* ignore */ }
+}
 
 interface TaskRow {
   id: string;
@@ -229,6 +246,7 @@ ${prd}`;
 
   const abortController = new AbortController();
   let fullText = '';
+  let claudeSessionId: string | undefined;
 
   res.on('close', () => abortController.abort());
 
@@ -247,6 +265,8 @@ ${prd}`;
         if (msg.type === 'error') {
           res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
         }
+        if (msg.type === 'system' && msg.sessionId) claudeSessionId = msg.sessionId;
+        if (msg.type === 'result' && msg.sessionId) claudeSessionId = msg.sessionId;
       }
 
       // Parse the collected text into hierarchical tasks
@@ -326,10 +346,12 @@ ${prd}`;
 
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
       res.end();
+      cleanupClaudeSession(claudeSessionId, project);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'PRD parsing failed';
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();
+      cleanupClaudeSession(claudeSessionId, project);
     }
   })();
 });
@@ -361,6 +383,7 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
 
   const abortController = new AbortController();
   let fullText = '';
+  let claudeSessionId: string | undefined;
 
   res.on('close', () => abortController.abort());
 
@@ -376,6 +399,8 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
           fullText += msg.text;
           res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
         }
+        if (msg.type === 'system' && msg.sessionId) claudeSessionId = msg.sessionId;
+        if (msg.type === 'result' && msg.sessionId) claudeSessionId = msg.sessionId;
       }
 
       // Parse subtasks
@@ -415,10 +440,12 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
 
       res.write(`event: done\ndata: ${JSON.stringify({ subtasks: saved })}\n\n`);
       res.end();
+      cleanupClaudeSession(claudeSessionId, task.project_path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Task expansion failed';
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();
+      cleanupClaudeSession(claudeSessionId, task.project_path);
     }
   })();
 });

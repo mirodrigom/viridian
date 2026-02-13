@@ -11,15 +11,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  DialogScrollContent,
 } from '@/components/ui/dialog';
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  Collapsible, CollapsibleContent, CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   Plus, Trash2, Sparkles, FileText,
   Loader2, CheckCircle2, Circle, Clock,
-  ArrowUpRight, Link2,
+  ArrowUpRight, Link2, ChevronRight, GripVertical,
 } from 'lucide-vue-next';
 
 const tasks = useTasksStore();
@@ -40,6 +44,22 @@ const newPriority = ref<TaskPriority>('medium');
 const prdText = ref('');
 const prdOutput = ref('');
 
+// Drag and drop state
+const draggingTaskId = ref<string | null>(null);
+const dragOverColumn = ref<TaskStatus | null>(null);
+
+// Subtask collapse state
+const collapsedParents = ref<Set<string>>(new Set());
+
+// Detail dialog state
+const showDetailDialog = ref(false);
+const detailTask = ref<Task | null>(null);
+const editTitle = ref('');
+const editDescription = ref('');
+const editDetails = ref('');
+const editPriority = ref<TaskPriority>('medium');
+const editDirty = ref(false);
+
 onMounted(() => {
   if (chat.projectPath) tasks.fetchTasks(chat.projectPath);
 });
@@ -47,6 +67,8 @@ onMounted(() => {
 watch(() => chat.projectPath, (path) => {
   if (path) tasks.fetchTasks(path);
 });
+
+// ── Create / PRD / Expand ──────────────────────────────────────────────────
 
 async function handleCreate() {
   if (!newTitle.value.trim() || !chat.projectPath) return;
@@ -80,12 +102,19 @@ async function handleExpand(taskId: string) {
   expandingTaskId.value = null;
 }
 
+// ── Status cycling ─────────────────────────────────────────────────────────
+
 async function cycleStatus(task: Task) {
-  // Prevent manual status change for parents with subtasks (auto-sync controls it)
   if (tasks.hasSubtasks(task.id)) return;
   const order: TaskStatus[] = ['todo', 'in_progress', 'done'];
   const next = order[(order.indexOf(task.status) + 1) % order.length];
   await tasks.updateTask(task.id, { status: next });
+}
+
+async function cycleSubtaskStatus(sub: Task) {
+  const order: TaskStatus[] = ['todo', 'in_progress', 'done'];
+  const next = order[(order.indexOf(sub.status) + 1) % order.length];
+  await tasks.updateTask(sub.id, { status: next });
 }
 
 async function handleDelete(id: string) {
@@ -95,6 +124,7 @@ async function handleDelete(id: string) {
   });
   if (!ok) return;
   await tasks.deleteTask(id);
+  if (detailTask.value?.id === id) showDetailDialog.value = false;
 }
 
 const statusIcon = (status: TaskStatus) => {
@@ -102,6 +132,95 @@ const statusIcon = (status: TaskStatus) => {
   if (status === 'in_progress') return Clock;
   return Circle;
 };
+
+// ── Drag and drop ──────────────────────────────────────────────────────────
+
+function onDragStart(event: DragEvent, task: Task) {
+  if (!event.dataTransfer) return;
+  event.dataTransfer.setData('text/plain', task.id);
+  event.dataTransfer.effectAllowed = 'move';
+  draggingTaskId.value = task.id;
+}
+
+function onDragEnd() {
+  draggingTaskId.value = null;
+  dragOverColumn.value = null;
+}
+
+function onColumnDragOver(event: DragEvent, status: TaskStatus) {
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  dragOverColumn.value = status;
+}
+
+function onColumnDragLeave(event: DragEvent, status: TaskStatus) {
+  const related = event.relatedTarget as HTMLElement | null;
+  const current = event.currentTarget as HTMLElement;
+  if (!related || !current.contains(related)) {
+    if (dragOverColumn.value === status) dragOverColumn.value = null;
+  }
+}
+
+async function onColumnDrop(event: DragEvent, targetStatus: TaskStatus) {
+  event.preventDefault();
+  dragOverColumn.value = null;
+
+  const taskId = event.dataTransfer?.getData('text/plain');
+  if (!taskId) return;
+
+  const task = tasks.getTask(taskId);
+  if (!task) return;
+
+  if (task.status !== targetStatus) {
+    await tasks.updateTask(taskId, { status: targetStatus });
+  }
+
+  const columnTasks = tasks.tasksByStatus[targetStatus].map(t => t.id);
+  if (!columnTasks.includes(taskId)) columnTasks.push(taskId);
+  await tasks.reorderTasks(columnTasks);
+
+  draggingTaskId.value = null;
+}
+
+// ── Subtask collapse ───────────────────────────────────────────────────────
+
+function toggleCollapse(taskId: string) {
+  const s = new Set(collapsedParents.value);
+  if (s.has(taskId)) s.delete(taskId); else s.add(taskId);
+  collapsedParents.value = s;
+}
+
+// ── Detail dialog ──────────────────────────────────────────────────────────
+
+function openDetail(task: Task) {
+  detailTask.value = task;
+  editTitle.value = task.title;
+  editDescription.value = task.description;
+  editDetails.value = task.details;
+  editPriority.value = task.priority;
+  editDirty.value = false;
+  showDetailDialog.value = true;
+}
+
+function markDirty() {
+  editDirty.value = true;
+}
+
+async function saveDetail() {
+  if (!detailTask.value || !editDirty.value) return;
+  await tasks.updateTask(detailTask.value.id, {
+    title: editTitle.value.trim(),
+    description: editDescription.value.trim(),
+    details: editDetails.value.trim(),
+    priority: editPriority.value,
+  });
+  editDirty.value = false;
+}
+
+async function handleDetailClose(open: boolean) {
+  if (!open && editDirty.value) await saveDetail();
+  showDetailDialog.value = open;
+}
 </script>
 
 <template>
@@ -169,19 +288,39 @@ const statusIcon = (status: TaskStatus) => {
 
       <!-- Kanban columns -->
       <div v-else class="grid grid-cols-3 gap-4">
-        <div v-for="col in STATUS_OPTIONS" :key="col.value" class="flex flex-col gap-2">
+        <div
+          v-for="col in STATUS_OPTIONS"
+          :key="col.value"
+          class="flex flex-col gap-2"
+          @dragover="(e) => onColumnDragOver(e, col.value)"
+          @dragleave="(e) => onColumnDragLeave(e, col.value)"
+          @drop="(e) => onColumnDrop(e, col.value)"
+        >
           <div class="flex items-center gap-2 pb-1">
             <component :is="statusIcon(col.value)" class="h-3.5 w-3.5" :class="col.value === 'done' ? 'text-green-500' : col.value === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'" />
             <span class="text-xs font-medium">{{ col.label }}</span>
             <Badge variant="secondary" class="h-4 px-1.5 text-[10px]">{{ tasks.tasksByStatus[col.value].length }}</Badge>
           </div>
 
-          <div class="space-y-2">
+          <!-- Drop zone with visual feedback -->
+          <div
+            :class="[
+              'space-y-2 min-h-[60px] rounded-md border-2 border-dashed p-1 transition-colors',
+              dragOverColumn === col.value
+                ? 'border-primary/50 bg-primary/5'
+                : 'border-transparent',
+            ]"
+          >
             <Card
               v-for="task in tasks.tasksByStatus[col.value]"
               :key="task.id"
+              draggable="true"
+              @dragstart="(e: DragEvent) => onDragStart(e, task)"
+              @dragend="onDragEnd"
+              @click="openDetail(task)"
               :class="[
-                'transition-colors',
+                'transition-all cursor-pointer',
+                draggingTaskId === task.id ? 'opacity-40 scale-95' : '',
                 tasks.hasSubtasks(task.id)
                   ? 'border-l-2 border-l-primary/60 bg-accent/20'
                   : 'hover:bg-accent/50',
@@ -189,23 +328,25 @@ const statusIcon = (status: TaskStatus) => {
             >
               <CardContent class="p-3">
                 <div class="flex items-start gap-2">
-                  <!-- Status button: disabled for parents with subtasks -->
-                  <button
-                    class="mt-0.5 shrink-0"
-                    :class="tasks.hasSubtasks(task.id) ? 'cursor-default' : 'cursor-pointer'"
-                    @click.stop="cycleStatus(task)"
-                  >
-                    <component
-                      :is="statusIcon(task.status)"
-                      class="h-4 w-4"
-                      :class="[
-                        task.status === 'done' ? 'text-green-500' : task.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground',
-                        tasks.hasSubtasks(task.id) ? 'opacity-50' : '',
-                      ]"
-                    />
-                  </button>
+                  <!-- Drag handle + Status button -->
+                  <div class="mt-0.5 flex shrink-0 flex-col items-center gap-0.5">
+                    <GripVertical class="h-3 w-3 cursor-grab text-muted-foreground/40 active:cursor-grabbing" />
+                    <button
+                      :class="tasks.hasSubtasks(task.id) ? 'cursor-default' : 'cursor-pointer'"
+                      @click.stop="cycleStatus(task)"
+                    >
+                      <component
+                        :is="statusIcon(task.status)"
+                        class="h-4 w-4"
+                        :class="[
+                          task.status === 'done' ? 'text-green-500' : task.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground',
+                          tasks.hasSubtasks(task.id) ? 'opacity-50' : '',
+                        ]"
+                      />
+                    </button>
+                  </div>
                   <div class="min-w-0 flex-1">
-                    <!-- Parent badge (for subtasks) -->
+                    <!-- Parent badge (for orphaned subtasks) -->
                     <div v-if="task.parentId" class="mb-0.5 flex items-center gap-1">
                       <ArrowUpRight class="h-2.5 w-2.5 text-muted-foreground" />
                       <span class="max-w-32 truncate text-[9px] text-muted-foreground">
@@ -267,6 +408,58 @@ const statusIcon = (status: TaskStatus) => {
                         blocked
                       </Badge>
                     </div>
+
+                    <!-- Nested subtasks (collapsible) -->
+                    <Collapsible
+                      v-if="tasks.hasSubtasks(task.id)"
+                      :open="!collapsedParents.has(task.id)"
+                      class="mt-2"
+                    >
+                      <CollapsibleTrigger
+                        class="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        @click.stop="toggleCollapse(task.id)"
+                      >
+                        <ChevronRight
+                          class="h-3 w-3 transition-transform duration-200"
+                          :class="{ 'rotate-90': !collapsedParents.has(task.id) }"
+                        />
+                        <span>{{ tasks.getSubtasks(task.id).length }} subtasks</span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div class="mt-1.5 space-y-0.5 border-l border-border/50 pl-2 ml-1">
+                          <div
+                            v-for="sub in tasks.getSubtasks(task.id)"
+                            :key="sub.id"
+                            class="flex items-center gap-1.5 rounded py-0.5 px-1 group hover:bg-accent/30 transition-colors"
+                          >
+                            <button
+                              class="shrink-0 cursor-pointer"
+                              @click.stop="cycleSubtaskStatus(sub)"
+                            >
+                              <component
+                                :is="statusIcon(sub.status)"
+                                class="h-3 w-3"
+                                :class="sub.status === 'done' ? 'text-green-500' : sub.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
+                              />
+                            </button>
+                            <span
+                              class="text-[10px] leading-tight flex-1 truncate"
+                              :class="sub.status === 'done' ? 'line-through text-muted-foreground' : ''"
+                              @click.stop="openDetail(sub)"
+                            >
+                              {{ sub.title }}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              class="h-3 px-1 text-[8px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                              :class="PRIORITY_OPTIONS.find(p => p.value === sub.priority)?.color"
+                            >
+                              {{ sub.priority }}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </div>
                   <div class="flex shrink-0 items-center gap-0.5">
                     <!-- Sparkles: only for root tasks (expand into subtasks) -->
@@ -351,6 +544,108 @@ const statusIcon = (status: TaskStatus) => {
           </Button>
         </div>
       </DialogContent>
+    </Dialog>
+
+    <!-- Task Detail Dialog -->
+    <Dialog :open="showDetailDialog" @update:open="handleDetailClose">
+      <DialogScrollContent class="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Task Details</DialogTitle>
+          <DialogDescription>View and edit task information</DialogDescription>
+        </DialogHeader>
+
+        <div v-if="detailTask" class="space-y-4 py-2">
+          <!-- Status display -->
+          <div class="flex items-center gap-2">
+            <component
+              :is="statusIcon(detailTask.status)"
+              class="h-4 w-4"
+              :class="detailTask.status === 'done' ? 'text-green-500' : detailTask.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
+            />
+            <Badge :class="STATUS_OPTIONS.find(s => s.value === detailTask.status)?.color">
+              {{ STATUS_OPTIONS.find(s => s.value === detailTask.status)?.label }}
+            </Badge>
+            <Badge v-if="tasks.isBlockedByDependency(detailTask)" variant="outline" class="border-orange-500/40 text-orange-500">
+              blocked
+            </Badge>
+          </div>
+
+          <!-- Title -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium">Title</label>
+            <Input v-model="editTitle" class="h-8 text-sm" @input="markDirty" />
+          </div>
+
+          <!-- Description -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium">Description</label>
+            <Textarea v-model="editDescription" placeholder="No description" class="min-h-[60px] text-sm" @input="markDirty" />
+          </div>
+
+          <!-- Details -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium">Details / Implementation Notes</label>
+            <Textarea v-model="editDetails" placeholder="No details" class="min-h-[80px] text-sm font-mono" @input="markDirty" />
+          </div>
+
+          <!-- Priority -->
+          <div class="space-y-1">
+            <label class="text-xs font-medium">Priority</label>
+            <Select :model-value="editPriority" @update:model-value="(v: any) => { editPriority = v; markDirty(); }">
+              <SelectTrigger class="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="p in PRIORITY_OPTIONS" :key="p.value" :value="p.value">{{ p.label }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <!-- Subtasks -->
+          <div v-if="tasks.hasSubtasks(detailTask.id)">
+            <label class="text-xs font-medium">Subtasks</label>
+            <div class="mt-1 space-y-1">
+              <div
+                v-for="sub in tasks.getSubtasks(detailTask.id)"
+                :key="sub.id"
+                class="flex items-center gap-2 rounded-md border border-border/50 px-2 py-1.5 hover:bg-accent/30 transition-colors"
+              >
+                <button @click="cycleSubtaskStatus(sub)">
+                  <component
+                    :is="statusIcon(sub.status)"
+                    class="h-3.5 w-3.5"
+                    :class="sub.status === 'done' ? 'text-green-500' : sub.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
+                  />
+                </button>
+                <span class="flex-1 text-xs" :class="sub.status === 'done' ? 'line-through text-muted-foreground' : ''">{{ sub.title }}</span>
+                <Badge variant="outline" class="h-4 px-1 text-[9px] shrink-0" :class="PRIORITY_OPTIONS.find(p => p.value === sub.priority)?.color">
+                  {{ sub.priority }}
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dependencies -->
+          <div v-if="detailTask.dependencyIds.length > 0">
+            <label class="text-xs font-medium">Dependencies</label>
+            <div class="mt-1 flex flex-wrap gap-1">
+              <Badge v-for="title in tasks.getDependencyTitles(detailTask)" :key="title" variant="outline" class="gap-1">
+                <Link2 class="h-2.5 w-2.5" />
+                {{ title }}
+              </Badge>
+            </div>
+          </div>
+
+          <DialogFooter class="gap-2">
+            <Button variant="outline" size="sm" @click="showDetailDialog = false">
+              {{ editDirty ? 'Cancel' : 'Close' }}
+            </Button>
+            <Button v-if="editDirty" size="sm" @click="saveDetail">
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogScrollContent>
     </Dialog>
   </div>
 </template>

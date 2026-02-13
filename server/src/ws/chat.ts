@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
-import { createSession, getSession, sendMessage, abortSession, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
+import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
 
 export function setupChatWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -62,6 +62,10 @@ export function setupChatWs(server: Server) {
 
     emitter.on('tool_input_complete', (d: { requestId: string; tool: string; input: unknown }) => {
       safeSend(ws, { type: 'tool_input_complete', ...d, sessionId });
+    });
+
+    emitter.on('control_request', (d: { requestId: string; toolName: string; toolInput: unknown; toolUseId?: string }) => {
+      safeSend(ws, { type: 'control_request', ...d, sessionId });
     });
 
     emitter.on('error', (d: { error: string }) => {
@@ -143,6 +147,11 @@ export function setupChatWs(server: Server) {
               wireEmitter(ws, session.emitter, sessionId);
             }
           }
+        }
+
+        if (data.type === 'tool_response' && currentSessionId) {
+          const { requestId, approved } = data;
+          respondToPermission(currentSessionId, requestId, approved);
         }
 
         if (data.type === 'abort' && currentSessionId) {

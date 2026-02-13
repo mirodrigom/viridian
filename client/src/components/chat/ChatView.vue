@@ -14,8 +14,10 @@ import TodoTimeline from './TodoTimeline.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { PanelLeft } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
+import { useModeTheme } from '@/composables/useModeTheme';
 
 const chat = useChatStore();
+const { modeClass } = useModeTheme();
 const { init, sendMessage, respondToTool, abort } = useClaudeStream();
 provide('respondToTool', respondToTool);
 const showToolsSettings = ref(false);
@@ -54,7 +56,7 @@ defineExpose({ showToolsSettings });
       </ResizablePanel>
       <ResizableHandle />
       <ResizablePanel :default-size="hasTodos ? 58 : 78" :min-size="40">
-        <div class="flex h-full flex-col">
+        <div class="flex h-full flex-col" :class="modeClass">
           <MessageList
             class="flex-1 overflow-hidden"
             @approve-tool="(id) => respondToTool(id, true)"
@@ -96,7 +98,7 @@ defineExpose({ showToolsSettings });
       </Transition>
 
       <!-- Chat area (full width) -->
-      <div class="flex h-full w-full flex-col">
+      <div class="flex h-full w-full flex-col" :class="modeClass">
         <!-- Mobile sidebar toggle -->
         <div class="flex items-center gap-2 border-b border-border bg-card/50 px-2 py-1.5">
           <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="showMobileSidebar = true">

@@ -157,7 +157,8 @@ export function useClaudeStream() {
       if (d.tool === 'EnterPlanMode') chat.inPlanMode = true;
       else if (d.tool === 'ExitPlanMode') chat.inPlanMode = false;
 
-      // Auto-approve tools in bypassPermissions mode (except AskUserQuestion which needs user input)
+      // In bypassPermissions mode, the CLI auto-approves tools itself, so mark as approved.
+      // In other modes, set pending — the actual approval happens via control_request.
       const autoApproved = settings.permissionMode === 'bypassPermissions' && d.tool !== 'AskUserQuestion';
       const msg: ChatMessage = {
         id: uuid(),
@@ -172,6 +173,35 @@ export function useClaudeStream() {
         },
       };
       chat.addMessage(msg);
+    });
+
+    on('control_request', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
+      const d = data as { requestId: string; toolName: string; toolInput: Record<string, unknown>; toolUseId?: string };
+
+      // Auto-approve in bypassPermissions mode (except AskUserQuestion)
+      if (settings.permissionMode === 'bypassPermissions' && d.toolName !== 'AskUserQuestion') {
+        send({ type: 'tool_response', requestId: d.requestId, approved: true });
+        return;
+      }
+
+      // Auto-approve edit tools in acceptEdits mode
+      if (settings.permissionMode === 'acceptEdits') {
+        const editTools = ['Write', 'Edit', 'NotebookEdit', 'MultiEdit'];
+        if (editTools.includes(d.toolName)) {
+          send({ type: 'tool_response', requestId: d.requestId, approved: true });
+          const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
+          if (msg?.toolUse) msg.toolUse.status = 'approved';
+          return;
+        }
+      }
+
+      // For "default" mode and non-edit tools in "acceptEdits":
+      // Store the control request ID on the tool message so respondToTool can use it
+      const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
+      if (msg?.toolUse) {
+        msg.toolUse.controlRequestId = d.requestId;
+      }
     });
 
     on('thinking_start', (data: unknown) => {
@@ -304,8 +334,10 @@ export function useClaudeStream() {
   }
 
   function respondToTool(requestId: string, approved: boolean, answers?: Record<string, string>) {
-    send({ type: 'tool_response', requestId, approved, answers });
     const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
+    // Use the CLI's control request ID if available (for permission responses)
+    const controlRequestId = msg?.toolUse?.controlRequestId || requestId;
+    send({ type: 'tool_response', requestId: controlRequestId, approved, answers });
     if (msg?.toolUse) {
       msg.toolUse.status = approved ? 'approved' : 'rejected';
       if (answers) {

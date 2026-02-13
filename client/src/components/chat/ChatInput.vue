@@ -458,8 +458,8 @@ const effectivePermissionIcon = computed(() =>
         <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
           <SelectTrigger
             class="h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors"
-            :class="chat.inPlanMode
-              ? 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'
+            :class="chat.inPlanMode || settings.permissionMode === 'plan' || settings.permissionMode === 'bypassPermissions'
+              ? 'bg-primary/15 text-primary hover:bg-primary/25'
               : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
           >
             <component :is="effectivePermissionIcon" class="h-3 w-3" />

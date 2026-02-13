@@ -7,6 +7,8 @@ export interface ToolUseInfo {
   requestId: string;
   status: 'pending' | 'approved' | 'rejected';
   isInputStreaming?: boolean;
+  /** The CLI's control_request ID for responding to permission prompts. */
+  controlRequestId?: string;
 }
 
 export interface ChatMessage {

@@ -113,6 +113,28 @@ html.dark {
   --sidebar-ring: oklch(0.723 0.191 163);
 }
 
+/* ─── Chat Mode Color Overrides (scoped to conversation area) ─── */
+
+/* Plan Mode: Blue accent */
+.chat-mode-plan {
+  --primary: oklch(0.637 0.194 250);
+  --ring: oklch(0.637 0.194 250);
+}
+html.dark .chat-mode-plan {
+  --primary: oklch(0.723 0.191 250);
+  --ring: oklch(0.723 0.191 250);
+}
+
+/* Full Auto Mode: Orange/amber accent */
+.chat-mode-fullauto {
+  --primary: oklch(0.637 0.194 70);
+  --ring: oklch(0.637 0.194 70);
+}
+html.dark .chat-mode-fullauto {
+  --primary: oklch(0.75 0.18 70);
+  --ring: oklch(0.75 0.18 70);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

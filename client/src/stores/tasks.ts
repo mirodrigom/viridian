@@ -53,42 +53,18 @@ export const useTasksStore = defineStore('tasks', () => {
       .filter(t => !filterPriority.value || t.priority === filterPriority.value),
   );
 
-  // Sort tasks within a column: parent first, then its subtasks grouped together
-  function sortByParentGroup(items: Task[]): Task[] {
-    const parents = items.filter(t => !t.parentId);
-    const subtasks = items.filter(t => t.parentId);
-
-    const subtasksByParent = new Map<string, Task[]>();
-    for (const st of subtasks) {
-      const list = subtasksByParent.get(st.parentId!) || [];
-      list.push(st);
-      subtasksByParent.set(st.parentId!, list);
-    }
-
-    const result: Task[] = [];
-    const usedParentIds = new Set<string>();
-    for (const p of parents) {
-      result.push(p);
-      usedParentIds.add(p.id);
-      const children = subtasksByParent.get(p.id) || [];
-      result.push(...children.sort((a, b) => a.sortOrder - b.sortOrder));
-    }
-    // Orphaned subtasks (parent in a different column)
-    for (const st of subtasks) {
-      if (!usedParentIds.has(st.parentId!)) {
-        result.push(st);
-      }
-    }
-    return result;
-  }
-
   const tasksByStatus = computed(() => {
     const grouped: Record<TaskStatus, Task[]> = { todo: [], in_progress: [], done: [] };
+    // Only show root tasks and orphaned subtasks at top level;
+    // subtasks with existing parents are rendered inline inside parent cards
+    const rootIds = new Set(tasks.value.filter(t => !t.parentId).map(t => t.id));
     for (const t of allFilteredTasks.value) {
-      grouped[t.status].push(t);
+      if (!t.parentId || !rootIds.has(t.parentId)) {
+        grouped[t.status].push(t);
+      }
     }
     for (const status of Object.keys(grouped) as TaskStatus[]) {
-      grouped[status] = sortByParentGroup(grouped[status]);
+      grouped[status].sort((a, b) => a.sortOrder - b.sortOrder);
     }
     return grouped;
   });
@@ -291,6 +267,19 @@ export const useTasksStore = defineStore('tasks', () => {
     return subtasks;
   }
 
+  async function reorderTasks(taskIds: string[]) {
+    const auth = useAuthStore();
+    await fetch('/api/tasks/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ taskIds }),
+    });
+    taskIds.forEach((id, index) => {
+      const task = tasks.value.find(t => t.id === id);
+      if (task) task.sortOrder = index;
+    });
+  }
+
   return {
     tasks,
     loading,
@@ -312,5 +301,6 @@ export const useTasksStore = defineStore('tasks', () => {
     deleteTask,
     parsePrd,
     expandTask,
+    reorderTasks,
   };
 });
