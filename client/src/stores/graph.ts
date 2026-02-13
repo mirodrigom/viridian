@@ -7,6 +7,7 @@ import type {
   SubagentNodeData, ExpertNodeData, SkillNodeData, RuleNodeData,
 } from '@/types/graph';
 import { CONNECTION_RULES } from '@/types/graph';
+import type { GraphTemplate } from '@/data/graphTemplates';
 import { useAuthStore } from './auth';
 import { uuid } from '@/lib/utils';
 
@@ -159,6 +160,40 @@ export const useGraphStore = defineStore('graph', () => {
     currentGraphName.value = 'Untitled Graph';
     savedViewport.value = null;
     isDirty.value = false;
+    graphVersion.value++;
+  }
+
+  // ─── Load template ────────────────────────────────────────────────
+
+  function loadTemplate(template: GraphTemplate) {
+    // Map old IDs → new UUIDs so each import is unique
+    const idMap = new Map<string, string>();
+    for (const n of template.nodes) {
+      idMap.set(n.id, uuid());
+    }
+
+    nodes.value = template.nodes.map(n => ({
+      id: idMap.get(n.id)!,
+      type: n.type,
+      position: { ...n.position },
+      data: { ...n.data },
+    }));
+
+    edges.value = template.edges.map(e => ({
+      id: `e-${idMap.get(e.source)!}-${idMap.get(e.target)!}`,
+      source: idMap.get(e.source)!,
+      target: idMap.get(e.target)!,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+      type: 'custom' as const,
+      data: { ...e.data },
+    }));
+
+    selectedNodeId.value = null;
+    currentGraphId.value = null;
+    currentGraphName.value = template.name;
+    savedViewport.value = null;
+    isDirty.value = true;
     graphVersion.value++;
   }
 

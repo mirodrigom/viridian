@@ -212,12 +212,12 @@ const permissionIcons: Record<string, typeof Zap> = {
           </CardHeader>
           <CardContent class="space-y-4">
             <div class="flex gap-2">
-              <Input
-                v-model="projectPath"
-                placeholder="/home/rodrigom/Documents/my-project"
-                class="font-mono text-sm"
-                @keydown.enter="openProject()"
-              />
+              <div class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2">
+                <FolderOpen class="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span class="truncate font-mono text-sm" :class="projectPath ? 'text-foreground' : 'text-muted-foreground'">
+                  {{ projectPath || 'Select a project directory...' }}
+                </span>
+              </div>
               <Button variant="outline" @click="showDirPicker = true" class="shrink-0 gap-1">
                 <Search class="h-4 w-4" />
                 Browse

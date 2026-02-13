@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Handle, Position } from '@vue-flow/core';
+import { Handle, Position, useVueFlow } from '@vue-flow/core';
 import type { NodeData } from '@/types/graph';
 import { NODE_CONFIG, CONNECTION_RULES } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const graph = useGraphStore();
 const runner = useGraphRunnerStore();
+const { getNodes, removeNodes, removeEdges } = useVueFlow();
 
 const config = computed(() => NODE_CONFIG[props.data.nodeType]);
 
@@ -77,7 +78,15 @@ const targetHandles = computed(() => {
 });
 
 function onDelete() {
-  graph.removeNode(props.id);
+  const id = props.id;
+  // Remove edges connected to this node from VueFlow
+  const connectedEdges = graph.edges.filter(e => e.source === id || e.target === id);
+  if (connectedEdges.length) removeEdges(connectedEdges);
+  // Remove node from VueFlow
+  const vfNode = getNodes.value.find(n => n.id === id);
+  if (vfNode) removeNodes([vfNode]);
+  // Remove from store
+  graph.removeNode(id);
 }
 </script>
 
@@ -87,6 +96,7 @@ function onDelete() {
     :class="[
       selected ? 'ring-2 ring-primary shadow-lg shadow-primary/10' : 'hover:shadow-lg',
       execStatus === 'running' ? 'ring-2 ring-yellow-500/70 shadow-lg shadow-yellow-500/10 exec-pulse' : '',
+      execStatus === 'delegated' ? 'ring-1 ring-blue-400/40 border-dashed shadow-md shadow-blue-400/5 delegated-pulse' : '',
       execStatus === 'completed' ? 'ring-2 ring-green-500/50 shadow-lg shadow-green-500/10' : '',
       execStatus === 'failed' ? 'ring-2 ring-red-500/50 shadow-lg shadow-red-500/10' : '',
       hasRunningParent ? 'ring-1 ring-yellow-400/30 auxiliary-pulse' : '',
@@ -96,6 +106,7 @@ function onDelete() {
     <!-- Execution status badge -->
     <div v-if="execStatus" class="absolute -right-1.5 -top-1.5 z-10">
       <Loader2 v-if="execStatus === 'running'" class="h-4 w-4 animate-spin text-yellow-500 drop-shadow" />
+      <div v-else-if="execStatus === 'delegated'" class="h-4 w-4 rounded-full border border-blue-400/50 bg-blue-400/10 animate-pulse" />
       <CheckCircle v-else-if="execStatus === 'completed'" class="h-4 w-4 text-green-500 drop-shadow" />
       <XCircle v-else-if="execStatus === 'failed'" class="h-4 w-4 text-red-500 drop-shadow" />
     </div>
@@ -167,5 +178,14 @@ function onDelete() {
 @keyframes auxiliary-glow {
   0%, 100% { box-shadow: 0 0 4px oklch(0.8 0.12 85 / 10%); }
   50% { box-shadow: 0 0 10px oklch(0.8 0.12 85 / 25%); }
+}
+
+.delegated-pulse {
+  animation: delegated-glow 3s ease-in-out infinite;
+}
+
+@keyframes delegated-glow {
+  0%, 100% { box-shadow: 0 0 4px oklch(0.7 0.12 250 / 10%); }
+  50% { box-shadow: 0 0 8px oklch(0.7 0.12 250 / 20%); }
 }
 </style>

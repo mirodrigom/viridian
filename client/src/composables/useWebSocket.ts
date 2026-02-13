@@ -1,5 +1,6 @@
 import { ref, onUnmounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { toast } from 'vue-sonner';
 
 export function useWebSocket(path: string) {
   const ws = ref<WebSocket | null>(null);
@@ -8,6 +9,7 @@ export function useWebSocket(path: string) {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempts = 0;
   let intentionalClose = false;
+  let wasConnected = false;
 
   const MAX_RECONNECT_DELAY = 10_000;
   const BASE_RECONNECT_DELAY = 500;
@@ -30,12 +32,23 @@ export function useWebSocket(path: string) {
 
     socket.onopen = () => {
       connected.value = true;
+      if (wasConnected && reconnectAttempts > 0) {
+        toast.dismiss('ws-reconnect');
+        toast.success('Reconnected to server');
+      }
       reconnectAttempts = 0;
+      wasConnected = true;
     };
 
     socket.onclose = () => {
       connected.value = false;
       ws.value = null;
+      if (!intentionalClose && wasConnected) {
+        toast.warning('Connection lost. Reconnecting...', {
+          duration: Infinity,
+          id: 'ws-reconnect',
+        });
+      }
       if (!intentionalClose) {
         scheduleReconnect();
       }
@@ -96,6 +109,7 @@ export function useWebSocket(path: string) {
 
   function disconnect() {
     intentionalClose = true;
+    wasConnected = false;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

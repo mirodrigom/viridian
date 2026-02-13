@@ -129,14 +129,40 @@ router.put('/:id', (req: AuthRequest, res) => {
   if (dependencyIds !== undefined) { updates.push('dependency_ids = ?'); params.push(JSON.stringify(dependencyIds)); }
   if (sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(sortOrder); }
 
-  if (updates.length === 0) { res.json(rowToTask(existing)); return; }
+  if (updates.length === 0) { res.json({ task: rowToTask(existing), parentUpdate: null }); return; }
 
   updates.push("updated_at = CURRENT_TIMESTAMP");
   params.push(req.params.id, req.user!.id);
 
   db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as TaskRow;
-  res.json(rowToTask(row));
+
+  // Auto-sync parent status when a subtask's status changes
+  let parentUpdate: ReturnType<typeof rowToTask> | null = null;
+  if (status !== undefined && row.parent_id) {
+    const siblings = db.prepare(
+      'SELECT status FROM tasks WHERE parent_id = ? AND user_id = ?',
+    ).all(row.parent_id, req.user!.id) as { status: string }[];
+
+    const allDone = siblings.every(s => s.status === 'done');
+    const allTodo = siblings.every(s => s.status === 'todo');
+    const newParentStatus = allDone ? 'done' : allTodo ? 'todo' : 'in_progress';
+
+    const parent = db.prepare(
+      'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
+    ).get(row.parent_id, req.user!.id) as TaskRow | undefined;
+
+    if (parent && parent.status !== newParentStatus) {
+      db.prepare(
+        'UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ).run(newParentStatus, parent.id);
+
+      const updatedParent = db.prepare('SELECT * FROM tasks WHERE id = ?').get(parent.id) as TaskRow;
+      parentUpdate = rowToTask(updatedParent);
+    }
+  }
+
+  res.json({ task: rowToTask(row), parentUpdate });
 });
 
 // DELETE /:id — delete task (cascades to subtasks)
@@ -183,14 +209,19 @@ router.post('/parse-prd', (req: AuthRequest, res) => {
     Connection: 'keep-alive',
   });
 
-  const prompt = `You are a project manager AI. Parse the following PRD (Product Requirements Document) into a list of implementation tasks.
+  const prompt = `You are a project manager AI. Parse the following PRD (Product Requirements Document) into a hierarchical list of parent tasks (epics/features), each with specific subtasks.
 
-For each task, output a JSON object on its own line with these fields:
-- title: short task title (imperative form, e.g. "Add user authentication")
-- description: 1-2 sentence summary
+For each parent task, output a JSON object on its own line with these fields:
+- title: short epic/feature title (imperative form, e.g. "Add user authentication")
+- description: 1-2 sentence summary of the feature
 - priority: "high", "medium", or "low"
-- dependencyTitles: array of other task titles this depends on (empty if none)
+- dependencyTitles: array of other parent task titles this depends on (empty if none)
+- subtasks: array of 2-5 subtask objects, each with:
+  - title: short subtask title (imperative form)
+  - description: 1-2 sentence summary
+  - priority: "high", "medium", or "low"
 
+Each parent task MUST have subtasks that break down the implementation into concrete steps.
 Output ONLY the JSON objects, one per line. No markdown, no explanations, no code fences.
 
 PRD:
@@ -218,39 +249,62 @@ ${prd}`;
         }
       }
 
-      // Parse the collected text into tasks
-      const tasks: Array<{ title: string; description: string; priority: string; dependencyTitles: string[] }> = [];
+      // Parse the collected text into hierarchical tasks
+      const parsedTasks: Array<{
+        title: string;
+        description: string;
+        priority: string;
+        dependencyTitles: string[];
+        subtasks?: Array<{ title: string; description: string; priority: string }>;
+      }> = [];
       for (const line of fullText.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed || !trimmed.startsWith('{')) continue;
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed.title) tasks.push(parsed);
+          if (parsed.title) parsedTasks.push(parsed);
         } catch { /* skip non-JSON lines */ }
       }
 
-      // Save tasks to DB
+      // Save tasks to DB with 3-pass approach
       const db = getDb();
       const userId = req.user!.id;
-      const savedTasks: ReturnType<typeof rowToTask>[] = [];
+      const allIds: string[] = [];
       const titleToId = new Map<string, string>();
 
-      // First pass: create all tasks
-      const insertStmt = db.prepare(`
+      const insertParentStmt = db.prepare(`
         INSERT INTO tasks (id, user_id, project_path, title, description, priority, prd_source, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      const insertSubStmt = db.prepare(`
+        INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, prd_source, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const updateDeps = db.prepare('UPDATE tasks SET dependency_ids = ? WHERE id = ?');
+      const prdSnippet = prd.substring(0, 500);
 
       const tx = db.transaction(() => {
-        tasks.forEach((t, i) => {
+        // Pass 1: create parent tasks
+        parsedTasks.forEach((t, i) => {
           const id = randomUUID();
           titleToId.set(t.title, id);
-          insertStmt.run(id, userId, project, t.title, t.description || '', t.priority || 'medium', prd.substring(0, 500), i);
+          allIds.push(id);
+          insertParentStmt.run(id, userId, project, t.title, t.description || '', t.priority || 'medium', prdSnippet, i);
         });
 
-        // Second pass: set dependency_ids
-        const updateDeps = db.prepare('UPDATE tasks SET dependency_ids = ? WHERE id = ?');
-        for (const t of tasks) {
+        // Pass 2: create subtasks
+        for (const t of parsedTasks) {
+          const parentId = titleToId.get(t.title);
+          if (!parentId || !t.subtasks) continue;
+          t.subtasks.forEach((st, j) => {
+            const subId = randomUUID();
+            allIds.push(subId);
+            insertSubStmt.run(subId, userId, project, st.title, st.description || '', st.priority || 'medium', parentId, prdSnippet, j);
+          });
+        }
+
+        // Pass 3: set dependency_ids on parent tasks
+        for (const t of parsedTasks) {
           const id = titleToId.get(t.title);
           if (!id) continue;
           const depIds = (t.dependencyTitles || [])
@@ -263,11 +317,12 @@ ${prd}`;
       });
       tx();
 
-      // Fetch all saved tasks
-      for (const [, id] of titleToId) {
-        const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow;
-        if (row) savedTasks.push(rowToTask(row));
-      }
+      // Fetch all saved tasks (parents + subtasks)
+      const placeholders = allIds.map(() => '?').join(',');
+      const allRows = db.prepare(
+        `SELECT * FROM tasks WHERE id IN (${placeholders}) ORDER BY parent_id IS NOT NULL, sort_order ASC`,
+      ).all(...allIds) as TaskRow[];
+      const savedTasks = allRows.map(rowToTask);
 
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
       res.end();
@@ -337,6 +392,10 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
       // Save subtasks
       const userId = req.user!.id;
       const saved: ReturnType<typeof rowToTask>[] = [];
+
+      // Delete existing subtasks before inserting new ones
+      db.prepare('DELETE FROM tasks WHERE parent_id = ? AND user_id = ?').run(task.id, userId);
+
       const insertStmt = db.prepare(`
         INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)

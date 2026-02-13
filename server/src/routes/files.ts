@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import { basename, join } from 'path';
 import { existsSync } from 'fs';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getFileTree, getFileContent, saveFileContent, getLanguageFromPath, searchFiles } from '../services/files.js';
+import { getFileTree, getDirectoryChildren, getFileContent, saveFileContent, getLanguageFromPath, searchFiles } from '../services/files.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -12,11 +12,27 @@ router.use(authMiddleware);
 router.get('/tree', async (req, res) => {
   try {
     const rootPath = (req.query.path as string) || process.env.HOME || '/home';
-    const depth = parseInt(req.query.depth as string) || 3;
+    const depth = parseInt(req.query.depth as string) || 1;
     const tree = await getFileTree(rootPath, depth);
     res.json({ tree, rootPath });
   } catch (err) {
     res.status(500).json({ error: 'Failed to read directory' });
+  }
+});
+
+router.get('/tree/children', async (req, res) => {
+  try {
+    const rootPath = req.query.root as string;
+    const relativePath = (req.query.path as string) || '';
+    if (!rootPath) {
+      res.status(400).json({ error: 'root is required' });
+      return;
+    }
+    const children = await getDirectoryChildren(rootPath, relativePath);
+    res.json({ children });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to read directory';
+    res.status(500).json({ error: message });
   }
 });
 

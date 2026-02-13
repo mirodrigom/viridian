@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { useTasksStore, STATUS_OPTIONS, PRIORITY_OPTIONS, type Task, type TaskStatus, type TaskPriority } from '@/stores/tasks';
 import { useChatStore } from '@/stores/chat';
+import { useConfirmDialog } from '@/composables/useConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,12 +14,17 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Plus, Trash2, Sparkles, FileText,
   Loader2, CheckCircle2, Circle, Clock,
+  ArrowUpRight, Link2,
 } from 'lucide-vue-next';
 
 const tasks = useTasksStore();
 const chat = useChatStore();
+const { confirm } = useConfirmDialog();
 
 const showCreateDialog = ref(false);
 const showPrdDialog = ref(false);
@@ -33,9 +39,6 @@ const newPriority = ref<TaskPriority>('medium');
 // PRD form
 const prdText = ref('');
 const prdOutput = ref('');
-
-// Expanded task details
-const expandedTaskId = ref<string | null>(null);
 
 onMounted(() => {
   if (chat.projectPath) tasks.fetchTasks(chat.projectPath);
@@ -78,18 +81,20 @@ async function handleExpand(taskId: string) {
 }
 
 async function cycleStatus(task: Task) {
+  // Prevent manual status change for parents with subtasks (auto-sync controls it)
+  if (tasks.hasSubtasks(task.id)) return;
   const order: TaskStatus[] = ['todo', 'in_progress', 'done'];
   const next = order[(order.indexOf(task.status) + 1) % order.length];
   await tasks.updateTask(task.id, { status: next });
 }
 
 async function handleDelete(id: string) {
-  if (!confirm('Delete this task and its subtasks?')) return;
+  const ok = await confirm({
+    title: 'Delete task',
+    description: 'This will delete the task and all its subtasks.',
+  });
+  if (!ok) return;
   await tasks.deleteTask(id);
-}
-
-function toggleExpand(taskId: string) {
-  expandedTaskId.value = expandedTaskId.value === taskId ? null : taskId;
 }
 
 const statusIcon = (status: TaskStatus) => {
@@ -152,7 +157,7 @@ const statusIcon = (status: TaskStatus) => {
         <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
 
-      <div v-else-if="tasks.rootTasks.length === 0" class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+      <div v-else-if="tasks.tasks.length === 0" class="flex flex-col items-center justify-center gap-3 py-12 text-center">
         <div class="rounded-full bg-muted p-3">
           <FileText class="h-5 w-5 text-muted-foreground" />
         </div>
@@ -175,39 +180,98 @@ const statusIcon = (status: TaskStatus) => {
             <Card
               v-for="task in tasks.tasksByStatus[col.value]"
               :key="task.id"
-              class="cursor-pointer transition-colors hover:bg-accent/50"
-              @click="toggleExpand(task.id)"
+              :class="[
+                'transition-colors',
+                tasks.hasSubtasks(task.id)
+                  ? 'border-l-2 border-l-primary/60 bg-accent/20'
+                  : 'hover:bg-accent/50',
+              ]"
             >
               <CardContent class="p-3">
                 <div class="flex items-start gap-2">
+                  <!-- Status button: disabled for parents with subtasks -->
                   <button
                     class="mt-0.5 shrink-0"
+                    :class="tasks.hasSubtasks(task.id) ? 'cursor-default' : 'cursor-pointer'"
                     @click.stop="cycleStatus(task)"
                   >
                     <component
                       :is="statusIcon(task.status)"
                       class="h-4 w-4"
-                      :class="task.status === 'done' ? 'text-green-500' : task.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
+                      :class="[
+                        task.status === 'done' ? 'text-green-500' : task.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground',
+                        tasks.hasSubtasks(task.id) ? 'opacity-50' : '',
+                      ]"
                     />
                   </button>
                   <div class="min-w-0 flex-1">
-                    <p class="text-xs font-medium leading-tight" :class="{ 'line-through text-muted-foreground': task.status === 'done' }">
+                    <!-- Parent badge (for subtasks) -->
+                    <div v-if="task.parentId" class="mb-0.5 flex items-center gap-1">
+                      <ArrowUpRight class="h-2.5 w-2.5 text-muted-foreground" />
+                      <span class="max-w-32 truncate text-[9px] text-muted-foreground">
+                        {{ tasks.getParentTitle(task) }}
+                      </span>
+                    </div>
+
+                    <p
+                      class="text-xs leading-tight"
+                      :class="{
+                        'line-through text-muted-foreground': task.status === 'done',
+                        'font-semibold': tasks.hasSubtasks(task.id),
+                        'font-medium': !tasks.hasSubtasks(task.id),
+                      }"
+                    >
                       {{ task.title }}
                     </p>
                     <p v-if="task.description" class="mt-0.5 text-[10px] leading-tight text-muted-foreground line-clamp-2">
                       {{ task.description }}
                     </p>
-                    <div class="mt-1.5 flex items-center gap-1">
+                    <div class="mt-1.5 flex flex-wrap items-center gap-1">
+                      <!-- Priority badge -->
                       <Badge variant="outline" class="h-4 px-1 text-[9px]" :class="PRIORITY_OPTIONS.find(p => p.value === task.priority)?.color">
                         {{ task.priority }}
                       </Badge>
-                      <Badge v-if="tasks.getSubtasks(task.id).length > 0" variant="secondary" class="h-4 px-1 text-[9px]">
+
+                      <!-- Epic progress indicator (for parents with subtasks) -->
+                      <Badge v-if="tasks.hasSubtasks(task.id)" variant="secondary" class="h-4 px-1 text-[9px]">
                         {{ tasks.getSubtasks(task.id).filter(s => s.status === 'done').length }}/{{ tasks.getSubtasks(task.id).length }}
+                      </Badge>
+
+                      <!-- Dependency badges -->
+                      <TooltipProvider v-if="task.dependencyIds.length > 0">
+                        <Tooltip v-for="depTitle in tasks.getDependencyTitles(task)" :key="depTitle">
+                          <TooltipTrigger as-child>
+                            <Badge
+                              variant="outline"
+                              class="h-4 max-w-20 gap-0.5 truncate px-1 text-[9px]"
+                              :class="tasks.isBlockedByDependency(task)
+                                ? 'border-orange-500/40 text-orange-500'
+                                : 'border-green-500/40 text-green-500'"
+                            >
+                              <Link2 class="h-2 w-2 shrink-0" />
+                              {{ depTitle }}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" class="text-xs">
+                            Depends on: {{ depTitle }}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
+                      <!-- Blocked indicator -->
+                      <Badge
+                        v-if="tasks.isBlockedByDependency(task)"
+                        variant="outline"
+                        class="h-4 px-1 text-[9px] border-orange-500/40 text-orange-500"
+                      >
+                        blocked
                       </Badge>
                     </div>
                   </div>
                   <div class="flex shrink-0 items-center gap-0.5">
+                    <!-- Sparkles: only for root tasks (expand into subtasks) -->
                     <button
+                      v-if="!task.parentId"
                       class="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       title="Expand into subtasks"
                       @click.stop="handleExpand(task.id)"
@@ -220,29 +284,6 @@ const statusIcon = (status: TaskStatus) => {
                       @click.stop="handleDelete(task.id)"
                     >
                       <Trash2 class="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-
-                <!-- Expanded subtasks -->
-                <div v-if="expandedTaskId === task.id && tasks.getSubtasks(task.id).length > 0" class="mt-2 space-y-1 border-t border-border pt-2">
-                  <div
-                    v-for="sub in tasks.getSubtasks(task.id)"
-                    :key="sub.id"
-                    class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-accent/50"
-                  >
-                    <button @click.stop="cycleStatus(sub)">
-                      <component
-                        :is="statusIcon(sub.status)"
-                        class="h-3 w-3"
-                        :class="sub.status === 'done' ? 'text-green-500' : sub.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
-                      />
-                    </button>
-                    <span class="text-[10px]" :class="{ 'line-through text-muted-foreground': sub.status === 'done' }">
-                      {{ sub.title }}
-                    </span>
-                    <button class="ml-auto rounded p-0.5 text-muted-foreground hover:text-destructive" @click.stop="handleDelete(sub.id)">
-                      <Trash2 class="h-2.5 w-2.5" />
                     </button>
                   </div>
                 </div>
@@ -292,7 +333,7 @@ const statusIcon = (status: TaskStatus) => {
       <DialogContent class="max-w-lg">
         <DialogHeader>
           <DialogTitle>Parse PRD</DialogTitle>
-          <DialogDescription>Paste a Product Requirements Document and Claude will break it into tasks</DialogDescription>
+          <DialogDescription>Paste a Product Requirements Document and Claude will break it into hierarchical tasks</DialogDescription>
         </DialogHeader>
         <div class="space-y-3 py-2">
           <Textarea

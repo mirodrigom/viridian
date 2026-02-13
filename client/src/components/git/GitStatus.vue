@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useGitStore } from '@/stores/git';
+import { useConfirmDialog } from '@/composables/useConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Undo2, Columns2 } from 'lucide-vue-next';
 
 const git = useGitStore();
+const { confirm } = useConfirmDialog();
 
-function confirmDiscard(filePath: string) {
-  if (confirm(`Discard changes to ${filePath}?`)) {
-    git.discardFile(filePath);
-  }
+async function confirmDiscard(filePath: string) {
+  const ok = await confirm({
+    title: 'Discard changes',
+    description: `Discard all changes to ${filePath}? This cannot be undone.`,
+  });
+  if (ok) git.discardFile(filePath);
 }
 
 const allUnstagedPaths = computed(() => [
@@ -42,7 +46,7 @@ function toggleSelectAll() {
     <div v-if="git.staged.length > 0">
       <div class="mb-1 flex items-center justify-between">
         <h4 class="text-xs font-medium uppercase text-muted-foreground">Staged Changes</h4>
-        <Button variant="ghost" size="sm" class="h-6 text-xs" @click="git.unstageFiles(git.staged.map(f => f.path))">
+        <Button variant="ghost" size="sm" class="h-6 text-xs" :disabled="git.operationLoading" @click="git.unstageFiles(git.staged.map(f => f.path))">
           Unstage All
         </Button>
       </div>
@@ -90,11 +94,12 @@ function toggleSelectAll() {
             variant="ghost"
             size="sm"
             class="h-6 text-xs text-primary"
+            :disabled="git.operationLoading"
             @click="git.stageSelected()"
           >
             Stage Selected ({{ git.selectedFiles.size }})
           </Button>
-          <Button variant="ghost" size="sm" class="h-6 text-xs" @click="git.stageFiles([...git.modified.map(f => f.path), ...git.untracked])">
+          <Button variant="ghost" size="sm" class="h-6 text-xs" :disabled="git.operationLoading" @click="git.stageFiles([...git.modified.map(f => f.path), ...git.untracked])">
             Stage All
           </Button>
         </div>
@@ -134,6 +139,7 @@ function toggleSelectAll() {
               size="sm"
               class="hidden h-5 w-5 p-0 text-destructive group-hover:inline-flex"
               title="Discard changes"
+              :disabled="git.operationLoading"
               @click.stop="confirmDiscard(file.path)"
             >
               <Undo2 class="h-3 w-3" />
@@ -142,6 +148,7 @@ function toggleSelectAll() {
               variant="ghost"
               size="sm"
               class="hidden h-5 px-1 text-xs group-hover:inline-flex"
+              :disabled="git.operationLoading"
               @click.stop="git.stageFiles([file.path])"
             >
               +
@@ -169,6 +176,7 @@ function toggleSelectAll() {
               variant="ghost"
               size="sm"
               class="hidden h-5 px-1 text-xs group-hover:inline-flex"
+              :disabled="git.operationLoading"
               @click.stop="git.stageFiles([file])"
             >
               +

@@ -146,6 +146,42 @@
 
 ---
 
+## Security & Deployment
+
+### CRITICAL SECURITY FIX - COMPLETED ✅
+**JWT Secret Management**: The default JWT secret vulnerability has been fixed:
+- ✅ Production deployments now require `JWT_SECRET` environment variable
+- ✅ Minimum 32-character secret length enforcement
+- ✅ Development warning for missing secret
+- ✅ Clear error messages with OpenSSL generation instructions
+- ✅ Example environment file created (`.env.example`)
+
+### Deployment Setup
+
+1. **Environment Configuration**:
+   ```bash
+   # Generate a secure JWT secret
+   openssl rand -base64 64
+
+   # Copy the example environment file
+   cp .env.example .env
+
+   # Edit .env with your secure values
+   JWT_SECRET=your-generated-secret-here
+   NODE_ENV=production
+   PORT=3010
+   CORS_ORIGIN=https://your-domain.com
+   ```
+
+2. **Security Checklist**:
+   - [ ] JWT_SECRET set to secure random value (minimum 32 characters)
+   - [ ] NODE_ENV=production for production deployments
+   - [ ] CORS_ORIGIN configured for your domain
+   - [ ] SQLite database file permissions restricted
+   - [ ] Server running behind reverse proxy (nginx/Apache)
+   - [ ] HTTPS enabled
+   - [ ] Regular security updates applied
+
 ## Recommended Implementation Order
 
 ### Phase 1 - Chat Quality (P0/P1, biggest UX impact)

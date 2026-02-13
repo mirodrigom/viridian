@@ -144,6 +144,14 @@ function wireRunEvents(ws: WebSocket, ctx: RunContext) {
     safeSend(ws, { type: 'result_return', ...d });
   });
 
+  emitter.on('node_delegated', (d: { nodeId: string; nodeLabel: string; nodeType: string; parentNodeId: string; inputPrompt: string }) => {
+    safeSend(ws, { type: 'node_delegated', ...d });
+  });
+
+  emitter.on('node_skipped', (d: { nodeId: string; reason: string }) => {
+    safeSend(ws, { type: 'node_skipped', ...d });
+  });
+
   emitter.on('run_completed', (d: { runId: string; finalOutput: string }) => {
     safeSend(ws, { type: 'run_completed', ...d });
   });

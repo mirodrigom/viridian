@@ -35,6 +35,9 @@ function getFileIcon(name: string) {
 function handleItemSelect(node: FileNode) {
   if (node.type === 'file') {
     files.openFile(node.path);
+  } else if (node.type === 'directory') {
+    // Lazy load children when expanding a directory
+    files.expandFolder(node.path);
   }
 }
 </script>
@@ -56,7 +59,7 @@ function handleItemSelect(node: FileNode) {
       class="py-1"
     >
       <TreeItem
-        v-for="item in flattenItems"
+        v-for="item in flattenItems.filter(i => !i.value.path.endsWith('/__placeholder'))"
         v-slot="{ isExpanded }"
         :key="item._id"
         v-bind="item.bind"

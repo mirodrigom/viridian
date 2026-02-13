@@ -28,11 +28,16 @@ export function setupShellWs(server: Server) {
     });
   });
 
-  wss.on('connection', (ws: WebSocket, req) => {
+  wss.on('connection', async (ws: WebSocket, req) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     const cwd = url.searchParams.get('cwd') || process.env.HOME || '/home';
 
-    const session = createTerminal(cwd);
+    const session = await createTerminal(cwd);
+    if (!session) {
+      safeSend(ws, { type: 'error', message: 'Terminal not available (node-pty not installed)' });
+      ws.close();
+      return;
+    }
 
     // Send terminal ID to client
     safeSend(ws, { type: 'terminal_ready', id: session.id });

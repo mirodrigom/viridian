@@ -1,19 +1,34 @@
-import * as pty from 'node-pty';
 import { v4 as uuid } from 'uuid';
+
+let pty: typeof import('node-pty') | null = null;
+
+async function loadPty() {
+  if (!pty) {
+    try {
+      pty = await import('node-pty');
+    } catch {
+      console.warn('[terminal] node-pty not available — terminal feature disabled');
+    }
+  }
+  return pty;
+}
 
 interface TerminalSession {
   id: string;
-  pty: pty.IPty;
+  pty: import('node-pty').IPty;
   cwd: string;
 }
 
 const sessions = new Map<string, TerminalSession>();
 
-export function createTerminal(cwd: string, cols = 80, rows = 24): TerminalSession {
+export async function createTerminal(cwd: string, cols = 80, rows = 24): Promise<TerminalSession | null> {
+  const mod = await loadPty();
+  if (!mod) return null;
+
   const shell = process.env.SHELL || '/bin/bash';
   const id = uuid();
 
-  const ptyProcess = pty.spawn(shell, [], {
+  const ptyProcess = mod.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
     rows,

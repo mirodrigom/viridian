@@ -80,6 +80,7 @@ async function resumeSession(session: SessionItem) {
   if (chat.isStreaming) return;
   chat.clearMessages();
   chat.sessionId = session.id;
+  chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
   chat.activeProjectDir = session.projectDir;
 
   // Update URL to reflect the active session

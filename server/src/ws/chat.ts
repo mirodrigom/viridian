@@ -101,12 +101,12 @@ export function setupChatWs(server: Server) {
         const data = JSON.parse(raw.toString());
 
         if (data.type === 'chat') {
-          const { prompt, sessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools } = data;
+          const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools } = data;
           const projectDir = cwd || process.env.HOME || '/home';
 
           let session = sessionId ? getSession(sessionId) : null;
           if (!session) {
-            session = createSession(projectDir);
+            session = createSession(projectDir, claudeSessionId || undefined);
           }
           currentSessionId = session.id;
 

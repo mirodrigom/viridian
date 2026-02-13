@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from '@/stores/auth';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -42,6 +43,8 @@ const loading = ref(false);
 const error = ref('');
 const showAddForm = ref(false);
 const expandedServer = ref<string | null>(null);
+const addingServer = ref(false);
+const removingServer = ref<string | null>(null);
 
 const newServer = ref<EditingServer>(emptyServer());
 
@@ -99,6 +102,7 @@ async function addServer() {
     if (Object.keys(headers).length > 0) config.headers = headers;
   }
 
+  addingServer.value = true;
   try {
     const res = await fetch('/api/mcp/servers', {
       method: 'POST',
@@ -110,7 +114,7 @@ async function addServer() {
     });
     if (!res.ok) {
       const data = await res.json();
-      error.value = data.error || 'Failed to add server';
+      toast.error(data.error || 'Failed to add server');
       return;
     }
     const data = await res.json();
@@ -118,11 +122,14 @@ async function addServer() {
     newServer.value = emptyServer();
     showAddForm.value = false;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to add server';
+    toast.error(err instanceof Error ? err.message : 'Failed to add server');
+  } finally {
+    addingServer.value = false;
   }
 }
 
 async function removeServer(name: string) {
+  removingServer.value = name;
   try {
     const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
       method: 'DELETE',
@@ -130,14 +137,16 @@ async function removeServer(name: string) {
     });
     if (!res.ok) {
       const data = await res.json();
-      error.value = data.error || 'Failed to remove server';
+      toast.error(data.error || 'Failed to remove server');
       return;
     }
     const data = await res.json();
     servers.value = data.servers;
     if (expandedServer.value === name) expandedServer.value = null;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to remove server';
+    toast.error(err instanceof Error ? err.message : 'Failed to remove server');
+  } finally {
+    removingServer.value = null;
   }
 }
 
@@ -207,8 +216,9 @@ watch(open, (isOpen) => {
                 <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
                   {{ getServerType(config) }}
                 </span>
-                <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" @click="removeServer(String(name))">
-                  <Trash2 class="h-3.5 w-3.5" />
+                <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" :disabled="removingServer === name" @click="removeServer(String(name))">
+                  <Loader2 v-if="removingServer === name" class="h-3.5 w-3.5 animate-spin" />
+                  <Trash2 v-else class="h-3.5 w-3.5" />
                 </Button>
               </div>
 
@@ -315,9 +325,10 @@ watch(open, (isOpen) => {
                 </div>
               </template>
 
-              <Button size="sm" class="w-full gap-1" @click="addServer" :disabled="!newServer.name.trim() || (newServer.type === 'stdio' ? !newServer.command.trim() : !newServer.url.trim())">
-                <Plus class="h-3.5 w-3.5" />
-                Add Server
+              <Button size="sm" class="w-full gap-1" @click="addServer" :disabled="addingServer || !newServer.name.trim() || (newServer.type === 'stdio' ? !newServer.command.trim() : !newServer.url.trim())">
+                <Loader2 v-if="addingServer" class="h-3.5 w-3.5 animate-spin" />
+                <Plus v-else class="h-3.5 w-3.5" />
+                {{ addingServer ? 'Adding...' : 'Add Server' }}
               </Button>
             </div>
           </div>

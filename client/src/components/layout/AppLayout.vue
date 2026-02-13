@@ -15,6 +15,7 @@ import FileSidebar from './FileSidebar.vue';
 import TerminalPanel from './TerminalPanel.vue';
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 
 const settings = useSettingsStore();
 const chat = useChatStore();
@@ -30,6 +31,8 @@ const showSettings = ref(false);
 const showToolsSettings = ref(false);
 const isMobile = ref(false);
 
+useKeyboardShortcuts();
+
 // Route → tab: when route changes, sync the active tab
 watch(() => route.meta.tab, (tab) => {
   if (tab && typeof tab === 'string') {
@@ -44,6 +47,7 @@ const TAB_ROUTES: Record<string, string> = {
   git: 'git',
   tasks: 'tasks',
   graph: 'graph',
+  autopilot: 'autopilot',
 };
 
 watch(activeTab, (newTab, oldTab) => {

@@ -63,6 +63,8 @@ interface ExecutionContext {
   sessionIds: Map<string, string>; // nodeId → Claude session ID (for --resume)
   outputTexts: Map<string, string>; // nodeId → accumulated output
   usages: Map<string, { inputTokens: number; outputTokens: number }>;
+  pendingNodes: Set<string>; // nodes delegated-to but not yet producing output
+  pendingNodeParents: Map<string, string>; // nodeId → callerNodeId for deferred activation
 }
 
 // ─── Graph Resolution ───────────────────────────────────────────────────
@@ -383,8 +385,9 @@ Use the Task tool with these EXACT values for \`subagent_type\`: ${allowedNames}
 2. NEVER set subagent_type to "Bash", "general-purpose", "Explore", "Plan", or any agent NOT listed above. Built-in agents are FORBIDDEN.
 3. NEVER execute tasks yourself. NEVER use any tool other than Task.
 4. Even for simple tasks like git commits, shell commands, or file operations — you MUST delegate to the closest matching sub-agent above.
-5. If multiple sub-agents are needed, call Task multiple times.
-6. After receiving results from sub-agents, synthesize and present the final answer to the user.`;
+5. ALWAYS delegate to the SINGLE most relevant sub-agent first. Only delegate to additional sub-agents if the first agent's result is insufficient or the task explicitly requires multiple distinct domains.
+6. For simple, focused tasks, delegate to exactly ONE sub-agent — the best match. Do NOT speculatively delegate to multiple agents in parallel.
+7. After receiving results from sub-agents, synthesize and present the final answer to the user.`;
 
   return systemPrompt ? `${systemPrompt}\n${delegation}` : delegation.trim();
 }
@@ -518,6 +521,36 @@ function resolveEventNodeId(
     debugLog(`[GraphRunner] WARN: parentToolUseId="${ptui}" not found in taskToolUseToNodeId (map size=${ctx.taskToolUseToNodeId.size}, keys=[${[...ctx.taskToolUseToNodeId.keys()].join(', ')}]). Falling back to root.`);
   }
   return childNodeId || rootNodeId;
+}
+
+/**
+ * If a node is in the pendingNodes set (delegated but not yet activated),
+ * promote it to fully active by emitting node_started and cascading downstream.
+ * Returns true if the node was pending and is now activated.
+ */
+function activateNodeIfPending(ctx: ExecutionContext, nodeId: string): boolean {
+  if (!ctx.pendingNodes.has(nodeId)) return false;
+  ctx.pendingNodes.delete(nodeId);
+
+  const resolved = ctx.resolvedNodes.get(nodeId);
+  if (!resolved) return false;
+
+  const nodeLabel = (resolved.node.data.label as string) || nodeId;
+  const parentNodeId = ctx.pendingNodeParents.get(nodeId) || null;
+  ctx.pendingNodeParents.delete(nodeId);
+
+  debugLog(`[GraphRunner] Lazy activation: node "${nodeLabel}" (${nodeId}) is now active.`);
+
+  ctx.emitter.emit('node_started', {
+    nodeId,
+    nodeLabel,
+    nodeType: resolved.node.type,
+    inputPrompt: '',
+    parentNodeId,
+  });
+
+  emitDownstreamActivation(ctx, nodeId, resolved, 'started');
+  return true;
 }
 
 /** Delay between each cascaded node activation (ms) */
@@ -719,18 +752,20 @@ function handleTaskDelegation(
     childLabel,
     task: taskPrompt,
   });
-  ctx.emitter.emit('node_started', {
+
+  // Lazy activation: don't emit node_started yet. Instead, mark as pending
+  // and emit node_delegated. The node will be activated when it produces
+  // its first real output (text, tool use, or thinking).
+  ctx.emitter.emit('node_delegated', {
     nodeId: delegateNodeId,
     nodeLabel: childLabel,
     nodeType: delegateResolved.node.type,
-    inputPrompt: taskPrompt,
     parentNodeId: callerNodeId,
+    inputPrompt: taskPrompt,
   });
-
-  // Cascade activation to ALL downstream nodes (experts, skills).
-  // The CLI only streams first-level delegation events — deeper delegations
-  // are opaque, so we activate the full subtree immediately.
-  emitDownstreamActivation(ctx, delegateNodeId, delegateResolved, 'started');
+  ctx.pendingNodes.add(delegateNodeId);
+  ctx.pendingNodeParents.set(delegateNodeId, callerNodeId);
+  debugLog(`[GraphRunner] Node "${childLabel}" (${delegateNodeId}) added to pendingNodes (lazy activation). Will activate on first content.`);
 }
 
 /** Process a single SDK message and emit appropriate events. */
@@ -747,6 +782,14 @@ function processNodeMessage(
 ) {
   // Resolve which node this event belongs to (root vs sub-agent)
   const effectiveNodeId = resolveEventNodeId(ctx, nodeId, msg);
+
+  // Lazy activation: promote pending node on first real activity from a sub-agent
+  if (effectiveNodeId !== nodeId) {
+    const activationTriggers = new Set(['text_delta', 'tool_use', 'thinking_start']);
+    if (activationTriggers.has(msg.type)) {
+      activateNodeIfPending(ctx, effectiveNodeId);
+    }
+  }
 
   // Log non-delta messages for debugging delegation flow
   if (msg.type !== 'text_delta' && msg.type !== 'thinking_delta' && msg.type !== 'tool_input_delta') {
@@ -808,6 +851,18 @@ function processNodeMessage(
       debugLog(`[GraphRunner] subagent_result: toolUseId="${msg.toolUseId}", mapped=${ctx.taskToolUseToNodeId.has(msg.toolUseId)}, mapKeys=[${[...ctx.taskToolUseToNodeId.keys()].join(', ')}], content="${msg.content.slice(0, 100)}"`);
       const childNodeId = ctx.taskToolUseToNodeId.get(msg.toolUseId);
       if (childNodeId) {
+        // Node was never activated — completed without producing content
+        if (ctx.pendingNodes.has(childNodeId)) {
+          ctx.pendingNodes.delete(childNodeId);
+          ctx.pendingNodeParents.delete(childNodeId);
+          debugLog(`[GraphRunner] Node "${childNodeId}" completed while still pending (no-op delegation). Emitting node_skipped.`);
+          ctx.emitter.emit('node_skipped', {
+            nodeId: childNodeId,
+            reason: 'no_output',
+          });
+          break;
+        }
+
         const childResolved = ctx.resolvedNodes.get(childNodeId);
         const childLabel = (childResolved?.node.data.label as string) || childNodeId;
 
@@ -905,6 +960,8 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     sessionIds: new Map(),
     outputTexts: new Map(),
     usages: new Map(),
+    pendingNodes: new Set(),
+    pendingNodeParents: new Map(),
   };
 
   // Run asynchronously — defer so callers can wire listeners before events fire

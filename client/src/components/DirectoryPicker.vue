@@ -6,7 +6,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Input } from '@/components/ui/input';
 import { FolderOpen, ChevronRight, ArrowUp, Home } from 'lucide-vue-next';
 
 interface DirEntry {
@@ -28,12 +27,9 @@ const props = withDefaults(defineProps<{
 const currentPath = ref(props.initialPath);
 const directories = ref<DirEntry[]>([]);
 const isLoading = ref(false);
-const pathInput = ref('');
-
 watch(open, (isOpen) => {
   if (isOpen) {
     currentPath.value = props.initialPath;
-    pathInput.value = currentPath.value;
     fetchDir(currentPath.value);
   }
 });
@@ -49,7 +45,6 @@ async function fetchDir(path: string) {
     const data = await res.json();
     directories.value = (data.tree || []).filter((e: DirEntry) => e.type === 'directory');
     currentPath.value = path;
-    pathInput.value = path;
   } catch { /* ignore */ }
   isLoading.value = false;
 }
@@ -66,10 +61,6 @@ function goUp() {
 
 function goHome() {
   fetchDir(props.initialPath);
-}
-
-function goToPath() {
-  if (pathInput.value.trim()) fetchDir(pathInput.value.trim());
 }
 
 function selectCurrent() {
@@ -99,17 +90,6 @@ import { computed } from 'vue';
           Browse Directory
         </DialogTitle>
       </DialogHeader>
-
-      <!-- Path input -->
-      <div class="flex gap-1.5">
-        <Input
-          v-model="pathInput"
-          class="font-mono text-xs"
-          placeholder="/home/user/project"
-          @keydown.enter="goToPath"
-        />
-        <Button variant="outline" size="sm" class="shrink-0" @click="goToPath">Go</Button>
-      </div>
 
       <!-- Breadcrumbs -->
       <div class="flex items-center gap-0.5 overflow-x-auto text-xs">

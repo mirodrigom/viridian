@@ -14,11 +14,15 @@ import apikeysRoutes from './routes/apikeys.js';
 import agentRoutes from './routes/agent.js';
 import tasksRoutes from './routes/tasks.js';
 import graphsRoutes from './routes/graphs.js';
+import autopilotRoutes from './routes/autopilot.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
 import { setupSessionsWs } from './ws/sessions.js';
 import { setupGraphRunnerWs } from './ws/graph-runner.js';
+import { setupAutopilotWs } from './ws/autopilot.js';
+import { startScheduler } from './services/autopilot-scheduler.js';
+import { cleanupZombieRuns } from './services/autopilot.js';
 
 const app: Express = express();
 const server = createServer(app);
@@ -38,6 +42,7 @@ app.use('/api/keys', apikeysRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/graphs', graphsRoutes);
+app.use('/api/autopilot', autopilotRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -67,9 +72,14 @@ setupChatWs(server);
 setupShellWs(server);
 setupSessionsWs(server);
 setupGraphRunnerWs(server);
+setupAutopilotWs(server);
 
 server.listen(config.port, config.host, () => {
   console.log(`Server running on http://${config.host}:${config.port}`);
+  // Clean up any runs left in active states from a previous server instance
+  cleanupZombieRuns();
+  // Start the autopilot scheduler after server is ready
+  startScheduler();
 });
 
 export { server, app };

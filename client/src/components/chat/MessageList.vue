@@ -189,8 +189,8 @@ function handleScroll() {
   if (!viewport) return;
   const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
   showScrollBtn.value = distFromBottom > 100;
-  // Don't override autoScroll during session load, programmatic scrolls, or active streaming
-  if (!isLoadingSession.value && !isProgrammaticScroll.value && !chat.isStreaming) {
+  // Don't override autoScroll during session load or programmatic scrolls
+  if (!isLoadingSession.value && !isProgrammaticScroll.value) {
     chat.autoScroll = distFromBottom < 50;
   }
 
@@ -379,6 +379,16 @@ watch(scrollContainer, (el) => {
           v-for="(msg, idx) in chat.messages"
           :key="msg.id"
           :id="`msg-${msg.id}`"
+          v-memo="[
+            msg.content,
+            msg.isStreaming,
+            msg.thinking,
+            msg.isThinking,
+            msg.toolUse?.status,
+            msg.toolUse?.isInputStreaming,
+            matchingIds.has(msg.id),
+            searchResults[searchResultIndex] === idx
+          ]"
         >
           <MessageBubble
             :message="msg"

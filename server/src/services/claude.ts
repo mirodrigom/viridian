@@ -18,9 +18,10 @@ interface ClaudeSession {
 
 const activeSessions = new Map<string, ClaudeSession>();
 
-export function createSession(cwd: string): ClaudeSession {
+export function createSession(cwd: string, claudeSessionId?: string): ClaudeSession {
   const session: ClaudeSession = {
     id: uuid(),
+    claudeSessionId,
     process: null,
     cwd,
     emitter: new EventEmitter(),

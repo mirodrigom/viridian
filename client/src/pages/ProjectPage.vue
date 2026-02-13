@@ -59,6 +59,7 @@ async function loadSessionFromUrl(sessionId: string) {
 
     chat.clearMessages();
     chat.sessionId = session.id;
+    chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
     chat.activeProjectDir = session.projectDir;
 
     const msgRes = await fetch(

@@ -42,17 +42,72 @@ async function buildTree(rootPath: string, currentPath: string, depth: number): 
       const relativePath = relative(rootPath, fullPath);
 
       if (entry.isDirectory()) {
-        const children = await buildTree(rootPath, fullPath, depth - 1);
-        nodes.push({
-          name: entry.name,
-          path: relativePath,
-          type: 'directory',
-          children,
-        });
+        if (depth - 1 <= 0) {
+          // At depth boundary — add placeholder so tree can expand on demand
+          nodes.push({
+            name: entry.name,
+            path: relativePath,
+            type: 'directory',
+            children: [{ name: '', path: `${relativePath}/__placeholder`, type: 'file' as const }],
+          });
+        } else {
+          const children = await buildTree(rootPath, fullPath, depth - 1);
+          nodes.push({
+            name: entry.name,
+            path: relativePath,
+            type: 'directory',
+            children,
+          });
+        }
       } else {
         nodes.push({
           name: entry.name,
           path: relativePath,
+          type: 'file',
+        });
+      }
+    }
+
+    return nodes;
+  } catch {
+    return [];
+  }
+}
+
+export async function getDirectoryChildren(rootPath: string, relativePath: string): Promise<FileNode[]> {
+  const fullPath = join(rootPath, relativePath);
+  if (!fullPath.startsWith(rootPath)) {
+    throw new Error('Access denied: path traversal detected');
+  }
+
+  try {
+    const entries = await readdir(fullPath, { withFileTypes: true });
+    const nodes: FileNode[] = [];
+
+    const sorted = entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of sorted) {
+      if (IGNORED_DIRS.has(entry.name) || IGNORED_FILES.has(entry.name)) continue;
+      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
+
+      const entryFullPath = join(fullPath, entry.name);
+      const entryRelativePath = relative(rootPath, entryFullPath);
+
+      if (entry.isDirectory()) {
+        nodes.push({
+          name: entry.name,
+          path: entryRelativePath,
+          type: 'directory',
+          children: [{ name: '', path: `${entryRelativePath}/__placeholder`, type: 'file' as const }],
+        });
+      } else {
+        nodes.push({
+          name: entry.name,
+          path: entryRelativePath,
           type: 'file',
         });
       }

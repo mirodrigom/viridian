@@ -73,19 +73,30 @@ export function useClaudeStream() {
         usage?: { input_tokens?: number; output_tokens?: number };
         totalCost?: number;
       };
+
+      // Save claudeSessionId (= Claude CLI session ID used for --resume)
+      if (d.claudeSessionId) {
+        chat.claudeSessionId = d.claudeSessionId;
+      }
+
+      // Save server session ID for in-memory lookups
       if (d.sessionId) {
-        const sessionChanged = chat.sessionId !== d.sessionId;
         chat.sessionId = d.sessionId;
-        // Ensure activeProjectDir is set so live-updates and message fetching work
-        if (!chat.activeProjectDir && chat.projectPath) {
-          chat.activeProjectDir = chat.projectPath;
-        }
-        // Update URL whenever the session ID changed (new session created by server,
-        // or server assigned a different session than the stale one we had in store)
-        if (sessionChanged) {
+      }
+
+      // Ensure activeProjectDir is set so live-updates and message fetching work
+      if (!chat.activeProjectDir && chat.projectPath) {
+        chat.activeProjectDir = chat.projectPath;
+      }
+
+      // URL uses claudeSessionId (= JSONL filename) so page reloads & sidebar work
+      const urlSessionId = d.claudeSessionId || d.sessionId;
+      if (urlSessionId) {
+        const currentUrlId = router.currentRoute.value.params.sessionId;
+        if (currentUrlId !== urlSessionId) {
           router.replace({
             name: 'chat-session',
-            params: { sessionId: d.sessionId },
+            params: { sessionId: urlSessionId },
           });
         }
       }
@@ -230,6 +241,7 @@ export function useClaudeStream() {
       type: 'chat',
       prompt: effectivePrompt,
       sessionId: chat.sessionId,
+      claudeSessionId: chat.claudeSessionId,
       cwd: chat.projectPath,
       model: settings.model,
       permissionMode: settings.permissionMode,

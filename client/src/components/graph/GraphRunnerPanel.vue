@@ -59,6 +59,8 @@ function timelineIcon(type: string) {
     case 'node_start': return Play;
     case 'node_complete': return CheckCircle;
     case 'node_failed': return XCircle;
+    case 'node_delegated': return ArrowRight;
+    case 'node_skipped': return CheckCircle;
     case 'delegation': return ArrowRight;
     case 'result_return': return ArrowDown;
     case 'tool_use': return Wrench;
@@ -71,6 +73,8 @@ function timelineColor(type: string) {
     case 'node_start': return 'text-yellow-500';
     case 'node_complete': return 'text-green-500';
     case 'node_failed': return 'text-red-500';
+    case 'node_delegated': return 'text-blue-400';
+    case 'node_skipped': return 'text-muted-foreground';
     case 'delegation': return 'text-primary';
     case 'result_return': return 'text-chart-2';
     case 'tool_use': return 'text-chart-4';
@@ -191,6 +195,7 @@ function selectNode(nodeId: string) {
                 variant="outline"
                 :class="{
                   'border-yellow-500/50 text-yellow-500': runner.selectedExecution.status === 'running',
+                  'border-blue-400/50 text-blue-400': runner.selectedExecution.status === 'delegated',
                   'border-green-500/50 text-green-500': runner.selectedExecution.status === 'completed',
                   'border-red-500/50 text-red-500': runner.selectedExecution.status === 'failed',
                 }"

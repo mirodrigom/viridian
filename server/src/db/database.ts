@@ -74,5 +74,116 @@ function runMigrations(db: Database.Database) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_graphs_user_project ON graphs(user_id, project_path);
+
+    CREATE TABLE IF NOT EXISTS session_cache (
+      id TEXT NOT NULL,
+      project_dir TEXT NOT NULL,
+      title TEXT NOT NULL,
+      project_path TEXT DEFAULT '',
+      message_count INTEGER DEFAULT 0,
+      last_active INTEGER NOT NULL,
+      file_mtime INTEGER NOT NULL,
+      PRIMARY KEY (project_dir, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_cache_active ON session_cache(last_active DESC);
+
+    -- ─── Autopilot tables ───────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS autopilot_profiles (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      system_prompt TEXT NOT NULL,
+      allowed_tools TEXT DEFAULT '[]',
+      disallowed_tools TEXT DEFAULT '[]',
+      model TEXT,
+      is_builtin INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS autopilot_configs (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Autopilot Session',
+      agent_a_profile TEXT NOT NULL,
+      agent_b_profile TEXT NOT NULL,
+      allowed_paths TEXT DEFAULT '[]',
+      agent_a_model TEXT DEFAULT 'claude-sonnet-4-20250514',
+      agent_b_model TEXT DEFAULT 'claude-sonnet-4-20250514',
+      max_iterations INTEGER DEFAULT 50,
+      max_tokens_per_session INTEGER DEFAULT 500000,
+      schedule_enabled INTEGER DEFAULT 0,
+      schedule_start_time TEXT,
+      schedule_end_time TEXT,
+      schedule_days TEXT DEFAULT '[1,2,3,4,5]',
+      schedule_timezone TEXT DEFAULT 'UTC',
+      goal_prompt TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_configs_user ON autopilot_configs(user_id);
+
+    CREATE TABLE IF NOT EXISTS autopilot_runs (
+      id TEXT PRIMARY KEY,
+      config_id TEXT REFERENCES autopilot_configs(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      branch_name TEXT,
+      commit_count INTEGER DEFAULT 0,
+      cycle_count INTEGER DEFAULT 0,
+      agent_a_input_tokens INTEGER DEFAULT 0,
+      agent_a_output_tokens INTEGER DEFAULT 0,
+      agent_b_input_tokens INTEGER DEFAULT 0,
+      agent_b_output_tokens INTEGER DEFAULT 0,
+      agent_a_claude_session_id TEXT,
+      agent_a_profile_id TEXT,
+      agent_b_profile_id TEXT,
+      goal_prompt TEXT DEFAULT '',
+      agent_b_claude_session_id TEXT,
+      rate_limited_until DATETIME,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      paused_at DATETIME,
+      completed_at DATETIME,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_runs_config ON autopilot_runs(config_id);
+    CREATE INDEX IF NOT EXISTS idx_autopilot_runs_status ON autopilot_runs(status);
+
+    CREATE TABLE IF NOT EXISTS autopilot_cycles (
+      id TEXT PRIMARY KEY,
+      run_id TEXT REFERENCES autopilot_runs(id) ON DELETE CASCADE,
+      cycle_number INTEGER NOT NULL,
+      agent_a_prompt TEXT,
+      agent_a_response TEXT,
+      agent_a_tokens_in INTEGER DEFAULT 0,
+      agent_a_tokens_out INTEGER DEFAULT 0,
+      agent_b_prompt TEXT,
+      agent_b_response TEXT,
+      agent_b_tokens_in INTEGER DEFAULT 0,
+      agent_b_tokens_out INTEGER DEFAULT 0,
+      commit_hash TEXT,
+      commit_message TEXT,
+      files_changed TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'pending',
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_cycles_run ON autopilot_cycles(run_id, cycle_number);
   `);
+
+  // ── Incremental migrations (safe to run multiple times) ──────────
+  const safeAddColumn = (table: string, column: string, type: string) => {
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch {
+      // Column already exists — ignore
+    }
+  };
+
+  safeAddColumn('autopilot_runs', 'agent_a_profile_id', "TEXT");
+  safeAddColumn('autopilot_runs', 'agent_b_profile_id', "TEXT");
+  safeAddColumn('autopilot_runs', 'goal_prompt', "TEXT DEFAULT ''");
 }

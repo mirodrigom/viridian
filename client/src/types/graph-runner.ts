@@ -1,6 +1,6 @@
 // ─── Execution Status ──────────────────────────────────────────────────
 export type RunStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborted';
-export type NodeExecStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type NodeExecStatus = 'pending' | 'delegated' | 'running' | 'completed' | 'failed';
 
 // ─── Edge Flow Animation ──────────────────────────────────────────────
 export interface EdgeFlowState {
@@ -41,6 +41,8 @@ export type TimelineEntryType =
   | 'node_start'
   | 'node_complete'
   | 'node_failed'
+  | 'node_delegated'
+  | 'node_skipped'
   | 'delegation'
   | 'result_return'
   | 'tool_use'
@@ -149,6 +151,21 @@ export interface WsNodeFailed {
   error: string;
 }
 
+export interface WsNodeDelegated {
+  type: 'node_delegated';
+  nodeId: string;
+  nodeLabel: string;
+  nodeType: string;
+  parentNodeId: string;
+  inputPrompt: string;
+}
+
+export interface WsNodeSkipped {
+  type: 'node_skipped';
+  nodeId: string;
+  reason: string;
+}
+
 export interface WsDelegation {
   type: 'delegation';
   parentNodeId: string;
@@ -192,6 +209,8 @@ export type WsServerMessage =
   | WsNodeToolUse
   | WsNodeCompleted
   | WsNodeFailed
+  | WsNodeDelegated
+  | WsNodeSkipped
   | WsDelegation
   | WsResultReturn
   | WsRunCompleted

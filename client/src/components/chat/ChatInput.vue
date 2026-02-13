@@ -11,9 +11,10 @@ import {
 } from '@/components/ui/select';
 import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
-  ArrowDownToLine, ArrowDownFromLine,
+  ArrowDownToLine, ArrowDownFromLine, Download,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
+import { exportSession } from '@/composables/useKeyboardShortcuts';
 
 const MAX_IMAGES = 5;
 
@@ -526,6 +527,21 @@ const effectivePermissionIcon = computed(() =>
               <div v-if="chat.sessionDurationMin > 0" class="border-t border-border pt-1 text-muted-foreground">Session: {{ chat.sessionDurationMin }}min</div>
             </div>
           </TooltipContent>
+        </Tooltip>
+
+        <!-- Export session -->
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <button
+              class="flex h-6 items-center gap-1 rounded-md bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="chat.messages.length === 0"
+              @click="exportSession"
+            >
+              <Download class="h-3 w-3" />
+              <span class="hidden sm:inline">Export</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Export session as Markdown (Ctrl+Shift+E)</TooltipContent>
         </Tooltip>
 
         <!-- Auto-scroll toggle -->

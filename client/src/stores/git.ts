@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from './auth';
 import { useChatStore } from './chat';
 import { useFilesStore } from './files';
@@ -36,6 +37,7 @@ export const useGitStore = defineStore('git', () => {
   const showStagedDiff = ref(false);
   const remoteLoading = ref(false);
   const generatingMessage = ref(false);
+  const operationLoading = ref(false);
   const selectedFiles = ref<Set<string>>(new Set());
 
   function authHeaders() {
@@ -70,107 +72,165 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     showStagedDiff.value = isStagedDiff;
     selectedFile.value = null;
-    const res = await fetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    diff.value = data.diff || '';
+    try {
+      const res = await fetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      diff.value = data.diff || '';
+    } catch {
+      toast.error('Failed to fetch diff');
+    }
   }
 
   async function fetchFileDiff(filePath: string) {
     if (!cwd()) return;
     selectedFile.value = filePath;
-    const res = await fetch(
-      `/api/git/file-diff?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
-      { headers: authHeaders() },
-    );
-    const data = await res.json();
-    diff.value = data.diff || '';
+    try {
+      const res = await fetch(
+        `/api/git/file-diff?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
+        { headers: authHeaders() },
+      );
+      const data = await res.json();
+      diff.value = data.diff || '';
+    } catch {
+      toast.error('Failed to fetch file diff');
+    }
   }
 
   async function stageFiles(files: string[]) {
     if (!cwd()) return;
-    await fetch('/api/git/stage', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), files }),
-    });
-    await fetchStatus();
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/stage', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), files }),
+      });
+      await fetchStatus();
+    } catch {
+      toast.error('Failed to stage files');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function unstageFiles(files: string[]) {
     if (!cwd()) return;
-    await fetch('/api/git/unstage', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), files }),
-    });
-    await fetchStatus();
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/unstage', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), files }),
+      });
+      await fetchStatus();
+    } catch {
+      toast.error('Failed to unstage files');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function doCommit() {
     if (!cwd() || !commitMessage.value.trim()) return;
-    await fetch('/api/git/commit', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), message: commitMessage.value }),
-    });
-    commitMessage.value = '';
-    await fetchStatus();
-    diff.value = '';
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/commit', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), message: commitMessage.value }),
+      });
+      commitMessage.value = '';
+      await fetchStatus();
+      diff.value = '';
+    } catch {
+      toast.error('Failed to commit');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function discardFile(filePath: string) {
     if (!cwd()) return;
-    await fetch('/api/git/discard', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), file: filePath }),
-    });
-    await fetchStatus();
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/discard', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), file: filePath }),
+      });
+      await fetchStatus();
+    } catch {
+      toast.error('Failed to discard changes');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function fetchLog() {
     if (!cwd()) return;
-    const res = await fetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    log.value = data.all || [];
+    try {
+      const res = await fetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      log.value = data.all || [];
+    } catch {
+      toast.error('Failed to fetch log');
+    }
   }
 
   async function fetchBranches() {
     if (!cwd()) return;
-    const res = await fetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
-      headers: authHeaders(),
-    });
-    const data = await res.json();
-    branches.value = Object.values(data.branches || {}).map((b: any) => ({
-      name: b.name,
-      current: b.current,
-    }));
+    try {
+      const res = await fetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      branches.value = Object.values(data.branches || {}).map((b: any) => ({
+        name: b.name,
+        current: b.current,
+      }));
+    } catch {
+      toast.error('Failed to fetch branches');
+    }
   }
 
   async function checkoutBranch(branchName: string) {
     if (!cwd()) return;
-    await fetch('/api/git/checkout', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), branch: branchName }),
-    });
-    await fetchStatus();
-    await fetchBranches();
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/checkout', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), branch: branchName }),
+      });
+      await fetchStatus();
+      await fetchBranches();
+    } catch {
+      toast.error('Failed to checkout branch');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function createBranch(branchName: string) {
     if (!cwd()) return;
-    await fetch('/api/git/create-branch', {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ cwd: cwd(), branch: branchName }),
-    });
-    await fetchStatus();
-    await fetchBranches();
+    operationLoading.value = true;
+    try {
+      await fetch('/api/git/create-branch', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), branch: branchName }),
+      });
+      await fetchStatus();
+      await fetchBranches();
+    } catch {
+      toast.error('Failed to create branch');
+    } finally {
+      operationLoading.value = false;
+    }
   }
 
   async function doPull() {
@@ -188,6 +248,8 @@ export const useGitStore = defineStore('git', () => {
       }
       await fetchStatus();
       await fetchLog();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Pull failed');
     } finally {
       remoteLoading.value = false;
     }
@@ -206,6 +268,8 @@ export const useGitStore = defineStore('git', () => {
         const data = await res.json();
         throw new Error(data.error || 'Push failed');
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Push failed');
     } finally {
       remoteLoading.value = false;
     }
@@ -220,6 +284,8 @@ export const useGitStore = defineStore('git', () => {
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd() }),
       });
+    } catch {
+      toast.error('Fetch failed');
     } finally {
       remoteLoading.value = false;
     }
@@ -281,13 +347,17 @@ export const useGitStore = defineStore('git', () => {
 
   async function showCommit(hash: string) {
     if (!cwd()) return;
-    const res = await fetch(
-      `/api/git/show?cwd=${encodeURIComponent(cwd())}&hash=${encodeURIComponent(hash)}`,
-      { headers: authHeaders() },
-    );
-    const data = await res.json();
-    diff.value = data.show || '';
-    selectedFile.value = null;
+    try {
+      const res = await fetch(
+        `/api/git/show?cwd=${encodeURIComponent(cwd())}&hash=${encodeURIComponent(hash)}`,
+        { headers: authHeaders() },
+      );
+      const data = await res.json();
+      diff.value = data.show || '';
+      selectedFile.value = null;
+    } catch {
+      toast.error('Failed to show commit');
+    }
   }
 
   function toggleFileSelection(path: string) {
@@ -352,7 +422,7 @@ export const useGitStore = defineStore('git', () => {
   return {
     branch, staged, modified, untracked, diff, loading, commitMessage,
     log, branches, selectedFile, showStagedDiff, remoteLoading, generatingMessage,
-    selectedFiles,
+    operationLoading, selectedFiles,
     fetchStatus, fetchDiff, fetchFileDiff, stageFiles, unstageFiles, doCommit,
     discardFile, fetchLog, fetchBranches, checkoutBranch, createBranch,
     doPull, doPush, doFetch, generateCommitMessage, showCommit,

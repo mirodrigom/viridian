@@ -47,10 +47,48 @@ export const useTasksStore = defineStore('tasks', () => {
       .filter(t => !filterPriority.value || t.priority === filterPriority.value),
   );
 
+  const allFilteredTasks = computed(() =>
+    tasks.value
+      .filter(t => !filterStatus.value || t.status === filterStatus.value)
+      .filter(t => !filterPriority.value || t.priority === filterPriority.value),
+  );
+
+  // Sort tasks within a column: parent first, then its subtasks grouped together
+  function sortByParentGroup(items: Task[]): Task[] {
+    const parents = items.filter(t => !t.parentId);
+    const subtasks = items.filter(t => t.parentId);
+
+    const subtasksByParent = new Map<string, Task[]>();
+    for (const st of subtasks) {
+      const list = subtasksByParent.get(st.parentId!) || [];
+      list.push(st);
+      subtasksByParent.set(st.parentId!, list);
+    }
+
+    const result: Task[] = [];
+    const usedParentIds = new Set<string>();
+    for (const p of parents) {
+      result.push(p);
+      usedParentIds.add(p.id);
+      const children = subtasksByParent.get(p.id) || [];
+      result.push(...children.sort((a, b) => a.sortOrder - b.sortOrder));
+    }
+    // Orphaned subtasks (parent in a different column)
+    for (const st of subtasks) {
+      if (!usedParentIds.has(st.parentId!)) {
+        result.push(st);
+      }
+    }
+    return result;
+  }
+
   const tasksByStatus = computed(() => {
     const grouped: Record<TaskStatus, Task[]> = { todo: [], in_progress: [], done: [] };
-    for (const t of rootTasks.value) {
+    for (const t of allFilteredTasks.value) {
       grouped[t.status].push(t);
+    }
+    for (const status of Object.keys(grouped) as TaskStatus[]) {
+      grouped[status] = sortByParentGroup(grouped[status]);
     }
     return grouped;
   });
@@ -63,14 +101,39 @@ export const useTasksStore = defineStore('tasks', () => {
     return tasks.value.find(t => t.id === id);
   }
 
+  function hasSubtasks(taskId: string): boolean {
+    return tasks.value.some(t => t.parentId === taskId);
+  }
+
+  function getParentTitle(task: Task): string | null {
+    if (!task.parentId) return null;
+    const parent = tasks.value.find(t => t.id === task.parentId);
+    return parent?.title ?? null;
+  }
+
+  function getDependencyTitles(task: Task): string[] {
+    return task.dependencyIds
+      .map(id => tasks.value.find(t => t.id === id)?.title)
+      .filter(Boolean) as string[];
+  }
+
+  function isBlockedByDependency(task: Task): boolean {
+    return task.dependencyIds.some(depId => {
+      const dep = tasks.value.find(t => t.id === depId);
+      return dep && dep.status !== 'done';
+    });
+  }
+
+  // Stats based on leaf tasks (actual work items, not parents)
   const stats = computed(() => {
-    const root = tasks.value.filter(t => !t.parentId);
+    const parentIds = new Set(tasks.value.filter(t => t.parentId).map(t => t.parentId!));
+    const leaves = tasks.value.filter(t => !parentIds.has(t.id));
     return {
-      total: root.length,
-      todo: root.filter(t => t.status === 'todo').length,
-      inProgress: root.filter(t => t.status === 'in_progress').length,
-      done: root.filter(t => t.status === 'done').length,
-      progress: root.length > 0 ? Math.round((root.filter(t => t.status === 'done').length / root.length) * 100) : 0,
+      total: leaves.length,
+      todo: leaves.filter(t => t.status === 'todo').length,
+      inProgress: leaves.filter(t => t.status === 'in_progress').length,
+      done: leaves.filter(t => t.status === 'done').length,
+      progress: leaves.length > 0 ? Math.round((leaves.filter(t => t.status === 'done').length / leaves.length) * 100) : 0,
     };
   });
 
@@ -110,9 +173,19 @@ export const useTasksStore = defineStore('tasks', () => {
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Failed to update task');
-    const updated: Task = await res.json();
+    const data = await res.json();
+
+    // Update the task itself
+    const updated: Task = data.task;
     const idx = tasks.value.findIndex(t => t.id === id);
     if (idx !== -1) tasks.value[idx] = updated;
+
+    // If parent was auto-synced, update it too
+    if (data.parentUpdate) {
+      const parentIdx = tasks.value.findIndex(t => t.id === data.parentUpdate.id);
+      if (parentIdx !== -1) tasks.value[parentIdx] = data.parentUpdate;
+    }
+
     return updated;
   }
 
@@ -229,6 +302,10 @@ export const useTasksStore = defineStore('tasks', () => {
     stats,
     getSubtasks,
     getTask,
+    hasSubtasks,
+    getParentTitle,
+    getDependencyTitles,
+    isBlockedByDependency,
     fetchTasks,
     createTask,
     updateTask,

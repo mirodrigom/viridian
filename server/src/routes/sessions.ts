@@ -5,6 +5,7 @@ import { join } from 'path';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
+import { getDb } from '../db/database.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -127,13 +128,12 @@ router.get('/', async (req, res) => {
   try {
     const projectFilter = req.query.project as string | undefined;
 
-    console.log(`[sessions] Listing sessions. CLAUDE_DIR=${CLAUDE_DIR}, projectFilter=${projectFilter || '(all)'}`);
-
     if (!existsSync(CLAUDE_DIR)) {
-      console.log(`[sessions] CLAUDE_DIR does not exist`);
       res.json({ sessions: [] });
       return;
     }
+
+    const db = getDb();
 
     // List all project directories
     let projectDirs: string[];
@@ -145,25 +145,25 @@ router.get('/', async (req, res) => {
           return false;
         }
       });
-    } catch (err) {
-      console.error(`[sessions] Cannot read CLAUDE_DIR:`, err);
+    } catch {
       res.json({ sessions: [] });
       return;
     }
 
-    console.log(`[sessions] Found ${projectDirs.length} project dirs: ${projectDirs.join(', ')}`);
-
-    // If project filter, find dirs that match exactly or are a parent path.
-    // e.g. projectFilter="/home/rodrigom/Documents/self-agent/claude-code-web"
-    //   should match dir "-home-rodrigom-Documents-self-agent" (parent)
+    // If project filter, find dirs that match exactly
     if (projectFilter) {
       const encoded = projectFilter.replace(/\//g, '-');
-      console.log(`[sessions] Filtering for encoded path: ${encoded}`);
       projectDirs = projectDirs.filter(d => d === encoded);
-      console.log(`[sessions] Matched ${projectDirs.length} dirs: ${projectDirs.join(', ')}`);
     }
 
     const sessions: SessionInfo[] = [];
+    const getCached = db.prepare(
+      'SELECT * FROM session_cache WHERE project_dir = ? AND id = ?',
+    );
+    const upsertCache = db.prepare(`
+      INSERT OR REPLACE INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
 
     for (const dir of projectDirs) {
       const dirPath = join(CLAUDE_DIR, dir);
@@ -172,38 +172,56 @@ router.get('/', async (req, res) => {
         files = readdirSync(dirPath).filter(f =>
           f.endsWith('.jsonl') && !f.startsWith('agent-')
         );
-      } catch (err) {
-        console.log(`[sessions] Cannot read dir ${dir}:`, err);
+      } catch {
         continue;
       }
-
-      console.log(`[sessions] Dir ${dir}: found ${files.length} JSONL files`);
 
       for (const file of files) {
         const sessionId = file.replace('.jsonl', '');
         const filePath = join(dirPath, file);
 
-        let lastActive: number;
+        let mtimeMs: number;
         try {
           const stat = statSync(filePath);
-          lastActive = stat.mtimeMs;
+          mtimeMs = stat.mtimeMs;
         } catch {
           continue;
         }
 
-        const meta = await extractSessionMeta(filePath);
-        if (!meta) {
-          console.log(`[sessions] Skipped ${file}: no messages`);
+        // Check cache
+        const cached = getCached.get(dir, sessionId) as {
+          title: string; project_path: string; message_count: number;
+          last_active: number; file_mtime: number;
+        } | undefined;
+
+        if (cached && cached.file_mtime === Math.floor(mtimeMs)) {
+          sessions.push({
+            id: sessionId,
+            title: cached.title,
+            projectPath: cached.project_path,
+            projectDir: dir,
+            messageCount: cached.message_count,
+            lastActive: cached.last_active,
+          });
           continue;
         }
+
+        // Cache miss — parse the file
+        const meta = await extractSessionMeta(filePath);
+        if (!meta) continue;
+
+        const projectPath = meta.cwd || ('/' + dir.replace(/^-/, '').replace(/-/g, '/'));
+
+        // Update cache
+        upsertCache.run(sessionId, dir, meta.title, projectPath, meta.messageCount, mtimeMs, Math.floor(mtimeMs));
 
         sessions.push({
           id: sessionId,
           title: meta.title,
-          projectPath: meta.cwd || ('/' + dir.replace(/^-/, '').replace(/-/g, '/')),
+          projectPath,
           projectDir: dir,
           messageCount: meta.messageCount,
-          lastActive,
+          lastActive: mtimeMs,
         });
       }
     }
@@ -211,7 +229,6 @@ router.get('/', async (req, res) => {
     // Sort by most recent first
     sessions.sort((a, b) => b.lastActive - a.lastActive);
 
-    console.log(`[sessions] Returning ${sessions.length} sessions`);
     res.json({ sessions });
   } catch (err) {
     console.error('[sessions] Error:', err);
@@ -498,7 +515,8 @@ router.delete('/:id', async (req, res) => {
     }
 
     unlinkSync(filePath);
-    console.log(`[sessions] Deleted session ${sessionId} from ${projectDir}`);
+    // Clean up cache
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch { /* ignore */ }
     res.json({ success: true });
   } catch (err) {
     console.error('[sessions] Error deleting session:', err);
@@ -532,6 +550,9 @@ router.delete('/project/:dir', async (req, res) => {
     for (const file of files) {
       unlinkSync(join(dirPath, file));
     }
+
+    // Clean up cache for this project
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch { /* ignore */ }
 
     // Remove the directory if empty
     try {

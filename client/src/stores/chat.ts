@@ -31,6 +31,7 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const isStreaming = ref(false);
   const sessionId = ref<string | null>(sessionStorage.getItem('chat-sessionId'));
+  const claudeSessionId = ref<string | null>(sessionStorage.getItem('chat-claudeSessionId'));
   const projectPath = ref<string | null>(sessionStorage.getItem('chat-projectPath'));
   const activeProjectDir = ref<string | null>(sessionStorage.getItem('chat-activeProjectDir'));
   const usage = ref<TokenUsage>({ inputTokens: 0, outputTokens: 0, totalCost: 0 });
@@ -162,6 +163,7 @@ export const useChatStore = defineStore('chat', () => {
   function clearMessages() {
     messages.value = [];
     sessionId.value = null;
+    claudeSessionId.value = null;
     activeProjectDir.value = null;
     totalMessages.value = 0;
     hasMoreMessages.value = false;
@@ -246,6 +248,10 @@ export const useChatStore = defineStore('chat', () => {
     if (v) sessionStorage.setItem('chat-sessionId', v);
     else sessionStorage.removeItem('chat-sessionId');
   });
+  watch(claudeSessionId, (v) => {
+    if (v) sessionStorage.setItem('chat-claudeSessionId', v);
+    else sessionStorage.removeItem('chat-claudeSessionId');
+  });
   watch(activeProjectDir, (v) => {
     if (v) sessionStorage.setItem('chat-activeProjectDir', v);
     else sessionStorage.removeItem('chat-activeProjectDir');
@@ -256,7 +262,7 @@ export const useChatStore = defineStore('chat', () => {
   });
 
   return {
-    messages, isStreaming, sessionId, projectPath, activeProjectDir, usage,
+    messages, isStreaming, sessionId, claudeSessionId, projectPath, activeProjectDir, usage,
     lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs,
     sessionStartedAt, sessionDurationMin, tokensPerMin, inPlanMode,
     totalMessages, hasMoreMessages, oldestLoadedIndex, isLoadingMore, scrollToBottomRequest, autoScroll, contentVersion,

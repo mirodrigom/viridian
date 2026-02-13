@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from '@/stores/auth';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -27,6 +28,8 @@ const error = ref('');
 const newKeyName = ref('');
 const createdKey = ref<string | null>(null);
 const copied = ref(false);
+const creating = ref(false);
+const revokingId = ref<number | null>(null);
 
 async function fetchKeys() {
   loading.value = true;
@@ -46,7 +49,7 @@ async function fetchKeys() {
 
 async function createKey() {
   if (!newKeyName.value.trim()) return;
-  error.value = '';
+  creating.value = true;
   try {
     const res = await fetch('/api/keys', {
       method: 'POST',
@@ -58,7 +61,7 @@ async function createKey() {
     });
     if (!res.ok) {
       const data = await res.json();
-      error.value = data.error || 'Failed to create key';
+      toast.error(data.error || 'Failed to create key');
       return;
     }
     const data = await res.json();
@@ -66,11 +69,14 @@ async function createKey() {
     newKeyName.value = '';
     fetchKeys();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to create key';
+    toast.error(err instanceof Error ? err.message : 'Failed to create key');
+  } finally {
+    creating.value = false;
   }
 }
 
 async function revokeKey(id: number) {
+  revokingId.value = id;
   try {
     const res = await fetch(`/api/keys/${id}`, {
       method: 'DELETE',
@@ -78,12 +84,14 @@ async function revokeKey(id: number) {
     });
     if (!res.ok) {
       const data = await res.json();
-      error.value = data.error || 'Failed to revoke key';
+      toast.error(data.error || 'Failed to revoke key');
       return;
     }
     fetchKeys();
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to revoke key';
+    toast.error(err instanceof Error ? err.message : 'Failed to revoke key');
+  } finally {
+    revokingId.value = null;
   }
 }
 
@@ -149,9 +157,10 @@ watch(open, (isOpen) => {
           <Label class="text-xs">Create new key</Label>
           <div class="flex gap-2">
             <Input v-model="newKeyName" placeholder="Key name (e.g. CI/CD)" class="h-8 text-sm" @keydown.enter="createKey" />
-            <Button size="sm" class="h-8 shrink-0 gap-1" :disabled="!newKeyName.trim()" @click="createKey">
-              <Plus class="h-3.5 w-3.5" />
-              Create
+            <Button size="sm" class="h-8 shrink-0 gap-1" :disabled="creating || !newKeyName.trim()" @click="createKey">
+              <Loader2 v-if="creating" class="h-3.5 w-3.5 animate-spin" />
+              <Plus v-else class="h-3.5 w-3.5" />
+              {{ creating ? 'Creating...' : 'Create' }}
             </Button>
           </div>
         </div>
@@ -188,9 +197,11 @@ watch(open, (isOpen) => {
               variant="ghost"
               size="sm"
               class="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+              :disabled="revokingId === key.id"
               @click="revokeKey(key.id)"
             >
-              <Trash2 class="h-3.5 w-3.5" />
+              <Loader2 v-if="revokingId === key.id" class="h-3.5 w-3.5 animate-spin" />
+              <Trash2 v-else class="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>

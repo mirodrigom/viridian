@@ -48,6 +48,37 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
+  async function expandFolder(folderPath: string) {
+    const auth = useAuthStore();
+
+    function findNode(nodes: FileNode[], path: string): (FileNode & { _loaded?: boolean }) | null {
+      for (const node of nodes) {
+        if (node.path === path) return node;
+        if (node.children && node.type === 'directory') {
+          const found = findNode(node.children, path);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    const node = findNode(tree.value, folderPath) as (FileNode & { _loaded?: boolean }) | null;
+    if (!node || node.type !== 'directory' || node._loaded) return;
+
+    try {
+      const res = await fetch(
+        `/api/files/tree/children?root=${encodeURIComponent(rootPath.value)}&path=${encodeURIComponent(folderPath)}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      node.children = data.children || [];
+      node._loaded = true;
+    } catch (err) {
+      console.error('Failed to expand folder:', err);
+    }
+  }
+
   async function openFile(filePath: string) {
     // Already open?
     const existing = openFiles.value.find(f => f.path === filePath);
@@ -119,6 +150,6 @@ export const useFilesStore = defineStore('files', () => {
 
   return {
     tree, rootPath, openFiles, activeFile, loading, diffData,
-    fetchTree, openFile, saveFile, closeFile, updateFileContent, openDiff, closeDiff,
+    fetchTree, expandFolder, openFile, saveFile, closeFile, updateFileContent, openDiff, closeDiff,
   };
 });

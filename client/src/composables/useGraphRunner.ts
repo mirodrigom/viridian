@@ -62,6 +62,17 @@ export function useGraphRunner() {
       toast.error(`Node failed: ${d.error.slice(0, 200)}`, { duration: 6000 });
     });
 
+    runner.wsOn('node_delegated', (data: unknown) => {
+      runner.onNodeDelegated(data as {
+        nodeId: string; nodeLabel: string; nodeType: string;
+        parentNodeId: string; inputPrompt: string;
+      });
+    });
+
+    runner.wsOn('node_skipped', (data: unknown) => {
+      runner.onNodeSkipped(data as { nodeId: string; reason: string });
+    });
+
     runner.wsOn('delegation', (data: unknown) => {
       runner.onDelegation(data as {
         parentNodeId: string; childNodeId: string;

@@ -86,7 +86,7 @@ const markers = computed(() => {
   if (!runner.currentRun || runner.runDurationMs <= 1) return [];
   const all = runner.timeline;
   return all
-    .filter(e => ['node_start', 'node_complete', 'node_failed', 'delegation', 'result_return'].includes(e.type))
+    .filter(e => ['node_start', 'node_complete', 'node_failed', 'node_delegated', 'node_skipped', 'delegation', 'result_return'].includes(e.type))
     .map(e => ({
       ratio: Math.max(0, Math.min(1, (e.timestamp - runner.runStartMs) / runner.runDurationMs)),
       type: e.type,
@@ -99,6 +99,8 @@ function markerColor(type: string): string {
     case 'node_start': return 'var(--chart-4)';       // yellow
     case 'node_complete': return 'var(--chart-3)';     // green
     case 'node_failed': return 'var(--destructive)';   // red
+    case 'node_delegated': return '#60a5fa';           // blue-400
+    case 'node_skipped': return 'var(--muted-foreground)';
     case 'delegation': return 'var(--chart-2)';        // cyan
     case 'result_return': return 'var(--chart-5)';     // orange
     default: return 'var(--muted-foreground)';

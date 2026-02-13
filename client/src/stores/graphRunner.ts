@@ -146,9 +146,10 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!;
       if (e.nodeId !== nodeId) continue;
-      if (e.type === 'node_complete') return 'completed';
+      if (e.type === 'node_complete' || e.type === 'node_skipped') return 'completed';
       if (e.type === 'node_failed') return 'failed';
       if (e.type === 'node_start') return 'running';
+      if (e.type === 'node_delegated') return 'delegated';
     }
     return null;
   }
@@ -201,8 +202,24 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     return ids;
   });
 
+  const delegatedNodeIds = computed(() => {
+    execVersion.value; // track
+    if (!currentRun.value) return new Set<string>();
+    const ids = new Set<string>();
+    if (playbackMode.value) {
+      for (const [id] of Object.entries(currentRun.value.executions)) {
+        if (nodeStatusFromTimeline(id) === 'delegated') ids.add(id);
+      }
+    } else {
+      for (const [id, exec] of Object.entries(currentRun.value.executions)) {
+        if (exec.status === 'delegated') ids.add(id);
+      }
+    }
+    return ids;
+  });
+
   /** Get the execution status for a specific node (reactive-friendly, playback-aware) */
-  function nodeExecStatus(nodeId: string): 'running' | 'completed' | 'failed' | null {
+  function nodeExecStatus(nodeId: string): 'running' | 'completed' | 'failed' | 'delegated' | null {
     execVersion.value; // track
     if (!currentRun.value) return null;
     if (playbackMode.value) {
@@ -214,6 +231,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     return exec.status === 'running' ? 'running'
       : exec.status === 'completed' ? 'completed'
       : exec.status === 'failed' ? 'failed'
+      : exec.status === 'delegated' ? 'delegated'
       : null;
   }
 
@@ -279,6 +297,17 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   }) {
     if (!currentRun.value) return;
 
+    // Transition from delegated → running (lazy activation)
+    const existing = currentRun.value.executions[data.nodeId];
+    if (existing && existing.status === 'delegated') {
+      existing.status = 'running';
+      existing.inputPrompt = data.inputPrompt || existing.inputPrompt;
+      existing.startedAt = Date.now();
+      execVersion.value++;
+      addTimeline('node_start', data.nodeId, data.nodeLabel, `Activated (producing output)`);
+      return;
+    }
+
     const exec: NodeExecution = {
       nodeId: data.nodeId,
       nodeLabel: data.nodeLabel,
@@ -307,6 +336,60 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     }
 
     addTimeline('node_start', data.nodeId, data.nodeLabel, `Started execution`);
+  }
+
+  function onNodeDelegated(data: {
+    nodeId: string;
+    nodeLabel: string;
+    nodeType: string;
+    parentNodeId: string;
+    inputPrompt: string;
+  }) {
+    if (!currentRun.value) return;
+
+    // Only create if not already existing (prevents overwriting an already-active node)
+    if (!currentRun.value.executions[data.nodeId]) {
+      const exec: NodeExecution = {
+        nodeId: data.nodeId,
+        nodeLabel: data.nodeLabel,
+        nodeType: data.nodeType,
+        status: 'delegated',
+        inputPrompt: data.inputPrompt,
+        outputText: '',
+        thinkingText: '',
+        isThinking: false,
+        toolCalls: [],
+        childExecutionIds: [],
+        parentExecutionId: data.parentNodeId,
+        startedAt: Date.now(),
+        completedAt: null,
+        error: null,
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+      currentRun.value.executions[data.nodeId] = exec;
+      execVersion.value++;
+    }
+
+    // Track parent->child relationship
+    if (data.parentNodeId) {
+      const parentExec = currentRun.value.executions[data.parentNodeId];
+      if (parentExec && !parentExec.childExecutionIds.includes(data.nodeId)) {
+        parentExec.childExecutionIds.push(data.nodeId);
+      }
+    }
+
+    addTimeline('node_delegated', data.nodeId, data.nodeLabel, `Delegated (waiting for activation)`);
+  }
+
+  function onNodeSkipped(data: { nodeId: string; reason: string }) {
+    if (!currentRun.value) return;
+    const exec = currentRun.value.executions[data.nodeId];
+    if (exec && exec.status === 'delegated') {
+      exec.status = 'completed';
+      exec.completedAt = Date.now();
+      execVersion.value++;
+    }
+    addTimeline('node_skipped', data.nodeId, exec?.nodeLabel ?? data.nodeId, `Skipped: ${data.reason}`);
   }
 
   function onNodeDelta(data: { nodeId: string; text: string }) {
@@ -518,11 +601,13 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     // Playback state
     playbackMode, playbackTimeMs, playbackPlaying, playbackSpeed,
     // Computed
-    isRunning, activeNodeIds, completedNodeIds, failedNodeIds, timeline, selectedExecution,
+    isRunning, activeNodeIds, completedNodeIds, failedNodeIds, delegatedNodeIds,
+    timeline, selectedExecution,
     runStartMs, runEndMs, runDurationMs, playbackRatio,
     effectiveTimeline, effectiveEdgeFlows,
     // Actions
-    onRunStarted, onNodeStarted, onNodeDelta, onNodeThinkingStart, onNodeThinkingDelta,
+    onRunStarted, onNodeStarted, onNodeDelegated, onNodeSkipped,
+    onNodeDelta, onNodeThinkingStart, onNodeThinkingDelta,
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,
     selectExecution, togglePanel, reset, nodeExecStatus,
