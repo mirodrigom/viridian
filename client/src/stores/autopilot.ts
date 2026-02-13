@@ -301,6 +301,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           tokens: (c as { agentB?: { tokens?: TokenUsage } }).agentB?.tokens || { inputTokens: 0, outputTokens: 0 },
         },
         commit: (c as { commit?: { hash: string; message: string; filesChanged: string[] } }).commit || null,
+        summary: null,
         startedAt: c.startedAt ? new Date(c.startedAt as string).getTime() : null,
         completedAt: c.completedAt ? new Date(c.completedAt as string).getTime() : null,
       }));
@@ -331,10 +332,12 @@ export const useAutopilotStore = defineStore('autopilot', () => {
       for (const cycle of cycles) {
         addTimeline('cycle_started', cycle.cycleNumber, `Cycle ${cycle.cycleNumber + 1} started`);
         if (cycle.agentA.response) {
-          addTimeline('agent_a_complete', cycle.cycleNumber, 'Agent A completed analysis');
+          const snippetA = cycle.agentA.response.slice(0, 80).replace(/\n/g, ' ').trim();
+          addTimeline('agent_a_complete', cycle.cycleNumber, `Agent A finished: ${snippetA}${cycle.agentA.response.length > 80 ? '...' : ''}`);
         }
         if (cycle.agentB.response) {
-          addTimeline('agent_b_complete', cycle.cycleNumber, 'Agent B completed execution');
+          const snippetB = cycle.agentB.response.slice(0, 80).replace(/\n/g, ' ').trim();
+          addTimeline('agent_b_complete', cycle.cycleNumber, `Agent B finished: ${snippetB}${cycle.agentB.response.length > 80 ? '...' : ''}`);
         }
         if (cycle.commit) {
           addTimeline('commit_made', cycle.cycleNumber, `Commit: ${cycle.commit.message}`, { hash: cycle.commit.hash });
@@ -415,6 +418,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           tokens: { inputTokens: 0, outputTokens: 0 },
         },
         commit: null,
+        summary: null,
         startedAt: Date.now(),
         completedAt: null,
       };
@@ -470,7 +474,11 @@ export const useAutopilotStore = defineStore('autopilot', () => {
         currentRun.value.totalTokens.agentA.inputTokens += d.tokens.inputTokens;
         currentRun.value.totalTokens.agentA.outputTokens += d.tokens.outputTokens;
       }
-      addTimeline('agent_a_complete', d.cycleNumber, 'Agent A completed analysis');
+      const cycleForA = getCycle(d.cycleNumber);
+      const toolCountA = cycleForA?.agentA.toolCalls.length || 0;
+      const toolsA = toolCountA > 0 ? ` (${toolCountA} tool${toolCountA > 1 ? 's' : ''})` : '';
+      const snippetA = d.response.slice(0, 80).replace(/\n/g, ' ').trim();
+      addTimeline('agent_a_complete', d.cycleNumber, `Agent A finished${toolsA}: ${snippetA}${d.response.length > 80 ? '...' : ''}`);
     });
 
     // Agent B events
@@ -515,7 +523,11 @@ export const useAutopilotStore = defineStore('autopilot', () => {
         currentRun.value.totalTokens.agentB.inputTokens += d.tokens.inputTokens;
         currentRun.value.totalTokens.agentB.outputTokens += d.tokens.outputTokens;
       }
-      addTimeline('agent_b_complete', d.cycleNumber, 'Agent B completed execution');
+      const cycleForB = getCycle(d.cycleNumber);
+      const toolCountB = cycleForB?.agentB.toolCalls.length || 0;
+      const toolsB = toolCountB > 0 ? ` (${toolCountB} tool${toolCountB > 1 ? 's' : ''})` : '';
+      const snippetB = d.response.slice(0, 80).replace(/\n/g, ' ').trim();
+      addTimeline('agent_b_complete', d.cycleNumber, `Agent B finished${toolsB}: ${snippetB}${d.response.length > 80 ? '...' : ''}`);
     });
 
     // Commit
@@ -537,6 +549,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
       if (cycle) {
         if (cycle.status !== 'committed') cycle.status = 'completed';
         cycle.completedAt = Date.now();
+        cycle.summary = d.summary;
       }
       addTimeline('cycle_completed', d.cycleNumber, d.summary);
     });
@@ -578,6 +591,11 @@ export const useAutopilotStore = defineStore('autopilot', () => {
         currentRun.value.completedAt = Date.now();
       }
       addTimeline('run_completed', null, d.summary);
+    });
+
+    wsOn('pr_created', (data: unknown) => {
+      const d = data as { prUrl: string };
+      addTimeline('pr_created', null, `PR created: ${d.prUrl}`, { prUrl: d.prUrl });
     });
 
     wsOn('run_failed', (data: unknown) => {

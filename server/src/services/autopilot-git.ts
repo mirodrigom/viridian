@@ -1,8 +1,12 @@
 /**
- * Autopilot Git Service — branch creation and scoped auto-commit.
+ * Autopilot Git Service — branch creation, scoped auto-commit, push & PR.
  */
 
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getStatus, stageFiles, commit, getBranches, createBranch } from './git.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Create a new autopilot branch with auto-incrementing session number.
@@ -94,4 +98,55 @@ export async function getCommitDiff(cwd: string, hash: string): Promise<string> 
   const simpleGit = (await import('simple-git')).default;
   const git = simpleGit(cwd);
   return git.show([hash, '--stat', '--patch']);
+}
+
+/**
+ * Push autopilot branch and create a PR to main with auto-merge.
+ * Best-effort — logs errors but doesn't throw so the run still completes.
+ */
+export async function pushAndCreatePR(
+  cwd: string,
+  branchName: string,
+  summary: string,
+  cycleCount: number,
+  commitCount: number,
+): Promise<{ prUrl: string } | null> {
+  try {
+    // Push branch to remote with upstream tracking
+    const simpleGit = (await import('simple-git')).default;
+    const git = simpleGit(cwd);
+    await git.push(['-u', 'origin', branchName]);
+
+    // Create PR via gh CLI
+    const body = `## Autopilot Run Summary\n\n${summary}\n\n- **Cycles:** ${cycleCount}\n- **Commits:** ${commitCount}\n- **Branch:** \`${branchName}\``;
+    const title = `autopilot: ${branchName}`;
+
+    const { stdout } = await execFileAsync('gh', [
+      'pr', 'create',
+      '--base', 'main',
+      '--head', branchName,
+      '--title', title,
+      '--body', body,
+    ], { cwd });
+
+    const prUrl = stdout.trim();
+    console.log(`[Autopilot] PR created: ${prUrl}`);
+
+    // Enable auto-merge (squash)
+    try {
+      await execFileAsync('gh', [
+        'pr', 'merge', prUrl,
+        '--auto', '--squash',
+      ], { cwd });
+      console.log(`[Autopilot] Auto-merge enabled for ${prUrl}`);
+    } catch (mergeErr) {
+      // Auto-merge may not be available (repo settings, no branch protection, etc.)
+      console.warn(`[Autopilot] Could not enable auto-merge: ${mergeErr}`);
+    }
+
+    return { prUrl };
+  } catch (err) {
+    console.error(`[Autopilot] Failed to push/create PR: ${err}`);
+    return null;
+  }
 }

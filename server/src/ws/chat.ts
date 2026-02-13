@@ -29,43 +29,43 @@ export function setupChatWs(server: Server) {
   });
 
   /** Wire up a session's EventEmitter to forward events to the WebSocket client. */
-  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter) {
+  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter, sessionId: string) {
     emitter.removeAllListeners();
 
     emitter.on('stream_start', () => {
-      safeSend(ws, { type: 'stream_start' });
+      safeSend(ws, { type: 'stream_start', sessionId });
     });
 
     emitter.on('stream_delta', (d: { text: string }) => {
-      safeSend(ws, { type: 'stream_delta', text: d.text });
+      safeSend(ws, { type: 'stream_delta', text: d.text, sessionId });
     });
 
     emitter.on('thinking_start', () => {
-      safeSend(ws, { type: 'thinking_start' });
+      safeSend(ws, { type: 'thinking_start', sessionId });
     });
 
     emitter.on('thinking_delta', (d: { text: string }) => {
-      safeSend(ws, { type: 'thinking_delta', text: d.text });
+      safeSend(ws, { type: 'thinking_delta', text: d.text, sessionId });
     });
 
     emitter.on('thinking_end', () => {
-      safeSend(ws, { type: 'thinking_end' });
+      safeSend(ws, { type: 'thinking_end', sessionId });
     });
 
     emitter.on('tool_use', (d: { tool: string; input: unknown; requestId: string }) => {
-      safeSend(ws, { type: 'tool_use', ...d });
+      safeSend(ws, { type: 'tool_use', ...d, sessionId });
     });
 
     emitter.on('tool_input_delta', (d: { requestId: string; tool: string; partialJson: string; accumulatedJson: string }) => {
-      safeSend(ws, { type: 'tool_input_delta', ...d });
+      safeSend(ws, { type: 'tool_input_delta', ...d, sessionId });
     });
 
     emitter.on('tool_input_complete', (d: { requestId: string; tool: string; input: unknown }) => {
-      safeSend(ws, { type: 'tool_input_complete', ...d });
+      safeSend(ws, { type: 'tool_input_complete', ...d, sessionId });
     });
 
     emitter.on('error', (d: { error: string }) => {
-      safeSend(ws, { type: 'error', ...d });
+      safeSend(ws, { type: 'error', ...d, sessionId });
     });
 
     emitter.on('stream_end', (d: { sessionId: string; claudeSessionId?: string; usage?: { input_tokens: number; output_tokens: number } }) => {
@@ -110,7 +110,7 @@ export function setupChatWs(server: Server) {
           }
           currentSessionId = session.id;
 
-          wireEmitter(ws, session.emitter);
+          wireEmitter(ws, session.emitter, session.id);
 
           const msgOptions: SendMessageOptions = {};
           if (model) msgOptions.model = model;
@@ -140,7 +140,7 @@ export function setupChatWs(server: Server) {
             // If still streaming, re-wire so remaining events reach this new WS
             if (session && streaming) {
               currentSessionId = sessionId;
-              wireEmitter(ws, session.emitter);
+              wireEmitter(ws, session.emitter, sessionId);
             }
           }
         }

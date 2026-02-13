@@ -9,6 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Brain, Wrench, Bot } from 'lucide-vue-next';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
+import ToolView from '@/components/chat/tools/ToolView.vue';
+import type { ToolUseInfo } from '@/stores/chat';
+import type { AutopilotToolCall } from '@/types/autopilot';
 
 const store = useAutopilotStore();
 const agentARef = ref<HTMLElement | null>(null);
@@ -52,6 +55,10 @@ function roleColor(role: string | undefined): string {
     case 'feature_creator': return 'text-emerald-400';
     default: return 'text-muted-foreground';
   }
+}
+
+function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
+  return { tool: tc.tool, input: tc.input, requestId: tc.requestId, status: 'approved' };
 }
 </script>
 
@@ -128,15 +135,12 @@ function roleColor(role: string | undefined): string {
                 />
 
                 <!-- Tool calls -->
-                <div v-if="cycle.agentA.toolCalls.length > 0" class="space-y-1">
-                  <div
+                <div v-if="cycle.agentA.toolCalls.length > 0" class="space-y-1.5">
+                  <ToolView
                     v-for="tc in cycle.agentA.toolCalls"
                     :key="tc.requestId"
-                    class="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
-                  >
-                    <Wrench class="h-3 w-3 shrink-0" />
-                    <span class="font-mono">{{ tc.tool }}</span>
-                  </div>
+                    :tool-use="toToolUseInfo(tc)"
+                  />
                 </div>
               </template>
             </div>
@@ -199,15 +203,12 @@ function roleColor(role: string | undefined): string {
                 />
 
                 <!-- Tool calls -->
-                <div v-if="cycle.agentB.toolCalls.length > 0" class="space-y-1">
-                  <div
+                <div v-if="cycle.agentB.toolCalls.length > 0" class="space-y-1.5">
+                  <ToolView
                     v-for="tc in cycle.agentB.toolCalls"
                     :key="tc.requestId"
-                    class="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
-                  >
-                    <Wrench class="h-3 w-3 shrink-0" />
-                    <span class="font-mono">{{ tc.tool }}</span>
-                  </div>
+                    :tool-use="toToolUseInfo(tc)"
+                  />
                 </div>
 
                 <!-- Commit badge -->
@@ -220,6 +221,18 @@ function roleColor(role: string | undefined): string {
                   <Badge variant="outline" class="ml-auto text-[10px] shrink-0">
                     {{ cycle.commit.filesChanged.length }} files
                   </Badge>
+                </div>
+
+                <!-- Cycle summary -->
+                <div v-if="cycle.summary" class="flex items-center gap-2 py-1.5">
+                  <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+                  <span
+                    class="text-[10px] text-muted-foreground truncate max-w-[300px]"
+                    :title="cycle.summary"
+                  >
+                    {{ cycle.summary }}
+                  </span>
+                  <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
                 </div>
               </template>
             </div>

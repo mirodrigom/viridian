@@ -292,6 +292,7 @@ function wireAutopilotEvents(ws: WebSocket, ctx: AutopilotContext): () => void {
     'run_completed',
     'run_failed',
     'run_aborted',
+    'pr_created',
   ];
 
   // Store references so we can remove them later

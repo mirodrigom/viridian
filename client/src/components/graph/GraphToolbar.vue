@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
-  FilePlus, Save, FolderOpen, LayoutGrid, Maximize2,
+  FilePlus, Save, FolderOpen, LayoutTemplate, LayoutGrid, Maximize2,
   Trash2, Circle, Play, Square, PanelRight,
 } from 'lucide-vue-next';
 
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   fitView: [];
   save: [];
   load: [];
+  templates: [];
   run: [];
   abort: [];
 }>();
@@ -72,6 +73,15 @@ function onNewGraph() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>Load Graph</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('templates')">
+            <LayoutTemplate class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Templates</TooltipContent>
       </Tooltip>
 
       <div class="mx-1 h-4 w-px bg-border" />

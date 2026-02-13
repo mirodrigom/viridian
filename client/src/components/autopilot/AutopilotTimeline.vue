@@ -3,7 +3,7 @@ import { computed, ref, nextTick, watch } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import {
   Play, CheckCircle2, XCircle, AlertTriangle, Pause,
-  GitCommit, Brain, Wrench, Clock,
+  GitCommit, Brain, Wrench, Clock, GitPullRequest,
 } from 'lucide-vue-next';
 import { useAutopilotStore } from '@/stores/autopilot';
 
@@ -32,6 +32,7 @@ function iconFor(type: string) {
     case 'run_resumed': return Play;
     case 'run_completed': return CheckCircle2;
     case 'run_failed': return XCircle;
+    case 'pr_created': return GitPullRequest;
     default: return Clock;
   }
 }
@@ -58,6 +59,8 @@ function colorFor(type: string): string {
       return 'text-yellow-400';
     case 'run_failed':
       return 'text-red-400';
+    case 'pr_created':
+      return 'text-purple-400';
     default:
       return 'text-muted-foreground';
   }

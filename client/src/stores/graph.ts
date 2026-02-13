@@ -485,7 +485,7 @@ export const useGraphStore = defineStore('graph', () => {
     addNode, removeNode, updateNodeData, updateNodePosition, selectNode,
     canConnect, getEdgeType, addEdge, removeEdge,
     fetchGraphList, loadGraph, saveGraph, deleteGraph,
-    newGraph, autoLayout, serialize, deserialize, generatePrompt,
+    newGraph, loadTemplate, autoLayout, serialize, deserialize, generatePrompt,
   };
 });
 

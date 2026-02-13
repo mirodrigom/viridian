@@ -20,6 +20,7 @@ import GraphTimelineScrubber from './GraphTimelineScrubber.vue';
 import SaveGraphDialog from './dialogs/SaveGraphDialog.vue';
 import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
 import RunGraphDialog from './dialogs/RunGraphDialog.vue';
+import TemplatesDialog from './dialogs/TemplatesDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
 import SubagentNode from './nodes/SubagentNode.vue';
@@ -41,6 +42,7 @@ const { init: initRunner, runGraph, abort: abortRun } = useGraphRunner();
 const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showRunDialog = ref(false);
+const showTemplatesDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
 const {
@@ -197,6 +199,7 @@ function isValidConnection(connection: Connection): boolean {
       @fit-view="fitView()"
       @save="graph.savedViewport = getViewport(); showSaveDialog = true"
       @load="showLoadDialog = true"
+      @templates="showTemplatesDialog = true"
       @run="showRunDialog = true"
       @abort="abortRun()"
     />
@@ -274,6 +277,7 @@ function isValidConnection(connection: Connection): boolean {
     <SaveGraphDialog v-model:open="showSaveDialog" />
     <LoadGraphDialog v-model:open="showLoadDialog" />
     <RunGraphDialog v-model:open="showRunDialog" @run="onRunGraph" />
+    <TemplatesDialog v-model:open="showTemplatesDialog" />
   </div>
 </template>
 

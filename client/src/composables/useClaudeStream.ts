@@ -22,14 +22,42 @@ export function useClaudeStream() {
     // Track whether we reconnected mid-stream so we can do a full refresh on stream_end
     let reconnectedMidStream = false;
 
-    // When WS connects (or reconnects), check if active session is still streaming
+    // --- Session isolation ---
+    // Track which server session ID we're actively listening to.
+    // Events from other sessions are silently discarded.
+    let activeSessionId: string | null = chat.sessionId;
+
+    watch(() => chat.sessionId, (newId) => {
+      activeSessionId = newId;
+    });
+
+    /** Returns true if the incoming WS event belongs to the current session. */
+    function isForCurrentSession(data: unknown): boolean {
+      const d = data as { sessionId?: string };
+      if (!d.sessionId) return true;  // no sessionId in event → allow (backward compat)
+      if (!activeSessionId) return false; // "new chat" state → reject events from any old session
+      return d.sessionId === activeSessionId;
+    }
+
+    // Only send check_session on reconnect (not first connect) to avoid
+    // stealing the emitter from another tab (e.g. duplicated tab).
+    let isReconnect = false;
+
     watch(connected, (isConnected) => {
-      if (isConnected && chat.sessionId) {
-        send({ type: 'check_session', sessionId: chat.sessionId });
+      if (isConnected) {
+        if (isReconnect && chat.sessionId && chat.isStreaming) {
+          send({ type: 'check_session', sessionId: chat.sessionId });
+        }
+        isReconnect = true;
       }
     });
 
-    on('stream_start', () => {
+    on('stream_start', (data: unknown) => {
+      const d = data as { sessionId?: string };
+      // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
+      if (d.sessionId) {
+        activeSessionId = d.sessionId;
+      }
       chat.startStreaming();
       needsNewAssistantMsg = false;
       reconnectedMidStream = false;
@@ -44,6 +72,7 @@ export function useClaudeStream() {
     });
 
     on('stream_delta', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { text: string };
       if (needsNewAssistantMsg) {
         // Text arriving after a tool — create a new assistant message
@@ -66,6 +95,7 @@ export function useClaudeStream() {
     });
 
     on('stream_end', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       needsNewAssistantMsg = false;
       const d = data as {
         sessionId?: string;
@@ -118,6 +148,7 @@ export function useClaudeStream() {
     });
 
     on('tool_use', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
       // Mark current assistant message as done — next text delta gets a new bubble
       needsNewAssistantMsg = true;
@@ -143,25 +174,30 @@ export function useClaudeStream() {
       chat.addMessage(msg);
     });
 
-    on('thinking_start', () => {
+    on('thinking_start', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       chat.startThinking();
     });
 
     on('thinking_delta', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { text: string };
       chat.updateThinking(d.text);
     });
 
-    on('thinking_end', () => {
+    on('thinking_end', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       chat.finishThinking();
     });
 
     on('tool_input_delta', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { requestId: string; accumulatedJson: string };
       chat.appendToolInputDelta(d.requestId, d.accumulatedJson);
     });
 
     on('tool_input_complete', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { requestId: string; input: Record<string, unknown> };
       chat.updateToolInput(d.requestId, d.input);
     });
@@ -172,6 +208,9 @@ export function useClaudeStream() {
         isStreaming: boolean;
         accumulatedText?: string;
       };
+      // Only act on status for the session we're actively tracking
+      if (d.sessionId !== activeSessionId) return;
+
       if (d.isStreaming) {
         // Session is still actively streaming on server — restore streaming state
         reconnectedMidStream = true;
@@ -192,6 +231,7 @@ export function useClaudeStream() {
     });
 
     on('error', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
       const d = data as { error: string };
 
       // Detect rate limit messages and extract reset time

@@ -90,6 +90,7 @@ export interface AutopilotCycle {
   agentA: AutopilotAgentState;
   agentB: AutopilotAgentState;
   commit: AutopilotCycleCommit | null;
+  summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
 }
@@ -154,7 +155,8 @@ export type AutopilotTimelineType =
   | 'run_paused'
   | 'run_resumed'
   | 'run_completed'
-  | 'run_failed';
+  | 'run_failed'
+  | 'pr_created';
 
 export interface AutopilotTimelineEntry {
   timestamp: number;

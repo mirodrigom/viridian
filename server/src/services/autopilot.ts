@@ -9,7 +9,7 @@ import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
 import { getProfile, type AutopilotProfile } from './autopilot-profiles.js';
-import { createAutopilotBranch, autoCommit } from './autopilot-git.js';
+import { createAutopilotBranch, autoCommit, pushAndCreatePR } from './autopilot-git.js';
 import { getDb } from '../db/database.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -408,13 +408,25 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
   }
 
   if (ctx.status === 'completed') {
+    const summary = `Completed ${ctx.cycleCount} cycles with ${ctx.commitCount} commits`;
     emitter.emit('run_completed', {
       runId,
       totalCycles: ctx.cycleCount,
       totalCommits: ctx.commitCount,
-      summary: `Completed ${ctx.cycleCount} cycles with ${ctx.commitCount} commits`,
+      summary,
     });
     updateRunStatus(runId, 'completed');
+
+    // Push branch and create PR (best-effort, non-blocking for run status)
+    if (ctx.commitCount > 0 && ctx.branchName) {
+      pushAndCreatePR(ctx.cwd, ctx.branchName, summary, ctx.cycleCount, ctx.commitCount)
+        .then((result) => {
+          if (result) {
+            emitter.emit('pr_created', { runId, prUrl: result.prUrl });
+          }
+        })
+        .catch(() => { /* already logged inside pushAndCreatePR */ });
+    }
   }
 
   activeRuns.delete(runId);
