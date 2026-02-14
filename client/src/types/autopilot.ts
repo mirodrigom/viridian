@@ -6,7 +6,41 @@ export type ProfileRole =
   | 'feature_creator'
   | 'reviewer'
   | 'serial_questioner'
+  | 'fullstack_dev'
+  | 'frontend_specialist'
+  | 'backend_specialist'
+  | 'api_designer'
+  | 'security_auditor'
+  | 'performance_tester'
+  | 'accessibility_checker'
+  | 'cicd_optimizer'
+  | 'container_specialist'
+  | 'db_optimizer'
+  | 'i18n_specialist'
+  | 'doc_writer'
+  | 'multi_agent_coordinator'
+  | 'sprint_planner'
+  | 'review_team'
+  | 'github_workflow'
   | 'custom';
+
+export type ProfileCategory = 'development' | 'testing' | 'devops' | 'domain' | 'orchestrator' | 'general';
+
+export interface SubagentDefinition {
+  key: string;
+  description: string;
+  prompt: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  model?: string;
+  permissionMode?: string;
+  maxTurns?: number;
+}
+
+export interface McpServerReference {
+  name: string;
+  requiredTools?: string[];
+}
 
 export interface AutopilotProfile {
   id: string;
@@ -20,6 +54,16 @@ export interface AutopilotProfile {
   model: string | null;
   isBuiltin: boolean;
   createdAt?: string;
+  // Extended fields
+  category: ProfileCategory;
+  tags: string[];
+  subagents: SubagentDefinition[];
+  mcpServers: McpServerReference[];
+  appendSystemPrompt: string | null;
+  maxTurns: number | null;
+  permissionMode: string | null;
+  icon: string | null;
+  difficulty: string | null;
 }
 
 // ─── Autopilot Config ──────────────────────────────────────────────────

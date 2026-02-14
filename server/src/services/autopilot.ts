@@ -619,7 +619,43 @@ async function runAgent(
     ? `\n\n## SCOPE RESTRICTION\nYou may ONLY read and modify files within these paths:\n${ctx.allowedPaths.map(p => `- ${p}`).join('\n')}\nDo NOT access files outside this scope.`
     : '';
 
-  const appendPrompt = `${scopeInstructions}\n\nYou are working autonomously as part of an autopilot system. Be concise and action-oriented.`;
+  let appendPrompt = (profile.appendSystemPrompt || '') + scopeInstructions + '\n\nYou are working autonomously as part of an autopilot system. Be concise and action-oriented.';
+
+  // Build MCP awareness into system prompt
+  if (profile.mcpServers && profile.mcpServers.length > 0) {
+    const mcpSection = profile.mcpServers.map((mcp: { name: string; requiredTools?: string[] }) => {
+      const toolsNote = mcp.requiredTools?.length
+        ? ` (specifically: ${mcp.requiredTools.join(', ')})`
+        : '';
+      return `- ${mcp.name}${toolsNote}`;
+    }).join('\n');
+    appendPrompt += `\n\n## MCP Servers Available\nYou have access to tools from these MCP servers:\n${mcpSection}\nUse these tools when they match the task requirements.`;
+  }
+
+  // Build agents config from profile's subagents
+  const agents: Record<string, {
+    description: string;
+    prompt: string;
+    tools?: string[];
+    disallowedTools?: string[];
+    model?: string;
+    permissionMode?: string;
+    maxTurns?: number;
+  }> = {};
+
+  if (profile.subagents && profile.subagents.length > 0) {
+    for (const sa of profile.subagents) {
+      agents[sa.key] = {
+        description: sa.description,
+        prompt: sa.prompt,
+        tools: sa.tools,
+        disallowedTools: sa.disallowedTools,
+        model: sa.model,
+        permissionMode: sa.permissionMode || 'bypassPermissions',
+        maxTurns: sa.maxTurns,
+      };
+    }
+  }
 
   let response = '';
   let inputTokens = 0;
@@ -639,9 +675,10 @@ async function runAgent(
     appendSystemPrompt: appendPrompt,
     allowedTools: profile.allowedTools.length > 0 ? profile.allowedTools : undefined,
     disallowedTools: profile.disallowedTools.length > 0 ? profile.disallowedTools : undefined,
+    agents: Object.keys(agents).length > 0 ? agents : undefined,
     sessionId: sessionId || undefined,
     abortSignal: ctx.abortController.signal,
-    permissionMode: 'bypassPermissions',
+    permissionMode: profile.permissionMode || 'bypassPermissions',
   })) {
     switch (msg.type) {
       case 'text_delta':

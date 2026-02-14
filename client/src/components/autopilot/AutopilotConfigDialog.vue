@@ -15,12 +15,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, Plus, X, FolderOpen } from 'lucide-vue-next';
+import { Play, Plus, X, FolderOpen, AlertTriangle } from 'lucide-vue-next';
 import AutopilotProfileCard from './AutopilotProfileCard.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
+import type { AutopilotProfile, ProfileCategory } from '@/types/autopilot';
 
 const store = useAutopilotStore();
 const chatStore = useChatStore();
@@ -51,6 +52,18 @@ const models = [
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
 ];
 
+// Category labels for display
+const categoryLabels: Record<ProfileCategory, string> = {
+  general: 'General',
+  development: 'Development',
+  testing: 'Testing & QA',
+  devops: 'DevOps & Infra',
+  domain: 'Domain Experts',
+  orchestrator: 'Orchestrators',
+};
+
+const categoryOrder: ProfileCategory[] = ['general', 'development', 'testing', 'devops', 'domain', 'orchestrator'];
+
 // Load profiles and set defaults when dialog opens
 watch(showConfig, (open) => {
   if (open) {
@@ -74,6 +87,41 @@ const executorProfiles = computed(() =>
     return p.allowedTools.some(t => writeTools.includes(t));
   }),
 );
+
+// Group profiles by category
+function groupByCategory(profiles: AutopilotProfile[]) {
+  const groups: { category: ProfileCategory; label: string; profiles: AutopilotProfile[] }[] = [];
+  for (const cat of categoryOrder) {
+    const filtered = profiles.filter(p => (p.category || 'general') === cat);
+    if (filtered.length > 0) {
+      groups.push({ category: cat, label: categoryLabels[cat], profiles: filtered });
+    }
+  }
+  return groups;
+}
+
+const thinkerGroups = computed(() => groupByCategory(thinkerProfiles.value));
+const executorGroups = computed(() => groupByCategory(executorProfiles.value));
+
+// Check for MCP warnings on selected profiles
+const selectedAgentAProfile = computed(() =>
+  store.profiles.find(p => p.id === agentAProfileId.value),
+);
+const selectedAgentBProfile = computed(() =>
+  store.profiles.find(p => p.id === agentBProfileId.value),
+);
+
+const mcpWarnings = computed(() => {
+  const warnings: string[] = [];
+  for (const profile of [selectedAgentAProfile.value, selectedAgentBProfile.value]) {
+    if (profile?.mcpServers?.length) {
+      for (const mcp of profile.mcpServers) {
+        warnings.push(`"${profile.name}" requires MCP server: ${mcp.name}`);
+      }
+    }
+  }
+  return warnings;
+});
 
 function addScopePath() {
   const path = scopePath.value.trim();
@@ -169,21 +217,42 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
 
         <!-- Profiles tab -->
         <TabsContent value="profiles" class="space-y-6 pt-4">
+          <!-- MCP warnings -->
+          <div
+            v-if="mcpWarnings.length > 0"
+            class="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3"
+          >
+            <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+            <div class="space-y-0.5">
+              <p v-for="w in mcpWarnings" :key="w" class="text-xs text-amber-400">
+                {{ w }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                Ensure these MCP servers are configured in Settings before starting.
+              </p>
+            </div>
+          </div>
+
           <!-- Agent A: Thinker -->
           <div class="space-y-3">
             <div class="flex items-center gap-2">
               <Label class="text-sm font-medium">Agent A (Thinker)</Label>
               <Badge variant="outline" class="text-[10px] text-blue-400">analyzes & suggests</Badge>
             </div>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <AutopilotProfileCard
-                v-for="profile in thinkerProfiles"
-                :key="profile.id"
-                :profile="profile"
-                :selected="agentAProfileId === profile.id"
-                @select="agentAProfileId = profile.id"
-              />
-            </div>
+            <template v-for="group in thinkerGroups" :key="group.category">
+              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-3 first:mt-0">
+                {{ group.label }}
+              </p>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <AutopilotProfileCard
+                  v-for="profile in group.profiles"
+                  :key="profile.id"
+                  :profile="profile"
+                  :selected="agentAProfileId === profile.id"
+                  @select="agentAProfileId = profile.id"
+                />
+              </div>
+            </template>
             <div class="flex items-center gap-2">
               <Label class="text-xs text-muted-foreground">Model:</Label>
               <Select v-model="agentAModel">
@@ -205,23 +274,35 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
               <Label class="text-sm font-medium">Agent B (Executor)</Label>
               <Badge variant="outline" class="text-[10px] text-emerald-400">implements changes</Badge>
             </div>
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <AutopilotProfileCard
-                v-for="profile in executorProfiles"
-                :key="profile.id"
-                :profile="profile"
-                :selected="agentBProfileId === profile.id"
-                @select="agentBProfileId = profile.id"
-              />
-              <!-- Also show thinker profiles (user can pick any) -->
-              <AutopilotProfileCard
-                v-for="profile in thinkerProfiles"
-                :key="'b-' + profile.id"
-                :profile="profile"
-                :selected="agentBProfileId === profile.id"
-                @select="agentBProfileId = profile.id"
-              />
-            </div>
+            <template v-for="group in executorGroups" :key="group.category">
+              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-3 first:mt-0">
+                {{ group.label }}
+              </p>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <AutopilotProfileCard
+                  v-for="profile in group.profiles"
+                  :key="profile.id"
+                  :profile="profile"
+                  :selected="agentBProfileId === profile.id"
+                  @select="agentBProfileId = profile.id"
+                />
+              </div>
+            </template>
+            <!-- Also show thinker profiles (user can pick any) -->
+            <template v-for="group in thinkerGroups" :key="'b-' + group.category">
+              <p class="text-xs font-medium text-muted-foreground uppercase tracking-wider mt-3">
+                {{ group.label }} (read-only)
+              </p>
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <AutopilotProfileCard
+                  v-for="profile in group.profiles"
+                  :key="'b-' + profile.id"
+                  :profile="profile"
+                  :selected="agentBProfileId === profile.id"
+                  @select="agentBProfileId = profile.id"
+                />
+              </div>
+            </template>
             <div class="flex items-center gap-2">
               <Label class="text-xs text-muted-foreground">Model:</Label>
               <Select v-model="agentBModel">

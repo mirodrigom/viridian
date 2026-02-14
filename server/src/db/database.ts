@@ -186,4 +186,15 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('autopilot_runs', 'agent_a_profile_id', "TEXT");
   safeAddColumn('autopilot_runs', 'agent_b_profile_id', "TEXT");
   safeAddColumn('autopilot_runs', 'goal_prompt', "TEXT DEFAULT ''");
+
+  // ── Autopilot profiles: extended fields for subagents, MCP, categorization ──
+  safeAddColumn('autopilot_profiles', 'category', "TEXT DEFAULT 'general'");
+  safeAddColumn('autopilot_profiles', 'tags', "TEXT DEFAULT '[]'");
+  safeAddColumn('autopilot_profiles', 'subagents', "TEXT DEFAULT '[]'");
+  safeAddColumn('autopilot_profiles', 'mcp_servers', "TEXT DEFAULT '[]'");
+  safeAddColumn('autopilot_profiles', 'append_system_prompt', "TEXT");
+  safeAddColumn('autopilot_profiles', 'max_turns', "INTEGER");
+  safeAddColumn('autopilot_profiles', 'permission_mode', "TEXT");
+  safeAddColumn('autopilot_profiles', 'icon', "TEXT");
+  safeAddColumn('autopilot_profiles', 'difficulty', "TEXT");
 }
