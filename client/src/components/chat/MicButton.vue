@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
+import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Mic, MicOff, Loader2 } from 'lucide-vue-next';
@@ -14,6 +15,7 @@ const isRecording = ref(false);
 const isProcessing = ref(false);
 const enhanceMode = ref<EnhanceMode>('raw');
 const showModeMenu = ref(false);
+const errorMessage = ref('');
 let recognition: any = null;
 let finalTranscript = '';
 
@@ -28,8 +30,12 @@ const ENHANCE_MODES: { value: EnhanceMode; label: string; description: string }[
 ];
 
 function startRecording() {
-  if (!SpeechRecognitionApi) return;
+  if (!SpeechRecognitionApi) {
+    toast.error('Speech recognition is not supported in this browser');
+    return;
+  }
 
+  errorMessage.value = '';
   recognition = new SpeechRecognitionApi();
   recognition.continuous = true;
   recognition.interimResults = true;
@@ -48,9 +54,18 @@ function startRecording() {
     }
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = (event: any) => {
     isRecording.value = false;
     isProcessing.value = false;
+    const msg = event.error === 'not-allowed'
+      ? 'Microphone access denied — check browser permissions'
+      : event.error === 'no-speech'
+        ? 'No speech detected — try again'
+        : event.error === 'network'
+          ? 'Speech recognition requires an internet connection'
+          : `Speech recognition error: ${event.error}`;
+    errorMessage.value = msg;
+    toast.error(msg);
   };
 
   recognition.onend = () => {
@@ -62,8 +77,13 @@ function startRecording() {
     }
   };
 
-  recognition.start();
-  isRecording.value = true;
+  try {
+    recognition.start();
+    isRecording.value = true;
+  } catch (e: any) {
+    toast.error(`Could not start recording: ${e.message}`);
+    isRecording.value = false;
+  }
 }
 
 function stopRecording() {

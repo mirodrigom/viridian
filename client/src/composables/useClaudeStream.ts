@@ -155,6 +155,13 @@ export function useClaudeStream() {
     on('tool_use', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
+
+      // Deduplicate: skip if a message with this requestId already exists
+      // (can happen with --include-partial-messages re-emitting the same tool_use)
+      if (d.requestId && chat.messages.some(m => m.toolUse?.requestId === d.requestId)) {
+        return;
+      }
+
       // Mark current assistant message as done — next text delta gets a new bubble
       needsNewAssistantMsg = true;
 

@@ -147,18 +147,24 @@ function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: strin
 /** Map SDK messages → EventEmitter events, with buffering for AskUserQuestion. */
 function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
   // When buffering (waiting for AskUserQuestion answer), queue events instead of emitting.
-  // control_request itself is still emitted so the client shows the question modal.
-  if (session.pendingQuestionBuffer !== null && msg.type !== 'control_request') {
-    const evt = buildEmitEvent(session, msg);
-    if (evt) session.pendingQuestionBuffer.push(evt);
-    return;
+  // Allow through: control_request (so client shows the modal) and tool_input events
+  // for the AskUserQuestion tool itself (so input streams to the client).
+  if (session.pendingQuestionBuffer !== null) {
+    if (msg.type === 'control_request' || msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
+      // These pass through to the client
+    } else {
+      const evt = buildEmitEvent(session, msg);
+      if (evt) session.pendingQuestionBuffer.push(evt);
+      return;
+    }
   }
 
   const evt = buildEmitEvent(session, msg);
   if (!evt) return;
 
-  // Start buffering after AskUserQuestion control_request
-  if (msg.type === 'control_request' && msg.toolName === 'AskUserQuestion') {
+  // Start buffering as soon as we see the AskUserQuestion tool_use event
+  // (not on control_request which arrives later, after text has already streamed)
+  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion') {
     session.pendingQuestionBuffer = [];
   }
 

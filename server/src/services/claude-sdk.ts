@@ -219,6 +219,7 @@ interface BlockState {
   currentToolName: string | null;
   claudeSessionId?: string;
   currentParentToolUseId: string | null; // tracks which agent (parent/sub) owns current events
+  emittedToolUseIds: Set<string>; // deduplicate tool_use events (--include-partial-messages can re-emit)
 }
 
 // ─── Core query function — returns AsyncGenerator ───────────────────────────
@@ -365,6 +366,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     currentToolId: null,
     currentToolName: null,
     currentParentToolUseId: null,
+    emittedToolUseIds: new Set(),
   };
 
   let buffer = '';
@@ -511,10 +513,14 @@ function processEvent(state: BlockState, event: Record<string, unknown>): SDKMes
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === 'tool_use') {
+            const toolId = (block.id as string) || '';
+            // Deduplicate: --include-partial-messages can re-emit assistant messages
+            if (toolId && state.emittedToolUseIds.has(toolId)) continue;
+            if (toolId) state.emittedToolUseIds.add(toolId);
             messages.push({
               type: 'tool_use',
               tool: (block.name as string) || '',
-              requestId: (block.id as string) || '',
+              requestId: toolId,
               input: (block.input as Record<string, unknown>) || {},
               parentToolUseId,
             });
@@ -617,14 +623,20 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
       state.currentBlockType = 'thinking';
       messages.push({ type: 'thinking_start', parentToolUseId: ptui });
     } else if (block.type === 'tool_use') {
+      const toolId = (block.id as string) || '';
       state.currentBlockType = 'tool_use';
-      state.currentToolId = (block.id as string) || null;
+      state.currentToolId = toolId || null;
       state.currentToolName = (block.name as string) || null;
       state.currentToolInputJson = '';
+      // Deduplicate: --include-partial-messages can re-emit the same tool_use block
+      if (toolId && state.emittedToolUseIds.has(toolId)) {
+        return messages; // already emitted this tool_use
+      }
+      if (toolId) state.emittedToolUseIds.add(toolId);
       messages.push({
         type: 'tool_use',
         tool: (block.name as string) || '',
-        requestId: (block.id as string) || '',
+        requestId: toolId,
         input: (block.input as Record<string, unknown>) || {},
         parentToolUseId: ptui,
       });

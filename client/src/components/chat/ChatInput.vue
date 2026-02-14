@@ -441,15 +441,10 @@ const effectivePermissionIcon = computed(() =>
       <div class="mb-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none sm:flex-wrap sm:justify-center sm:overflow-visible md:gap-2">
         <!-- Model selector -->
         <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0">
-                <Zap class="h-3 w-3 sm:hidden" />
-                <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
-              </SelectTrigger>
-            </TooltipTrigger>
-            <TooltipContent class="sm:hidden">{{ settings.modelLabel }}</TooltipContent>
-          </Tooltip>
+          <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.modelLabel">
+            <Zap class="h-3 w-3 sm:hidden" />
+            <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
+          </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="m in MODEL_OPTIONS" :key="m.value" :value="m.value">
               <div>
@@ -462,20 +457,16 @@ const effectivePermissionIcon = computed(() =>
 
         <!-- Permission mode -->
         <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <SelectTrigger
-                class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors shrink-0"
-                :class="chat.inPlanMode || settings.permissionMode === 'plan' || settings.permissionMode === 'bypassPermissions'
-                  ? 'bg-primary/15 text-primary hover:bg-primary/25'
-                  : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
-              >
-                <component :is="effectivePermissionIcon" class="h-3 w-3" />
-                <span class="hidden sm:inline">{{ effectivePermissionLabel }}</span>
-              </SelectTrigger>
-            </TooltipTrigger>
-            <TooltipContent class="sm:hidden">{{ effectivePermissionLabel }}</TooltipContent>
-          </Tooltip>
+          <SelectTrigger
+            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors shrink-0"
+            :class="chat.inPlanMode || settings.permissionMode === 'plan' || settings.permissionMode === 'bypassPermissions'
+              ? 'bg-primary/15 text-primary hover:bg-primary/25'
+              : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
+            :title="effectivePermissionLabel"
+          >
+            <component :is="effectivePermissionIcon" class="h-3 w-3" />
+            <span class="hidden sm:inline">{{ effectivePermissionLabel }}</span>
+          </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p.value" :value="p.value">
               <div class="flex items-center gap-2">
@@ -491,15 +482,10 @@ const effectivePermissionIcon = computed(() =>
 
         <!-- Thinking mode -->
         <Select :model-value="settings.thinkingMode" @update:model-value="(v: any) => { settings.thinkingMode = v; settings.save(); }">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0">
-                <Brain class="h-3 w-3" />
-                <span class="hidden sm:inline">{{ settings.thinkingLabel }}</span>
-              </SelectTrigger>
-            </TooltipTrigger>
-            <TooltipContent class="sm:hidden">{{ settings.thinkingLabel }}</TooltipContent>
-          </Tooltip>
+          <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.thinkingLabel">
+            <Brain class="h-3 w-3" />
+            <span class="hidden sm:inline">{{ settings.thinkingLabel }}</span>
+          </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="t in THINKING_OPTIONS" :key="t.value" :value="t.value">
               <div>
