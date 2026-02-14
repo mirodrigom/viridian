@@ -65,6 +65,18 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'autopilot' },
     },
+    {
+      path: '/autopilot/:runId',
+      name: 'autopilot-run',
+      component: ProjectPage,
+      meta: { tab: 'autopilot' },
+    },
+    {
+      path: '/autopilot/:runId/:cycleNumber',
+      name: 'autopilot-cycle',
+      component: ProjectPage,
+      meta: { tab: 'autopilot' },
+    },
   ],
 });
 

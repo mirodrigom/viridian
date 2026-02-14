@@ -181,6 +181,15 @@ html.dark .chat-mode-fullauto {
   }
 }
 
+/* ─── Scrollbar utilities ─── */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ─── Highlight.js theme ─── */
 @import "highlight.js/styles/github-dark.css";
 

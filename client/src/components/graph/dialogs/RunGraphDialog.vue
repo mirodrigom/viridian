@@ -46,6 +46,16 @@ const graphStats = computed(() => {
   return counts;
 });
 
+// Detect nodes that require a system prompt but have it empty
+const nodesWithEmptyPrompt = computed(() => {
+  const promptTypes = new Set(['agent', 'subagent', 'expert']);
+  return graph.nodes.filter(n => {
+    const data = n.data as Record<string, unknown>;
+    return promptTypes.has(data?.nodeType as string)
+      && !((data?.systemPrompt as string) || '').trim();
+  });
+});
+
 function onRun() {
   if (!prompt.value.trim()) return;
   emit('run', prompt.value.trim());
@@ -95,6 +105,16 @@ const typeIcons: Record<string, typeof Bot> = {
           No root agent node found. Add at least one Agent node.
         </div>
 
+        <!-- Empty system prompt warning -->
+        <div v-if="nodesWithEmptyPrompt.length > 0" class="rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-400">
+          <p class="font-medium">{{ nodesWithEmptyPrompt.length }} node{{ nodesWithEmptyPrompt.length > 1 ? 's' : '' }} missing system prompt:</p>
+          <ul class="mt-1 list-inside list-disc text-xs text-yellow-400/80">
+            <li v-for="node in nodesWithEmptyPrompt" :key="node.id">
+              {{ (node.data as Record<string, unknown>).label || node.id }}
+            </li>
+          </ul>
+        </div>
+
         <!-- Graph summary -->
         <div class="flex flex-wrap gap-1.5">
           <Badge
@@ -123,7 +143,7 @@ const typeIcons: Record<string, typeof Bot> = {
 
       <DialogFooter>
         <Button variant="outline" @click="open = false">Cancel</Button>
-        <Button :disabled="!prompt.trim() || !rootNode" @click="onRun">
+        <Button :disabled="!prompt.trim() || !rootNode || nodesWithEmptyPrompt.length > 0" @click="onRun">
           <Play class="mr-1.5 h-3.5 w-3.5" />
           Run
         </Button>

@@ -13,7 +13,7 @@ import ChatInput from './ChatInput.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
-import { PanelLeft } from 'lucide-vue-next';
+import { PanelLeft, Loader2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
 
@@ -61,6 +61,25 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile);
 });
+
+// Session title for mobile header (first user message, truncated)
+const mobileSessionTitle = computed(() => {
+  const firstUser = chat.messages.find(m => m.role === 'user');
+  if (!firstUser?.content) return 'New Session';
+  return firstUser.content.slice(0, 50);
+});
+
+// Swipe-to-close for mobile sidebar
+const touchStartX = ref(0);
+function handleSidebarTouchStart(e: TouchEvent) {
+  touchStartX.value = e.touches[0].clientX;
+}
+function handleSidebarTouchEnd(e: TouchEvent) {
+  const deltaX = e.changedTouches[0].clientX - touchStartX.value;
+  if (deltaX < -60) {
+    showMobileSidebar.value = false;
+  }
+}
 
 defineExpose({ showToolsSettings });
 </script>
@@ -119,7 +138,9 @@ defineExpose({ showToolsSettings });
       <Transition name="slide-left">
         <div
           v-if="showMobileSidebar"
-          class="absolute inset-y-0 left-0 z-40 w-72 shadow-xl"
+          class="absolute inset-y-0 left-0 z-40 w-[80vw] max-w-72 shadow-xl"
+          @touchstart.passive="handleSidebarTouchStart"
+          @touchend.passive="handleSidebarTouchEnd"
         >
           <SessionSidebar
             @new-session="handleNewSession(); showMobileSidebar = false;"
@@ -130,12 +151,13 @@ defineExpose({ showToolsSettings });
 
       <!-- Chat area (full width) -->
       <div class="flex h-full w-full flex-col" :class="modeClass">
-        <!-- Mobile sidebar toggle -->
+        <!-- Mobile header bar -->
         <div class="flex items-center gap-2 border-b border-border bg-card/50 px-2 py-1.5">
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="showMobileSidebar = true">
+          <Button variant="ghost" size="sm" class="h-9 w-9 shrink-0 p-0" @click="showMobileSidebar = true">
             <PanelLeft class="h-4 w-4" />
           </Button>
-          <span class="text-xs text-muted-foreground">Sessions</span>
+          <span class="flex-1 truncate text-xs text-muted-foreground">{{ mobileSessionTitle }}</span>
+          <Loader2 v-if="chat.isStreaming" class="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         </div>
         <MessageList
           class="flex-1 overflow-hidden"

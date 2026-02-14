@@ -59,10 +59,11 @@ function logout() {
       </div>
 
       <!-- Right: Actions -->
-      <div class="flex shrink-0 items-center gap-0.5 md:gap-1">
+      <div class="flex shrink-0 items-center gap-1 md:gap-1">
+        <!-- Terminal toggle: hidden on mobile (terminal is force-disabled on mobile) -->
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('toggleTerminal')">
+            <Button variant="ghost" size="sm" class="hidden sm:inline-flex h-7 w-7 p-0" @click="emit('toggleTerminal')">
               <TerminalSquare class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -71,7 +72,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="settings.toggleDarkMode()">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="settings.toggleDarkMode()">
               <Sun v-if="settings.darkMode" class="h-4 w-4" />
               <Moon v-else class="h-4 w-4" />
             </Button>
@@ -83,7 +84,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="hidden h-7 w-7 p-0 sm:inline-flex" @click="emit('openToolsSettings')">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="emit('openToolsSettings')">
               <Wrench class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -92,7 +93,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('openSettings')">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="emit('openSettings')">
               <Settings class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -101,7 +102,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="logout">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="logout">
               <LogOut class="h-4 w-4" />
             </Button>
           </TooltipTrigger>

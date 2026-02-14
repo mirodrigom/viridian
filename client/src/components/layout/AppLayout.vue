@@ -9,6 +9,7 @@ import {
 import { useSettingsStore } from '@/stores/settings';
 import { useChatStore } from '@/stores/chat';
 import { useGraphStore } from '@/stores/graph';
+import { useAutopilotStore } from '@/stores/autopilot';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
 import FileSidebar from './FileSidebar.vue';
@@ -20,6 +21,7 @@ import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 const settings = useSettingsStore();
 const chat = useChatStore();
 const graphStore = useGraphStore();
+const autopilotStore = useAutopilotStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -65,6 +67,17 @@ watch(activeTab, (newTab, oldTab) => {
   if (newTab === 'graph' && graphStore.currentGraphId) {
     if (route.name !== 'graph-open') {
       router.replace({ name: 'graph-open', params: { graphId: graphStore.currentGraphId } });
+    }
+    return;
+  }
+  // For autopilot, preserve run/cycle in URL if a run is loaded
+  if (newTab === 'autopilot' && (route.name === 'autopilot-run' || route.name === 'autopilot-cycle')) return;
+  if (newTab === 'autopilot' && autopilotStore.currentRun) {
+    const runId = autopilotStore.currentRun.runId;
+    if (autopilotStore.selectedCycleNumber !== null) {
+      router.replace({ name: 'autopilot-cycle', params: { runId, cycleNumber: String(autopilotStore.selectedCycleNumber) } });
+    } else {
+      router.replace({ name: 'autopilot-run', params: { runId } });
     }
     return;
   }

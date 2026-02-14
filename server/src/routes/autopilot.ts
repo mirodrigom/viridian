@@ -34,7 +34,11 @@ router.get('/profiles', (req: AuthRequest, res) => {
 
 router.post('/profiles', (req: AuthRequest, res) => {
   ensureSeeded();
-  const { name, role, description, systemPrompt, allowedTools, disallowedTools, model } = req.body;
+  const {
+    name, role, description, systemPrompt, allowedTools, disallowedTools, model,
+    category, tags, subagents, mcpServers, appendSystemPrompt, maxTurns,
+    permissionMode, icon, difficulty,
+  } = req.body;
   if (!name || !systemPrompt) {
     res.status(400).json({ error: 'name and systemPrompt are required' });
     return;
@@ -47,6 +51,15 @@ router.post('/profiles', (req: AuthRequest, res) => {
     allowedTools: allowedTools || [],
     disallowedTools: disallowedTools || [],
     model: model || null,
+    category: category || 'general',
+    tags: tags || [],
+    subagents: subagents || [],
+    mcpServers: mcpServers || [],
+    appendSystemPrompt: appendSystemPrompt || null,
+    maxTurns: maxTurns || null,
+    permissionMode: permissionMode || null,
+    icon: icon || null,
+    difficulty: difficulty || null,
   });
   res.status(201).json(profile);
 });

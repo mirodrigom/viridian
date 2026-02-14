@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { watch, computed } from 'vue';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
@@ -59,42 +60,47 @@ function badgeFor(tab: string): number | null {
 <template>
   <Tabs v-model="activeTab" class="flex h-full flex-col">
     <!-- Custom tab bar -->
-    <div class="flex h-10 items-center gap-0.5 border-b border-border bg-muted/30 px-1.5">
-      <button
-        v-for="tab in tabs"
-        :key="tab.value"
-        class="relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-150"
-        :class="[
-          activeTab === tab.value
-            ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
-            : 'text-muted-foreground hover:bg-background/50 hover:text-foreground/80',
-        ]"
-        @click="activeTab = tab.value"
-      >
-        <component
-          :is="tab.icon"
-          class="h-4 w-4 shrink-0"
-          :class="[activeTab === tab.value ? 'text-primary' : '']"
-        />
-        <span>{{ tab.label }}</span>
-        <!-- Streaming indicator for chat -->
-        <Loader2
-          v-if="tab.value === 'chat' && chat.isStreaming"
-          class="h-3 w-3 animate-spin text-primary"
-        />
-        <!-- Badge for counts -->
-        <span
-          v-else-if="badgeFor(tab.value)"
-          class="flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
-          :class="[
-            activeTab === tab.value
-              ? 'bg-primary/15 text-primary'
-              : 'bg-muted text-muted-foreground',
-          ]"
-        >
-          {{ badgeFor(tab.value) }}
-        </span>
-      </button>
+    <div class="flex min-h-[44px] sm:min-h-0 sm:h-10 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/30 px-1.5 snap-x snap-mandatory scrollbar-none">
+      <TooltipProvider :delay-duration="300">
+        <Tooltip v-for="tab in tabs" :key="tab.value">
+          <TooltipTrigger as-child>
+            <button
+              class="relative flex min-h-[44px] sm:min-h-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-150 snap-start shrink-0"
+              :class="[
+                activeTab === tab.value
+                  ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                  : 'text-muted-foreground hover:bg-background/50 hover:text-foreground/80',
+              ]"
+              @click="activeTab = tab.value"
+            >
+              <component
+                :is="tab.icon"
+                class="h-4 w-4 shrink-0"
+                :class="[activeTab === tab.value ? 'text-primary' : '']"
+              />
+              <span class="hidden sm:inline">{{ tab.label }}</span>
+              <!-- Streaming indicator for chat -->
+              <Loader2
+                v-if="tab.value === 'chat' && chat.isStreaming"
+                class="h-3 w-3 animate-spin text-primary"
+              />
+              <!-- Badge for counts -->
+              <span
+                v-else-if="badgeFor(tab.value)"
+                class="flex h-5 min-w-5 sm:h-4 sm:min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
+                :class="[
+                  activeTab === tab.value
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-muted text-muted-foreground',
+                ]"
+              >
+                {{ badgeFor(tab.value) }}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent class="sm:hidden">{{ tab.label }}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     </div>
 
     <TabsContent value="chat" class="mt-0 flex-1 overflow-hidden">

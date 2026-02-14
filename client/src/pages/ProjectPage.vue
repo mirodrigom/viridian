@@ -3,12 +3,14 @@ import { onMounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
 import { useGraphStore } from '@/stores/graph';
+import { useAutopilotStore } from '@/stores/autopilot';
 import { useRoute, useRouter } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
 
 const chat = useChatStore();
 const auth = useAuthStore();
 const graph = useGraphStore();
+const autopilot = useAutopilotStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -37,6 +39,32 @@ onMounted(async () => {
     } catch {
       console.error('Failed to load graph from URL');
       router.replace({ name: 'graph' });
+    }
+  }
+
+  // If navigated to /autopilot/:runId or /autopilot/:runId/:cycleNumber, load that run
+  const runId = route.params.runId as string | undefined;
+  if (runId) {
+    // If a run is actively running and URL points to a different run, correct to active run
+    if (autopilot.isRunning && autopilot.currentRun?.runId !== runId) {
+      router.replace({ name: 'autopilot-run', params: { runId: autopilot.currentRun!.runId } });
+    } else if (autopilot.currentRun?.runId !== runId) {
+      try {
+        await autopilot.loadRun(runId);
+        const cycleNumber = route.params.cycleNumber as string | undefined;
+        if (cycleNumber !== undefined) {
+          autopilot.selectedCycleNumber = Number(cycleNumber);
+        }
+      } catch {
+        console.error('Failed to load autopilot run from URL');
+        router.replace({ name: 'autopilot' });
+      }
+    } else {
+      // Run already loaded, just apply cycle selection from URL
+      const cycleNumber = route.params.cycleNumber as string | undefined;
+      if (cycleNumber !== undefined) {
+        autopilot.selectedCycleNumber = Number(cycleNumber);
+      }
     }
   }
 });
