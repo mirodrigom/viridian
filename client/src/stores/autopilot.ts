@@ -585,12 +585,13 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     });
 
     wsOn('run_completed', (data: unknown) => {
-      const d = data as { totalCycles: number; totalCommits: number; summary: string };
+      const d = data as { totalCycles: number; totalCommits: number; summary: string; reason?: string };
       if (currentRun.value) {
-        currentRun.value.status = 'completed';
+        currentRun.value.status = d.reason === 'schedule_timeout' ? 'schedule_timeout' : 'completed';
         currentRun.value.completedAt = Date.now();
       }
-      addTimeline('run_completed', null, d.summary);
+      const timelineType = d.reason === 'schedule_timeout' ? 'schedule_timeout' as const : 'run_completed' as const;
+      addTimeline(timelineType, null, d.summary);
     });
 
     wsOn('pr_created', (data: unknown) => {

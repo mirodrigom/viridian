@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useChatStore } from '@/stores/chat';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Check, Circle, Loader2, ListTodo } from 'lucide-vue-next';
 
 const chat = useChatStore();
@@ -34,51 +35,53 @@ const progressPercent = computed(() => totalCount.value === 0 ? 0 : Math.round((
     </div>
 
     <!-- Timeline -->
-    <div v-if="totalCount" class="flex-1 overflow-y-auto px-3 pb-3">
-      <div class="relative">
-        <!-- Vertical line -->
-        <div class="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
+    <ScrollArea v-if="totalCount" class="flex-1 overflow-hidden">
+      <div class="px-3 pb-3">
+        <div class="relative">
+          <!-- Vertical line -->
+          <div class="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
 
-        <div
-          v-for="(todo, i) in todos"
-          :key="i"
-          class="relative flex items-start gap-3 py-1.5"
-        >
-          <!-- Node -->
-          <div class="relative z-10 mt-0.5 flex h-[15px] w-[15px] shrink-0 items-center justify-center">
-            <div
-              v-if="todo.status === 'completed'"
-              class="flex h-[15px] w-[15px] items-center justify-center rounded-full bg-green-500"
-            >
-              <Check class="h-2.5 w-2.5 text-white" />
-            </div>
-            <div
-              v-else-if="todo.status === 'in_progress'"
-              class="flex h-[15px] w-[15px] items-center justify-center rounded-full border-2 border-primary bg-card"
-            >
-              <Loader2 class="h-2.5 w-2.5 animate-spin text-primary" />
-            </div>
-            <div
-              v-else
-              class="h-[9px] w-[9px] rounded-full border-2 border-muted-foreground/40 bg-card"
-              style="margin: 3px"
-            />
-          </div>
-
-          <!-- Label -->
-          <span
-            class="text-xs leading-snug"
-            :class="{
-              'text-muted-foreground/60': todo.status === 'pending',
-              'font-medium text-foreground': todo.status === 'in_progress',
-              'text-muted-foreground line-through': todo.status === 'completed',
-            }"
+          <div
+            v-for="(todo, i) in todos"
+            :key="i"
+            class="relative flex items-start gap-3 py-1.5"
           >
-            {{ todo.status === 'in_progress' && todo.activeForm ? todo.activeForm : todo.content }}
-          </span>
+            <!-- Node -->
+            <div class="relative z-10 mt-0.5 flex h-[15px] w-[15px] shrink-0 items-center justify-center">
+              <div
+                v-if="todo.status === 'completed'"
+                class="flex h-[15px] w-[15px] items-center justify-center rounded-full bg-green-500"
+              >
+                <Check class="h-2.5 w-2.5 text-white" />
+              </div>
+              <div
+                v-else-if="todo.status === 'in_progress'"
+                class="flex h-[15px] w-[15px] items-center justify-center rounded-full border-2 border-primary bg-card"
+              >
+                <Loader2 class="h-2.5 w-2.5 animate-spin text-primary" />
+              </div>
+              <div
+                v-else
+                class="h-[9px] w-[9px] rounded-full border-2 border-muted-foreground/40 bg-card"
+                style="margin: 3px"
+              />
+            </div>
+
+            <!-- Label -->
+            <span
+              class="text-xs leading-snug"
+              :class="{
+                'text-muted-foreground/60': todo.status === 'pending',
+                'font-medium text-foreground': todo.status === 'in_progress',
+                'text-muted-foreground line-through': todo.status === 'completed',
+              }"
+            >
+              {{ todo.status === 'in_progress' && todo.activeForm ? todo.activeForm : todo.content }}
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </ScrollArea>
 
     <!-- Empty state -->
     <div v-else class="flex flex-1 items-center justify-center p-4">

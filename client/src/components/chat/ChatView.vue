@@ -11,6 +11,7 @@ import SessionSidebar from './SessionSidebar.vue';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
 import TodoTimeline from './TodoTimeline.vue';
+import PlanReviewPanel from './PlanReviewPanel.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { PanelLeft } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,27 @@ const showToolsSettings = ref(false);
 const showMobileSidebar = ref(false);
 const isMobile = ref(false);
 
+function handleNewSession() {
+  if (chat.isStreaming) abort();
+}
+
 const hasTodos = computed(() => chat.latestTodos.length > 0);
+const hasRightPanel = computed(() => chat.isPlanReviewActive || hasTodos.value);
+
+function handlePlanApprove() {
+  chat.dismissPlanReview();
+  sendMessage('Proceed with the plan.');
+}
+
+function handlePlanDeny() {
+  chat.dismissPlanReview();
+  sendMessage('Cancel this plan. Do not proceed.');
+}
+
+function handlePlanChange(feedback: string) {
+  chat.dismissPlanReview();
+  sendMessage(`I'd like changes to the plan: ${feedback}`);
+}
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;
@@ -50,12 +71,12 @@ defineExpose({ showToolsSettings });
     <ResizablePanelGroup v-if="!isMobile" direction="horizontal" class="h-full">
       <ResizablePanel :default-size="22" :min-size="15" :max-size="35">
         <SessionSidebar
-          @new-session="() => {}"
+          @new-session="handleNewSession"
           @open-tools-settings="showToolsSettings = true"
         />
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel :default-size="hasTodos ? 58 : 78" :min-size="40">
+      <ResizablePanel :default-size="hasRightPanel ? 58 : 78" :min-size="40">
         <div class="flex h-full flex-col" :class="modeClass">
           <MessageList
             class="flex-1 overflow-hidden"
@@ -65,7 +86,17 @@ defineExpose({ showToolsSettings });
           <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
         </div>
       </ResizablePanel>
-      <template v-if="hasTodos">
+      <template v-if="chat.isPlanReviewActive">
+        <ResizableHandle />
+        <ResizablePanel :default-size="25" :min-size="18" :max-size="40">
+          <PlanReviewPanel
+            @approve="handlePlanApprove"
+            @deny="handlePlanDeny"
+            @change="handlePlanChange"
+          />
+        </ResizablePanel>
+      </template>
+      <template v-else-if="hasTodos">
         <ResizableHandle />
         <ResizablePanel :default-size="20" :min-size="14" :max-size="35">
           <TodoTimeline />
@@ -91,7 +122,7 @@ defineExpose({ showToolsSettings });
           class="absolute inset-y-0 left-0 z-40 w-72 shadow-xl"
         >
           <SessionSidebar
-            @new-session="() => { showMobileSidebar = false; }"
+            @new-session="handleNewSession(); showMobileSidebar = false;"
             @open-tools-settings="showToolsSettings = true; showMobileSidebar = false;"
           />
         </div>
@@ -111,6 +142,14 @@ defineExpose({ showToolsSettings });
           @approve-tool="(id) => respondToTool(id, true)"
           @reject-tool="(id) => respondToTool(id, false)"
         />
+        <!-- Plan Review inline for mobile -->
+        <div v-if="chat.isPlanReviewActive" class="max-h-[60vh] border-t border-border overflow-y-auto">
+          <PlanReviewPanel
+            @approve="handlePlanApprove"
+            @deny="handlePlanDeny"
+            @change="handlePlanChange"
+          />
+        </div>
         <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
       </div>
     </template>

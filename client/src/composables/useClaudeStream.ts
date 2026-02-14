@@ -15,6 +15,7 @@ export function useClaudeStream() {
 
   function init() {
     connect();
+    chat.registerAbort(abort);
 
     // Track whether the next text delta needs a fresh assistant message
     // (set after a tool_use so text after tools gets its own bubble, matching reload layout)
@@ -39,14 +40,18 @@ export function useClaudeStream() {
       return d.sessionId === activeSessionId;
     }
 
-    // Only send check_session on reconnect (not first connect) to avoid
-    // stealing the emitter from another tab (e.g. duplicated tab).
+    // Send check_session on reconnect (if streaming) and on initial connect
+    // after a page reload (if we have a persisted sessionId).
     let isReconnect = false;
 
     watch(connected, (isConnected) => {
       if (isConnected) {
-        if (isReconnect && chat.sessionId && chat.isStreaming) {
-          send({ type: 'check_session', sessionId: chat.sessionId });
+        if (chat.sessionId) {
+          // On reconnect while streaming, or on initial connect after page reload
+          // (isStreaming is false after reload, but sessionId is persisted)
+          if (isReconnect ? chat.isStreaming : true) {
+            send({ type: 'check_session', sessionId: chat.sessionId });
+          }
         }
         isReconnect = true;
       }
@@ -154,8 +159,49 @@ export function useClaudeStream() {
       needsNewAssistantMsg = true;
 
       // Track plan mode transitions
-      if (d.tool === 'EnterPlanMode') chat.inPlanMode = true;
-      else if (d.tool === 'ExitPlanMode') chat.inPlanMode = false;
+      if (d.tool === 'EnterPlanMode') {
+        chat.inPlanMode = true;
+      } else if (d.tool === 'ExitPlanMode') {
+        chat.inPlanMode = false;
+
+        // Capture plan text: prefer the Write tool call that targets .claude/plans/,
+        // falling back to assistant message content between EnterPlanMode and ExitPlanMode.
+        const msgs = chat.messages;
+        let enterIdx = -1;
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].toolUse?.tool === 'EnterPlanMode') {
+            enterIdx = i;
+            break;
+          }
+        }
+        if (enterIdx >= 0) {
+          // Look for the Write tool that wrote the plan file
+          let planText = '';
+          for (let i = enterIdx + 1; i < msgs.length; i++) {
+            if (msgs[i].toolUse?.tool === 'ExitPlanMode') break;
+            const tu = msgs[i].toolUse;
+            if (tu?.tool === 'Write') {
+              const filePath = String(tu.input.file_path || tu.input.filePath || '');
+              if (filePath.includes('.claude/plans/') && tu.input.content) {
+                planText = String(tu.input.content);
+                break;
+              }
+            }
+          }
+          // Fallback: collect assistant text if no plan file Write was found
+          if (!planText) {
+            for (let i = enterIdx + 1; i < msgs.length; i++) {
+              if (msgs[i].toolUse?.tool === 'ExitPlanMode') break;
+              if (msgs[i].role === 'assistant' && msgs[i].content) {
+                planText += msgs[i].content;
+              }
+            }
+          }
+          if (planText.trim()) {
+            chat.activatePlanReview(planText.trim());
+          }
+        }
+      }
 
       // In bypassPermissions mode, the CLI auto-approves tools itself, so mark as approved.
       // In other modes, set pending — the actual approval happens via control_request.

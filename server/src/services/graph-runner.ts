@@ -20,6 +20,17 @@ function debugLog(msg: string) {
   console.log(msg);
 }
 
+/**
+ * Set of Claude CLI session IDs created by graph runner executions.
+ * Used to filter these sessions out of the chat sidebar listing.
+ */
+const graphRunnerSessionIds = new Set<string>();
+
+/** Check if a Claude session ID belongs to a graph runner execution. */
+export function isGraphRunnerSession(claudeSessionId: string): boolean {
+  return graphRunnerSessionIds.has(claudeSessionId);
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────
 
 interface GraphNode {
@@ -367,27 +378,30 @@ function appendDelegationInstructions(
   const allowedNames = agentEntries.map(([key]) => `"${key}"`).join(', ');
 
   const delegation = `
-## CRITICAL: You are an ORCHESTRATOR — you MUST delegate ALL work
+## YOU ARE AN ORCHESTRATOR — DELEGATE EVERYTHING
 
-You are a principal orchestrator agent. Your ONLY job is to coordinate and delegate tasks to your specialized sub-agents using the Task tool.
+You are a coordinator. You have NO tools except Task. You CANNOT read files, write code, or run commands.
+Your ONLY capability is delegating to sub-agents via the Task tool.
 
-### Your Available Sub-Agents — ONLY use these
+### Your Sub-Agents
 ${agentList}
 
 ### How to Delegate
-Use the Task tool with these EXACT values for \`subagent_type\`: ${allowedNames}
-- Set \`subagent_type\` to one of the names above (e.g. "${agentEntries[0]![0]}")
-- Set \`prompt\` to a detailed description of what the sub-agent should do
-- Set \`description\` to a short summary (3-5 words)
+Call the Task tool with:
+- \`subagent_type\`: one of ${allowedNames}
+- \`prompt\`: detailed instructions for the sub-agent
+- \`description\`: short summary (3-5 words)
 
-### Rules — MANDATORY — NEVER VIOLATE
-1. You MUST ONLY delegate to the sub-agents listed above: ${allowedNames}.
-2. NEVER set subagent_type to "Bash", "general-purpose", "Explore", "Plan", or any agent NOT listed above. Built-in agents are FORBIDDEN.
-3. NEVER execute tasks yourself. NEVER use any tool other than Task.
-4. Even for simple tasks like git commits, shell commands, or file operations — you MUST delegate to the closest matching sub-agent above.
-5. ALWAYS delegate to the SINGLE most relevant sub-agent first. Only delegate to additional sub-agents if the first agent's result is insufficient or the task explicitly requires multiple distinct domains.
-6. For simple, focused tasks, delegate to exactly ONE sub-agent — the best match. Do NOT speculatively delegate to multiple agents in parallel.
-7. After receiving results from sub-agents, synthesize and present the final answer to the user.`;
+Example:
+\`\`\`json
+{"subagent_type": "${agentEntries[0]![0]}", "prompt": "Do X, Y, Z...", "description": "Handle the task"}
+\`\`\`
+
+### Rules
+1. ONLY use subagent_type values from: ${allowedNames}. No other values are valid.
+2. NEVER try to do work directly — you have no tools for it.
+3. Delegate to the SINGLE best-matching sub-agent first.
+4. After receiving results, synthesize and present the final answer.`;
 
   return systemPrompt ? `${systemPrompt}\n${delegation}` : delegation.trim();
 }
@@ -425,20 +439,31 @@ async function executeNode(
     ctx.agentKeyToNodeId.set(key, nid);
   }
 
-  // Compose system prompt (appended to Claude defaults, not replacing)
-  // Include delegation instructions if this node has sub-agents
+  // Compose system prompt and configure orchestrator behavior
   let systemPrompt = composeSystemPrompt(resolved);
-  if (Object.keys(agents).length > 0) {
+  const hasAgents = Object.keys(agents).length > 0;
+
+  // For orchestrators (nodes with sub-agents), use --system-prompt (replaces
+  // Claude defaults) so delegation instructions have maximum authority.
+  // For leaf agents, use --append-system-prompt to augment defaults.
+  let useSystemPrompt: string | undefined;
+  let useAppendSystemPrompt: string | undefined;
+  let effectivePrompt = prompt;
+
+  if (hasAgents) {
     systemPrompt = appendDelegationInstructions(systemPrompt, agents);
+    useSystemPrompt = systemPrompt;
+    // Wrap the user prompt so the orchestrator knows it must delegate
+    effectivePrompt = `The user's task is below. You MUST delegate this to your sub-agents using the Task tool. Do NOT attempt to do the work yourself.\n\n---\n\n${prompt}`;
     debugLog(`[GraphRunner] Node "${nodeLabel}" has ${Object.keys(agents).length} agents: [${Object.keys(agents).join(', ')}]`);
   } else {
+    useAppendSystemPrompt = systemPrompt || undefined;
     debugLog(`[GraphRunner] Node "${nodeLabel}" has NO agents (delegates: ${resolved.delegates.length})`);
   }
 
   // Build query options
   const model = resolved.node.data.model as string || undefined;
   const permissionMode = resolved.node.data.permissionMode as string || 'bypassPermissions';
-  const hasAgents = Object.keys(agents).length > 0;
 
   // Orchestrator nodes (those with sub-agents) get restricted via --tools flag
   // which REPLACES the available tool set (unlike --allowedTools which is a permission filter).
@@ -448,7 +473,7 @@ async function executeNode(
   let allowedTools: string[] | undefined;
   let disallowedTools: string[] | undefined;
   if (hasAgents) {
-    tools = ['Task'];
+    tools = ['Task', 'TodoWrite'];
     debugLog(`[GraphRunner] Node "${nodeLabel}" is orchestrator — --tools restricted to: ${tools.join(', ')}`);
   } else {
     allowedTools = resolved.node.data.allowedTools as string[] | undefined;
@@ -462,7 +487,7 @@ async function executeNode(
 
   try {
     const stream = claudeQuery({
-      prompt,
+      prompt: effectivePrompt,
       cwd: ctx.cwd,
       model,
       permissionMode,
@@ -470,8 +495,9 @@ async function executeNode(
       allowedTools,
       disallowedTools,
       disableSlashCommands: hasAgents, // prevent built-in Skill tool from interfering
-      appendSystemPrompt: systemPrompt || undefined,
-      agents: Object.keys(agents).length > 0 ? agents : undefined,
+      systemPrompt: useSystemPrompt,
+      appendSystemPrompt: useAppendSystemPrompt,
+      agents: hasAgents ? agents : undefined,
       abortSignal: ctx.abortController.signal,
     });
 
@@ -481,7 +507,10 @@ async function executeNode(
         onText: (text) => { accumulatedText += text; },
         onInputTokens: (t) => { inputTokens = t; },
         onOutputTokens: (t) => { outputTokens = t; },
-        onSessionId: (sid) => { ctx.sessionIds.set(nodeId, sid); },
+        onSessionId: (sid) => {
+          ctx.sessionIds.set(nodeId, sid);
+          graphRunnerSessionIds.add(sid);
+        },
       });
     }
   } catch (err) {

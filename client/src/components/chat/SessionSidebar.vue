@@ -20,6 +20,7 @@ interface SessionItem {
   projectDir: string;
   messageCount: number;
   lastActive: number;
+  isStreaming?: boolean;
 }
 
 const chat = useChatStore();
@@ -76,8 +77,8 @@ function startNewSession() {
 }
 
 async function resumeSession(session: SessionItem) {
-  // Don't switch sessions while streaming
-  if (chat.isStreaming) return;
+  // Abort current stream before switching sessions
+  if (chat.isStreaming) chat.abortStream();
   chat.clearMessages();
   chat.sessionId = session.id;
   chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
@@ -333,13 +334,13 @@ onUnmounted(() => {
         }"
         @click="resumeSession(session)"
       >
-        <Loader2 v-if="chat.isStreaming && session.id === chat.sessionId" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <Loader2 v-if="session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         <MessageSquare v-else class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-xs text-foreground">{{ session.title }}</p>
           <p class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Clock class="h-2.5 w-2.5" />
-            {{ chat.isStreaming && session.id === chat.sessionId ? 'Working...' : formatRelativeTime(session.lastActive) }}
+            {{ (session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)) ? 'Working...' : formatRelativeTime(session.lastActive) }}
           </p>
         </div>
         <div class="flex items-center gap-1">

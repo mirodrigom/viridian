@@ -2,7 +2,7 @@
 import { ref, computed, inject } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Play, Pause, Square, Settings, GitBranch, Loader2, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-vue-next';
+import { Play, Pause, Square, Settings, GitBranch, Loader2, AlertCircle, CheckCircle2, Clock, RotateCcw } from 'lucide-vue-next';
 import { useAutopilotStore } from '@/stores/autopilot';
 
 const store = useAutopilotStore();
@@ -14,6 +14,7 @@ const statusColor = computed(() => {
     case 'paused': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     case 'rate_limited': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'completed': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    case 'schedule_timeout': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'failed': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'aborted': return 'bg-muted text-muted-foreground border-border';
     default: return 'bg-muted text-muted-foreground border-border';
@@ -27,6 +28,7 @@ const statusLabel = computed(() => {
     case 'paused': return 'Paused';
     case 'rate_limited': return 'Rate Limited';
     case 'completed': return 'Completed';
+    case 'schedule_timeout': return 'Time Limit';
     case 'failed': return 'Failed';
     case 'aborted': return 'Aborted';
     default: return 'Idle';
@@ -110,6 +112,7 @@ function openConfig() {
       <Loader2 v-if="store.currentRun?.status === 'running'" class="h-3 w-3 animate-spin" />
       <AlertCircle v-else-if="store.currentRun?.status === 'rate_limited'" class="h-3 w-3" />
       <CheckCircle2 v-else-if="store.currentRun?.status === 'completed'" class="h-3 w-3" />
+      <Clock v-else-if="store.currentRun?.status === 'schedule_timeout'" class="h-3 w-3" />
       {{ statusLabel }}
     </Badge>
 

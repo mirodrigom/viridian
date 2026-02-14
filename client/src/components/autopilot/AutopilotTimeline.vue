@@ -31,6 +31,7 @@ function iconFor(type: string) {
     case 'run_paused': return Pause;
     case 'run_resumed': return Play;
     case 'run_completed': return CheckCircle2;
+    case 'schedule_timeout': return Clock;
     case 'run_failed': return XCircle;
     case 'pr_created': return GitPullRequest;
     default: return Clock;
@@ -57,6 +58,7 @@ function colorFor(type: string): string {
       return 'text-orange-400';
     case 'run_paused':
       return 'text-yellow-400';
+    case 'schedule_timeout':
     case 'run_failed':
       return 'text-red-400';
     case 'pr_created':

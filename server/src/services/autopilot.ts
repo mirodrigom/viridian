@@ -400,7 +400,10 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
     ctx.cycleCount++;
   }
 
-  // Determine final status
+  // Determine final status and exit reason
+  const scheduleTimeout = isOutsideScheduleWindow(ctx);
+  const tokenBudgetExceeded = isOverTokenBudget(ctx);
+
   if (ctx.abortController.signal.aborted) {
     ctx.status = 'aborted';
   } else if (ctx.status === 'running') {
@@ -408,14 +411,29 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
   }
 
   if (ctx.status === 'completed') {
-    const summary = `Completed ${ctx.cycleCount} cycles with ${ctx.commitCount} commits`;
+    const reason = scheduleTimeout
+      ? 'schedule_timeout'
+      : tokenBudgetExceeded
+        ? 'token_budget'
+        : ctx.cycleCount >= ctx.maxIterations
+          ? 'max_iterations'
+          : 'normal';
+    const reasonLabel = scheduleTimeout
+      ? ' (schedule time limit reached)'
+      : tokenBudgetExceeded
+        ? ' (token budget exceeded)'
+        : ctx.cycleCount >= ctx.maxIterations
+          ? ' (max iterations reached)'
+          : '';
+    const summary = `Completed ${ctx.cycleCount} cycles with ${ctx.commitCount} commits${reasonLabel}`;
     emitter.emit('run_completed', {
       runId,
       totalCycles: ctx.cycleCount,
       totalCommits: ctx.commitCount,
       summary,
+      reason,
     });
-    updateRunStatus(runId, 'completed');
+    updateRunStatus(runId, scheduleTimeout ? 'schedule_timeout' : 'completed');
 
     // Push branch and create PR (best-effort, non-blocking for run status)
     if (ctx.commitCount > 0 && ctx.branchName) {

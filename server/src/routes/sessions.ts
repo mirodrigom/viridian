@@ -6,6 +6,8 @@ import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
 import { getDb } from '../db/database.js';
+import { getStreamingClaudeSessionIds } from '../services/claude.js';
+import { isGraphRunnerSession } from '../services/graph-runner.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -18,6 +20,7 @@ interface SessionInfo {
   projectDir: string;
   messageCount: number;
   lastActive: number;
+  isStreaming?: boolean;
 }
 
 const CLAUDE_DIR = join(process.env.HOME || '/home', '.claude', 'projects');
@@ -178,6 +181,10 @@ router.get('/', async (req, res) => {
 
       for (const file of files) {
         const sessionId = file.replace('.jsonl', '');
+
+        // Skip sessions created by graph runner executions
+        if (isGraphRunnerSession(sessionId)) continue;
+
         const filePath = join(dirPath, file);
 
         let mtimeMs: number;
@@ -223,6 +230,14 @@ router.get('/', async (req, res) => {
           messageCount: meta.messageCount,
           lastActive: mtimeMs,
         });
+      }
+    }
+
+    // Tag sessions that are currently streaming on the server
+    const streamingIds = getStreamingClaudeSessionIds();
+    for (const s of sessions) {
+      if (streamingIds.has(s.id)) {
+        s.isStreaming = true;
       }
     }
 

@@ -249,8 +249,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     prompt = `[Attached images — use the Read tool to view them]\n${imageRefs}\n\n${prompt}`;
   }
 
+  // When using --input-format stream-json, do NOT use -p flag
+  // The prompt must be sent via stdin as a JSON message instead
   const args = [
-    '-p', prompt,
     '--output-format', 'stream-json',
     '--input-format', 'stream-json',
     '--verbose',
@@ -311,15 +312,24 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   });
 
   // Keep stdin open for bidirectional communication (control_request/control_response)
+  // Send initial prompt via stdin (required when using --input-format stream-json)
   if (options.onStdinReady) {
     options.onStdinReady((data: string) => {
       if (proc.stdin && !proc.stdin.destroyed) {
         proc.stdin.write(data + '\n');
       }
     });
-  } else {
-    proc.stdin!.end();
   }
+
+  // Send the initial user message via stdin
+  const userMessage = {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: prompt,
+    },
+  };
+  proc.stdin!.write(JSON.stringify(userMessage) + '\n');
 
   // Abort support
   if (options.abortSignal) {
@@ -374,6 +384,13 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
       if (!line.trim()) continue;
       try {
         const event = JSON.parse(line);
+
+        // Close stdin when CLI signals it's done (allows process to exit)
+        if (event.type === 'result' && proc.stdin && !proc.stdin.destroyed) {
+          debugLog('[ClaudeSDK] Received result event, closing stdin to allow process exit');
+          proc.stdin.end();
+        }
+
         const messages = processEvent(state, event);
         for (const msg of messages) push(msg);
       } catch {

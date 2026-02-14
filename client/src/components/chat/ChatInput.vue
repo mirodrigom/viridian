@@ -325,7 +325,7 @@ function handleSubmit() {
   }
 
   const trimmed = input.value.trim();
-  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited) return;
+  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited || chat.isPlanReviewActive) return;
   // Prepend file mentions as context
   let message = trimmed;
   if (mentionedFiles.value.length > 0) {
@@ -640,14 +640,18 @@ const effectivePermissionIcon = computed(() =>
       <textarea
         ref="textarea"
         v-model="input"
-        :placeholder="chat.isRateLimited
-          ? `Rate limited — resets in ${rateLimitCountdown}`
-          : 'Ask Claude to help with your code... (/ for commands)'"
-        :disabled="chat.isRateLimited"
+        :placeholder="chat.isPlanReviewActive
+          ? 'Review the plan in the sidebar to continue...'
+          : chat.isRateLimited
+            ? `Rate limited — resets in ${rateLimitCountdown}`
+            : 'Ask Claude to help with your code... (/ for commands)'"
+        :disabled="chat.isRateLimited || chat.isPlanReviewActive"
         class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-28 text-sm focus:outline-none"
-        :class="chat.isRateLimited
-          ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
-          : 'text-foreground placeholder:text-muted-foreground'"
+        :class="chat.isPlanReviewActive
+          ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
+          : chat.isRateLimited
+            ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
+            : 'text-foreground placeholder:text-muted-foreground'"
         rows="1"
         style="min-height: 44px; max-height: 120px"
         @keydown="handleKeydown"
@@ -656,9 +660,9 @@ const effectivePermissionIcon = computed(() =>
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-2 flex items-center gap-1">
-        <MicButton v-if="!chat.isStreaming && !chat.isRateLimited" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive" @transcript="handleVoiceTranscript" />
         <Button
-          v-if="!chat.isStreaming && !chat.isRateLimited && attachedImages.length < MAX_IMAGES"
+          v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive && attachedImages.length < MAX_IMAGES"
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
@@ -671,7 +675,7 @@ const effectivePermissionIcon = computed(() =>
           v-if="!chat.isStreaming"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="chat.isRateLimited || (!input.trim() && attachedImages.length === 0)"
+          :disabled="chat.isRateLimited || chat.isPlanReviewActive || (!input.trim() && attachedImages.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />
@@ -689,9 +693,16 @@ const effectivePermissionIcon = computed(() =>
     </div>
     <p
       class="mt-1 text-center text-[10px] md:mt-1.5 md:text-[11px] transition-colors duration-500"
-      :class="chat.isRateLimited ? 'text-red-400/70 font-medium' : 'text-muted-foreground'"
+      :class="chat.isPlanReviewActive
+        ? 'text-primary font-medium'
+        : chat.isRateLimited
+          ? 'text-red-400/70 font-medium'
+          : 'text-muted-foreground'"
     >
-      <template v-if="chat.isRateLimited">
+      <template v-if="chat.isPlanReviewActive">
+        Review the plan in the sidebar before continuing
+      </template>
+      <template v-else-if="chat.isRateLimited">
         Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
       </template>
       <template v-else>

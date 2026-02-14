@@ -103,21 +103,42 @@ onUnmounted(() => document.removeEventListener('keydown', handleGlobalKeydown));
 const showResponseComplete = ref(false);
 const responseCompleteTime = ref('');
 let hadStreaming = false;
+let streamEndedWithPendingQuestion = false;
+
+const hasPendingQuestion = computed(() =>
+  chat.messages.some(m => m.toolUse?.tool === 'AskUserQuestion' && m.toolUse.status === 'pending')
+);
+
+function showCompletion() {
+  showResponseComplete.value = true;
+  responseCompleteTime.value = new Date().toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+  playResponseCompleteSound();
+}
 
 watch(() => chat.isStreaming, (streaming) => {
   if (streaming) {
     hadStreaming = true;
+    streamEndedWithPendingQuestion = false;
     showResponseComplete.value = false;
   } else if (hadStreaming) {
     hadStreaming = false;
-    showResponseComplete.value = true;
-    responseCompleteTime.value = new Date().toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true,
-    });
-    playResponseCompleteSound();
+    if (hasPendingQuestion.value) {
+      streamEndedWithPendingQuestion = true;
+    } else {
+      showCompletion();
+    }
+  }
+});
+
+watch(hasPendingQuestion, (pending) => {
+  if (!pending && streamEndedWithPendingQuestion) {
+    streamEndedWithPendingQuestion = false;
+    showCompletion();
   }
 });
 
@@ -191,7 +212,19 @@ function handleScroll() {
   showScrollBtn.value = distFromBottom > 100;
   // Don't override autoScroll during session load or programmatic scrolls
   if (!isLoadingSession.value && !isProgrammaticScroll.value) {
-    chat.autoScroll = distFromBottom < 50;
+    // Use a larger threshold during streaming to prevent rapid content additions
+    // from accidentally disabling autoScroll before the scroll catches up
+    const threshold = chat.isStreaming ? 150 : 50;
+    if (distFromBottom < threshold) {
+      chat.autoScroll = true;
+    } else if (!chat.isStreaming) {
+      // Only disable autoScroll from user scroll when NOT streaming
+      // During streaming, only an explicit scroll far from bottom should disable it
+      chat.autoScroll = false;
+    } else if (distFromBottom > 500) {
+      // During streaming, user has intentionally scrolled far up
+      chat.autoScroll = false;
+    }
   }
 
   // Trigger load-more when near top
@@ -278,17 +311,18 @@ watch(() => chat.messages.length, (newLen, oldLen) => {
   }
 });
 // Auto-scroll on streaming content updates (text deltas appended to any assistant message)
+// Throttle to avoid overwhelming the browser with scroll operations during rapid deltas
+let contentScrollRaf: number | null = null;
 watch(() => chat.contentVersion, () => {
   if (chat.autoScroll) {
     isProgrammaticScroll.value = true;
-    nextTick(() => {
+    if (contentScrollRaf !== null) cancelAnimationFrame(contentScrollRaf);
+    contentScrollRaf = requestAnimationFrame(() => {
+      contentScrollRaf = null;
+      forceScrollToEnd();
+      // Release the flag after the browser processes the scroll event
       requestAnimationFrame(() => {
-        const viewport = getViewport();
-        if (viewport) viewport.scrollTop = viewport.scrollHeight;
-        // Release the flag after the scroll event has been processed
-        requestAnimationFrame(() => {
-          isProgrammaticScroll.value = false;
-        });
+        isProgrammaticScroll.value = false;
       });
     });
   }
@@ -416,7 +450,7 @@ watch(scrollContainer, (el) => {
           leave-from-class="opacity-100"
           leave-to-class="opacity-0"
         >
-          <div v-if="showResponseComplete && !chat.isStreaming" class="response-complete-divider mx-4 my-3">
+          <div v-if="showResponseComplete && !chat.isStreaming && !hasPendingQuestion" class="response-complete-divider mx-4 my-3">
             <div class="flex items-center gap-2">
               <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
               <div class="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1">

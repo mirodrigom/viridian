@@ -109,6 +109,7 @@ function statusColor(status: string) {
     case 'paused': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     case 'rate_limited': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
     case 'completed': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    case 'schedule_timeout': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'failed': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'aborted': return 'bg-muted text-muted-foreground border-border';
     default: return 'bg-muted text-muted-foreground border-border';
@@ -120,6 +121,7 @@ function statusIcon(status: string) {
     case 'running': return Loader2;
     case 'paused': return Pause;
     case 'completed': return CheckCircle2;
+    case 'schedule_timeout': return Clock;
     case 'failed': return AlertCircle;
     case 'aborted': return Square;
     default: return Clock;
@@ -214,9 +216,9 @@ function totalTokens(run: { tokens: { agentA: { inputTokens: number; outputToken
           :class="{
             'animate-spin text-yellow-400': run.status === 'running',
             'text-green-400': run.status === 'completed',
-            'text-red-400': run.status === 'failed',
+            'text-red-400': run.status === 'failed' || run.status === 'schedule_timeout',
             'text-blue-400': run.status === 'paused',
-            'text-muted-foreground': !['running', 'completed', 'failed', 'paused'].includes(run.status),
+            'text-muted-foreground': !['running', 'completed', 'failed', 'paused', 'schedule_timeout'].includes(run.status),
           }"
         />
         <div class="min-w-0 flex-1">

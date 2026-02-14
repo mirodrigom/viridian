@@ -54,11 +54,20 @@ export const useChatStore = defineStore('chat', () => {
   const autoScroll = ref(true);
 
   // Plan mode — toggled when Claude calls EnterPlanMode / ExitPlanMode
-  const inPlanMode = ref(false);
+  const inPlanMode = ref(sessionStorage.getItem('chat-inPlanMode') === 'true');
 
   // Rate limit — timestamp (ms) until which the user is blocked
   const rateLimitedUntil = ref<number | null>(null);
   let rateLimitTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Plan review — activated when ExitPlanMode captures the plan text
+  const planReviewText = ref<string | null>(null);
+  const isPlanReviewActive = ref(false);
+
+  // Abort callback — set by useClaudeStream so other components can abort without WS access
+  let _abortFn: (() => void) | null = null;
+  function registerAbort(fn: () => void) { _abortFn = fn; }
+  function abortStream() { _abortFn?.(); }
 
   // Incremented on every content mutation to drive auto-scroll in MessageList
   const contentVersion = ref(0);
@@ -164,6 +173,8 @@ export const useChatStore = defineStore('chat', () => {
 
   function clearMessages() {
     messages.value = [];
+    isStreaming.value = false;
+    streamStartTime.value = null;
     sessionId.value = null;
     claudeSessionId.value = null;
     activeProjectDir.value = null;
@@ -173,6 +184,8 @@ export const useChatStore = defineStore('chat', () => {
     usage.value = { inputTokens: 0, outputTokens: 0, totalCost: 0 };
     sessionStartedAt.value = null;
     inPlanMode.value = false;
+    planReviewText.value = null;
+    isPlanReviewActive.value = false;
   }
 
   function setProjectPath(path: string) {
@@ -245,6 +258,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function activatePlanReview(planText: string) {
+    planReviewText.value = planText;
+    isPlanReviewActive.value = true;
+  }
+
+  function dismissPlanReview() {
+    planReviewText.value = null;
+    isPlanReviewActive.value = false;
+  }
+
   // Persist session identity across page reloads so we can detect active streaming
   watch(sessionId, (v) => {
     if (v) sessionStorage.setItem('chat-sessionId', v);
@@ -262,11 +285,16 @@ export const useChatStore = defineStore('chat', () => {
     if (v) sessionStorage.setItem('chat-projectPath', v);
     else sessionStorage.removeItem('chat-projectPath');
   });
+  watch(inPlanMode, (v) => {
+    if (v) sessionStorage.setItem('chat-inPlanMode', 'true');
+    else sessionStorage.removeItem('chat-inPlanMode');
+  });
 
   return {
     messages, isStreaming, sessionId, claudeSessionId, projectPath, activeProjectDir, usage,
     lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs,
     sessionStartedAt, sessionDurationMin, tokensPerMin, inPlanMode,
+    planReviewText, isPlanReviewActive,
     totalMessages, hasMoreMessages, oldestLoadedIndex, isLoadingMore, scrollToBottomRequest, autoScroll, contentVersion,
     rateLimitedUntil, isRateLimited, rateLimitRemainingMs,
     addMessage, updateLastAssistantContent, finishStreaming,
@@ -274,6 +302,8 @@ export const useChatStore = defineStore('chat', () => {
     loadMessages, prependMessages, appendMessages,
     startThinking, updateThinking, finishThinking,
     appendToolInputDelta, updateToolInput,
+    activatePlanReview, dismissPlanReview,
     setRateLimitedUntil, clearRateLimit,
+    registerAbort, abortStream,
   };
 });

@@ -16,6 +16,8 @@ interface ClaudeSession {
   accumulatedText: string;
   /** Write function for stdin bidirectional communication (permission responses). */
   stdinWrite?: (data: string) => void;
+  /** Buffered events while waiting for user to answer AskUserQuestion. null = not buffering. */
+  pendingQuestionBuffer: { event: string; data: unknown }[] | null;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
@@ -30,6 +32,7 @@ export function createSession(cwd: string, claudeSessionId?: string): ClaudeSess
     usage: { inputTokens: 0, outputTokens: 0 },
     isStreaming: false,
     accumulatedText: '',
+    pendingQuestionBuffer: null,
   };
   activeSessions.set(session.id, session);
   return session;
@@ -91,111 +94,115 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   })();
 }
 
-/** Map SDK messages → EventEmitter events (preserving existing event names for WS/SSE consumers) */
-function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
+/**
+ * Convert an SDK message into an { event, data } pair for the EventEmitter.
+ * Also applies side-effects on `session` (e.g. accumulating text, tracking usage).
+ * Returns null for messages that are side-effect-only (system, message_start, message_delta).
+ */
+function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: string; data: unknown } | null {
   switch (msg.type) {
     case 'text_delta':
       session.accumulatedText += msg.text;
-      session.emitter.emit('stream_delta', { text: msg.text });
-      break;
+      return { event: 'stream_delta', data: { text: msg.text } };
     case 'thinking_start':
-      session.emitter.emit('thinking_start', {});
-      break;
+      return { event: 'thinking_start', data: {} };
     case 'thinking_delta':
-      session.emitter.emit('thinking_delta', { text: msg.text });
-      break;
+      return { event: 'thinking_delta', data: { text: msg.text } };
     case 'thinking_end':
-      session.emitter.emit('thinking_end', {});
-      break;
+      return { event: 'thinking_end', data: {} };
     case 'tool_use':
-      session.emitter.emit('tool_use', {
-        tool: msg.tool,
-        input: msg.input,
-        requestId: msg.requestId,
-      });
-      break;
+      return { event: 'tool_use', data: { tool: msg.tool, input: msg.input, requestId: msg.requestId } };
     case 'tool_input_delta':
-      session.emitter.emit('tool_input_delta', {
-        requestId: msg.requestId,
-        tool: msg.tool,
-        partialJson: msg.partialJson,
-        accumulatedJson: msg.accumulatedJson,
-      });
-      break;
+      return { event: 'tool_input_delta', data: { requestId: msg.requestId, tool: msg.tool, partialJson: msg.partialJson, accumulatedJson: msg.accumulatedJson } };
     case 'tool_input_complete':
-      session.emitter.emit('tool_input_complete', {
-        requestId: msg.requestId,
-        tool: msg.tool,
-        input: msg.input,
-      });
-      break;
+      return { event: 'tool_input_complete', data: { requestId: msg.requestId, tool: msg.tool, input: msg.input } };
     case 'error':
-      session.emitter.emit('error', { error: msg.error });
-      break;
+      return { event: 'error', data: { error: msg.error } };
     case 'system':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
-      break;
+      return null;
     case 'message_start': {
       const input = msg.inputTokens || 0;
       const cacheCreation = msg.cacheCreationInputTokens || 0;
       const cacheRead = msg.cacheReadInputTokens || 0;
-      // Total context = input + cache creation + cache read (matches JSONL calculation)
       session.usage.inputTokens = input + cacheCreation + cacheRead;
-      break;
+      return null;
     }
     case 'message_delta':
       if (msg.outputTokens) session.usage.outputTokens = msg.outputTokens;
-      break;
+      return null;
     case 'control_request':
-      session.emitter.emit('control_request', {
-        requestId: msg.requestId,
-        toolName: msg.toolName,
-        toolInput: msg.toolInput,
-        toolUseId: msg.toolUseId,
-      });
-      break;
+      return { event: 'control_request', data: { requestId: msg.requestId, toolName: msg.toolName, toolInput: msg.toolInput, toolUseId: msg.toolUseId } };
     case 'result':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       session.process = null;
       session.isStreaming = false;
       session.stdinWrite = undefined;
-      session.emitter.emit('stream_end', {
-        sessionId: session.id,
-        claudeSessionId: session.claudeSessionId,
-        exitCode: msg.exitCode,
-        usage: {
-          input_tokens: session.usage.inputTokens,
-          output_tokens: session.usage.outputTokens,
-        },
-      });
-      break;
+      return { event: 'stream_end', data: { sessionId: session.id, claudeSessionId: session.claudeSessionId, exitCode: msg.exitCode, usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens } } };
+    default:
+      return null;
   }
+}
+
+/** Map SDK messages → EventEmitter events, with buffering for AskUserQuestion. */
+function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
+  // When buffering (waiting for AskUserQuestion answer), queue events instead of emitting.
+  // control_request itself is still emitted so the client shows the question modal.
+  if (session.pendingQuestionBuffer !== null && msg.type !== 'control_request') {
+    const evt = buildEmitEvent(session, msg);
+    if (evt) session.pendingQuestionBuffer.push(evt);
+    return;
+  }
+
+  const evt = buildEmitEvent(session, msg);
+  if (!evt) return;
+
+  // Start buffering after AskUserQuestion control_request
+  if (msg.type === 'control_request' && msg.toolName === 'AskUserQuestion') {
+    session.pendingQuestionBuffer = [];
+  }
+
+  session.emitter.emit(evt.event, evt.data);
 }
 
 export function respondToPermission(sessionId: string, requestId: string, approved: boolean) {
   const session = activeSessions.get(sessionId);
-  if (!session?.stdinWrite) return;
+  if (!session) return;
 
-  const response = approved
-    ? {
-        type: 'control_response',
-        response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow' } },
-      }
-    : {
-        type: 'control_response',
-        response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'User denied the tool request' } },
-      };
+  // Send control_response to CLI if stdin is still open
+  if (session.stdinWrite) {
+    const response = approved
+      ? {
+          type: 'control_response',
+          response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow' } },
+        }
+      : {
+          type: 'control_response',
+          response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'User denied the tool request' } },
+        };
 
-  session.stdinWrite(JSON.stringify(response));
+    session.stdinWrite(JSON.stringify(response));
+  }
+
+  // Flush buffered events (from AskUserQuestion pause)
+  if (session.pendingQuestionBuffer) {
+    const buffered = session.pendingQuestionBuffer;
+    session.pendingQuestionBuffer = null;
+    for (const evt of buffered) {
+      session.emitter.emit(evt.event, evt.data);
+    }
+  }
 }
 
 export function abortSession(sessionId: string) {
   const session = activeSessions.get(sessionId);
-  if (session?.abortController) {
+  if (!session) return;
+  session.pendingQuestionBuffer = null;
+  if (session.abortController) {
     session.abortController.abort();
     session.abortController = undefined;
   }
-  if (session?.process) {
+  if (session.process) {
     session.process.kill('SIGTERM');
     session.process = null;
   }
@@ -209,6 +216,17 @@ export function isSessionStreaming(sessionId: string): boolean {
 export function getSessionAccumulatedText(sessionId: string): string {
   const session = activeSessions.get(sessionId);
   return session?.accumulatedText ?? '';
+}
+
+/** Returns the set of claudeSessionIds (= JSONL filenames) that are currently streaming. */
+export function getStreamingClaudeSessionIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const session of activeSessions.values()) {
+    if (session.isStreaming && session.claudeSessionId) {
+      ids.add(session.claudeSessionId);
+    }
+  }
+  return ids;
 }
 
 export function removeSession(sessionId: string) {

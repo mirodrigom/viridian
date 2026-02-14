@@ -102,6 +102,7 @@ export type RunStatus =
   | 'paused'
   | 'rate_limited'
   | 'completed'
+  | 'schedule_timeout'
   | 'failed'
   | 'aborted';
 
@@ -155,6 +156,7 @@ export type AutopilotTimelineType =
   | 'run_paused'
   | 'run_resumed'
   | 'run_completed'
+  | 'schedule_timeout'
   | 'run_failed'
   | 'pr_created';
 
