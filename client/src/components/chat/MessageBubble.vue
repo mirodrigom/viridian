@@ -100,11 +100,11 @@ function formatTime(ts: number) {
   <!-- User message -->
   <div
     v-if="message.role === 'user'"
-    class="flex items-end justify-end gap-2.5 px-4 py-3 transition-colors"
+    class="flex items-end justify-end gap-1.5 sm:gap-2.5 px-2 sm:px-4 py-3 transition-colors"
     :class="{ 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult }"
   >
-    <div class="max-w-[75%]">
-      <div class="rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground shadow-sm">
+    <div class="max-w-[85%] sm:max-w-[75%]">
+      <div class="rounded-2xl rounded-br-md bg-primary px-3 sm:px-4 py-2.5 text-primary-foreground shadow-sm">
         <div v-if="message.images?.length" class="mb-2 flex flex-wrap gap-1.5">
           <img
             v-for="(img, idx) in message.images"
@@ -118,7 +118,7 @@ function formatTime(ts: number) {
       </div>
       <p class="mt-1 text-right text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
     </div>
-    <Avatar class="h-8 w-8 shrink-0 border border-primary/20">
+    <Avatar class="h-8 w-8 shrink-0 border border-primary/20 hidden sm:flex">
       <AvatarFallback class="bg-primary/10 text-xs font-semibold text-primary">U</AvatarFallback>
     </Avatar>
   </div>
@@ -126,20 +126,20 @@ function formatTime(ts: number) {
   <!-- Assistant message -->
   <div
     v-else-if="message.role === 'assistant'"
-    class="px-4 transition-colors"
+    class="px-2 sm:px-4 transition-colors"
     :class="[
       isGroupStart ? 'pt-3' : 'pt-0.5',
       { 'pb-1': true, 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult },
     ]"
   >
-    <div class="flex items-start gap-2.5">
+    <div class="flex items-start gap-1.5 sm:gap-2.5">
       <!-- Avatar: visible on group start, invisible spacer on continuation -->
-      <Avatar v-if="isGroupStart" class="h-8 w-8 shrink-0 border border-primary/20">
+      <Avatar v-if="isGroupStart" class="h-8 w-8 shrink-0 border border-primary/20 hidden sm:flex">
         <AvatarFallback class="bg-primary/10 p-1">
           <ClaudeLogo :size="16" class="text-primary" />
         </AvatarFallback>
       </Avatar>
-      <div v-else class="w-8 shrink-0" />
+      <div v-else class="hidden sm:block w-8 shrink-0" />
 
       <div class="min-w-0 flex-1">
         <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">Claude</p>
@@ -176,10 +176,10 @@ function formatTime(ts: number) {
   </div>
 
   <!-- Tool use -->
-  <div v-else-if="message.toolUse" class="py-0.5 pl-[3.25rem] pr-4">
+  <div v-else-if="message.toolUse" class="py-0.5 px-2 sm:pl-[3.25rem] sm:pr-4">
     <div class="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <!-- Tool header -->
-      <div class="flex items-center gap-2.5 border-b border-border bg-muted/30 px-3.5 py-2.5">
+      <div class="flex items-center gap-2 sm:gap-2.5 border-b border-border bg-muted/30 px-2.5 sm:px-3.5 py-2.5">
         <div
           class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
           :class="message.toolUse.status === 'rejected'
@@ -216,12 +216,12 @@ function formatTime(ts: number) {
       <ToolView :tool-use="message.toolUse" />
 
       <!-- Approval buttons (when pending, not for AskUserQuestion which has its own modal) -->
-      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'" class="flex gap-2 border-t border-border bg-muted/10 px-3.5 py-2.5">
-        <Button size="sm" class="h-7 gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
+      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'" class="flex gap-2 border-t border-border bg-muted/10 px-2.5 sm:px-3.5 py-2.5">
+        <Button size="sm" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
           <Check class="h-3.5 w-3.5" />
           Allow
         </Button>
-        <Button size="sm" variant="outline" class="h-7 gap-1.5 text-xs" @click="emit('rejectTool', message.toolUse!.requestId)">
+        <Button size="sm" variant="outline" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('rejectTool', message.toolUse!.requestId)">
           <X class="h-3.5 w-3.5" />
           Deny
         </Button>
@@ -230,7 +230,7 @@ function formatTime(ts: number) {
   </div>
 
   <!-- System message (errors, info) -->
-  <div v-else class="flex items-center gap-2 px-4 py-1 pl-[3.25rem]">
+  <div v-else class="flex items-center gap-2 px-2 sm:px-4 py-1 sm:pl-[3.25rem]">
     <AlertCircle v-if="message.content.startsWith('Error')" class="h-3.5 w-3.5 shrink-0 text-destructive" />
     <p
       class="text-xs"
