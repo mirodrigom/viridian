@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 import {
   getProfiles,
   getProfile,
@@ -113,7 +114,7 @@ function rowToConfig(row: ConfigRow) {
     name: row.name,
     agentAProfile: row.agent_a_profile,
     agentBProfile: row.agent_b_profile,
-    allowedPaths: JSON.parse(row.allowed_paths || '[]'),
+    allowedPaths: safeJsonParse<string[]>(row.allowed_paths, []),
     agentAModel: row.agent_a_model,
     agentBModel: row.agent_b_model,
     maxIterations: row.max_iterations,
@@ -121,7 +122,7 @@ function rowToConfig(row: ConfigRow) {
     scheduleEnabled: row.schedule_enabled === 1,
     scheduleStartTime: row.schedule_start_time,
     scheduleEndTime: row.schedule_end_time,
-    scheduleDays: JSON.parse(row.schedule_days || '[1,2,3,4,5]'),
+    scheduleDays: safeJsonParse<number[]>(row.schedule_days, [1, 2, 3, 4, 5]),
     scheduleTimezone: row.schedule_timezone,
     goalPrompt: row.goal_prompt,
     createdAt: row.created_at,
@@ -304,12 +305,18 @@ router.get('/runs', (req: AuthRequest, res) => {
   query += ' ORDER BY started_at DESC';
 
   if (limit) {
-    query += ' LIMIT ?';
-    params.push(Number(limit));
+    const n = Number(limit);
+    if (!Number.isNaN(n) && n > 0) {
+      query += ' LIMIT ?';
+      params.push(n);
+    }
   }
   if (offset) {
-    query += ' OFFSET ?';
-    params.push(Number(offset));
+    const n = Number(offset);
+    if (!Number.isNaN(n) && n >= 0) {
+      query += ' OFFSET ?';
+      params.push(n);
+    }
   }
 
   const rows = db.prepare(query).all(...params) as RunRow[];
@@ -373,7 +380,7 @@ router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
       commit: r.commit_hash ? {
         hash: r.commit_hash,
         message: r.commit_message,
-        filesChanged: JSON.parse(r.files_changed || '[]'),
+        filesChanged: safeJsonParse<string[]>(r.files_changed, []),
       } : null,
       status: r.status,
       startedAt: r.started_at,
@@ -390,9 +397,15 @@ router.get('/runs/:id/diff/:cycleNumber', async (req: AuthRequest, res) => {
     ).get(req.params.id, req.user!.id) as RunRow | undefined;
     if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
 
+    const cycleNum = Number(req.params.cycleNumber);
+    if (Number.isNaN(cycleNum)) {
+      res.status(400).json({ error: 'Invalid cycle number' });
+      return;
+    }
+
     const cycle = db.prepare(
       'SELECT commit_hash FROM autopilot_cycles WHERE run_id = ? AND cycle_number = ?',
-    ).get(req.params.id, Number(req.params.cycleNumber)) as { commit_hash: string | null } | undefined;
+    ).get(req.params.id, cycleNum) as { commit_hash: string | null } | undefined;
 
     if (!cycle?.commit_hash) {
       res.status(404).json({ error: 'No commit for this cycle' });

@@ -1,7 +1,20 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import path from 'path';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
+
+const VALID_MODELS = ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'];
+const VALID_PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+
+/** Validate and normalize a cwd path — must be absolute with no traversal. */
+function validateCwd(cwd: unknown): string | null {
+  if (typeof cwd !== 'string' || !cwd) return null;
+  const normalized = path.resolve(cwd);
+  // Reject if it resolves differently (traversal attempt) or isn't absolute
+  if (!path.isAbsolute(normalized)) return null;
+  return normalized;
+}
 
 export function setupChatWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -28,53 +41,67 @@ export function setupChatWs(server: Server) {
     });
   });
 
-  /** Wire up a session's EventEmitter to forward events to the WebSocket client. */
-  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter, sessionId: string) {
-    emitter.removeAllListeners();
+  /** Wire up a session's EventEmitter to forward events to the WebSocket client.
+   *  Returns a cleanup function to remove only this WS's listeners. */
+  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter, sessionId: string): () => void {
+    const listeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
 
-    emitter.on('stream_start', () => {
+    function addHandler(event: string, handler: (...args: unknown[]) => void) {
+      emitter.on(event, handler);
+      listeners.push({ event, handler });
+    }
+
+    addHandler('stream_start', () => {
       safeSend(ws, { type: 'stream_start', sessionId });
     });
 
-    emitter.on('stream_delta', (d: { text: string }) => {
-      safeSend(ws, { type: 'stream_delta', text: d.text, sessionId });
+    addHandler('stream_delta', (d: unknown) => {
+      safeSend(ws, { type: 'stream_delta', text: (d as { text: string }).text, sessionId });
     });
 
-    emitter.on('thinking_start', () => {
+    addHandler('thinking_start', () => {
       safeSend(ws, { type: 'thinking_start', sessionId });
     });
 
-    emitter.on('thinking_delta', (d: { text: string }) => {
-      safeSend(ws, { type: 'thinking_delta', text: d.text, sessionId });
+    addHandler('thinking_delta', (d: unknown) => {
+      safeSend(ws, { type: 'thinking_delta', text: (d as { text: string }).text, sessionId });
     });
 
-    emitter.on('thinking_end', () => {
+    addHandler('thinking_end', () => {
       safeSend(ws, { type: 'thinking_end', sessionId });
     });
 
-    emitter.on('tool_use', (d: { tool: string; input: unknown; requestId: string }) => {
-      safeSend(ws, { type: 'tool_use', ...d, sessionId });
+    addHandler('tool_use', (d: unknown) => {
+      safeSend(ws, { type: 'tool_use', ...(d as Record<string, unknown>), sessionId });
     });
 
-    emitter.on('tool_input_delta', (d: { requestId: string; tool: string; partialJson: string; accumulatedJson: string }) => {
-      safeSend(ws, { type: 'tool_input_delta', ...d, sessionId });
+    addHandler('tool_input_delta', (d: unknown) => {
+      safeSend(ws, { type: 'tool_input_delta', ...(d as Record<string, unknown>), sessionId });
     });
 
-    emitter.on('tool_input_complete', (d: { requestId: string; tool: string; input: unknown }) => {
-      safeSend(ws, { type: 'tool_input_complete', ...d, sessionId });
+    addHandler('tool_input_complete', (d: unknown) => {
+      safeSend(ws, { type: 'tool_input_complete', ...(d as Record<string, unknown>), sessionId });
     });
 
-    emitter.on('control_request', (d: { requestId: string; toolName: string; toolInput: unknown; toolUseId?: string }) => {
-      safeSend(ws, { type: 'control_request', ...d, sessionId });
+    addHandler('control_request', (d: unknown) => {
+      safeSend(ws, { type: 'control_request', ...(d as Record<string, unknown>), sessionId });
     });
 
-    emitter.on('error', (d: { error: string }) => {
-      safeSend(ws, { type: 'error', ...d, sessionId });
+    addHandler('error', (d: unknown) => {
+      safeSend(ws, { type: 'error', ...(d as Record<string, unknown>), sessionId });
     });
 
-    emitter.on('stream_end', (d: { sessionId: string; claudeSessionId?: string; usage?: { input_tokens: number; output_tokens: number } }) => {
-      safeSend(ws, { type: 'stream_end', ...d });
+    addHandler('stream_end', (d: unknown) => {
+      safeSend(ws, { type: 'stream_end', ...(d as Record<string, unknown>) });
     });
+
+    // Return cleanup function — removes only this WS's listeners
+    return () => {
+      for (const { event, handler } of listeners) {
+        emitter.removeListener(event, handler);
+      }
+      listeners.length = 0;
+    };
   }
 
   // Keepalive: ping every 30s, terminate if no pong within 10s
@@ -83,6 +110,7 @@ export function setupChatWs(server: Server) {
 
   wss.on('connection', (ws: WebSocket) => {
     let currentSessionId: string | null = null;
+    let cleanupListeners: (() => void) | null = null;
     let alive = true;
 
     const pingTimer = setInterval(() => {
@@ -98,6 +126,7 @@ export function setupChatWs(server: Server) {
 
     ws.on('close', () => {
       clearInterval(pingTimer);
+      if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }
     });
 
     ws.on('message', (raw) => {
@@ -106,7 +135,13 @@ export function setupChatWs(server: Server) {
 
         if (data.type === 'chat') {
           const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools } = data;
-          const projectDir = cwd || process.env.HOME || '/home';
+
+          if (typeof prompt !== 'string' || !prompt.trim()) {
+            safeSend(ws, { type: 'error', error: 'Missing or invalid prompt' });
+            return;
+          }
+
+          const projectDir = validateCwd(cwd) || process.env.HOME || '/home';
 
           let session = sessionId ? getSession(sessionId) : null;
           if (!session) {
@@ -114,22 +149,32 @@ export function setupChatWs(server: Server) {
           }
           currentSessionId = session.id;
 
-          wireEmitter(ws, session.emitter, session.id);
+          if (cleanupListeners) cleanupListeners();
+          cleanupListeners = wireEmitter(ws, session.emitter, session.id);
 
           const msgOptions: SendMessageOptions = {};
-          if (model) msgOptions.model = model;
-          if (permissionMode) msgOptions.permissionMode = permissionMode;
-          if (images && Array.isArray(images)) {
-            msgOptions.images = images as { name: string; dataUrl: string }[];
+          if (typeof model === 'string' && VALID_MODELS.includes(model)) {
+            msgOptions.model = model;
           }
-          if (maxOutputTokens && typeof maxOutputTokens === 'number') {
+          if (typeof permissionMode === 'string' && VALID_PERMISSION_MODES.includes(permissionMode)) {
+            msgOptions.permissionMode = permissionMode;
+          }
+          if (images && Array.isArray(images)) {
+            msgOptions.images = images.filter(
+              (img: unknown): img is { name: string; dataUrl: string } =>
+                typeof img === 'object' && img !== null &&
+                typeof (img as Record<string, unknown>).name === 'string' &&
+                typeof (img as Record<string, unknown>).dataUrl === 'string',
+            );
+          }
+          if (typeof maxOutputTokens === 'number' && maxOutputTokens > 0 && maxOutputTokens <= 128000) {
             msgOptions.maxOutputTokens = maxOutputTokens;
           }
           if (allowedTools && Array.isArray(allowedTools)) {
-            msgOptions.allowedTools = allowedTools as string[];
+            msgOptions.allowedTools = allowedTools.filter((t: unknown): t is string => typeof t === 'string');
           }
           if (disallowedTools && Array.isArray(disallowedTools)) {
-            msgOptions.disallowedTools = disallowedTools as string[];
+            msgOptions.disallowedTools = disallowedTools.filter((t: unknown): t is string => typeof t === 'string');
           }
           sendMessage(session.id, prompt, msgOptions);
         }
@@ -144,7 +189,8 @@ export function setupChatWs(server: Server) {
             // If still streaming, re-wire so remaining events reach this new WS
             if (session && streaming) {
               currentSessionId = sessionId;
-              wireEmitter(ws, session.emitter, sessionId);
+              if (cleanupListeners) cleanupListeners();
+              cleanupListeners = wireEmitter(ws, session.emitter, sessionId);
             }
           }
         }

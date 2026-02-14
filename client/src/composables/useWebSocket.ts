@@ -10,11 +10,16 @@ export function useWebSocket(path: string) {
   let reconnectAttempts = 0;
   let intentionalClose = false;
   let wasConnected = false;
+  let connecting = false;
 
   const MAX_RECONNECT_DELAY = 10_000;
   const BASE_RECONNECT_DELAY = 500;
 
   function connect() {
+    // Guard against overlapping connections
+    if (connecting) return;
+    connecting = true;
+
     // Clean up any previous socket
     if (ws.value) {
       intentionalClose = true;
@@ -31,6 +36,7 @@ export function useWebSocket(path: string) {
     const socket = new WebSocket(url);
 
     socket.onopen = () => {
+      connecting = false;
       connected.value = true;
       if (wasConnected && reconnectAttempts > 0) {
         toast.dismiss('ws-reconnect');
@@ -41,6 +47,7 @@ export function useWebSocket(path: string) {
     };
 
     socket.onclose = () => {
+      connecting = false;
       connected.value = false;
       ws.value = null;
       if (!intentionalClose && wasConnected) {
@@ -55,7 +62,7 @@ export function useWebSocket(path: string) {
     };
 
     socket.onerror = () => {
-      // onerror is always followed by onclose, so reconnect is handled there
+      // onerror is always followed by onclose, which resets connecting flag
     };
 
     socket.onmessage = (event) => {
@@ -70,8 +77,8 @@ export function useWebSocket(path: string) {
         if (allHandlers) {
           allHandlers.forEach(handler => handler(data));
         }
-      } catch {
-        // ignore non-JSON messages
+      } catch (err) {
+        console.warn('[WebSocket] Failed to parse message:', err);
       }
     };
 

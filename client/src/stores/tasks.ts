@@ -187,8 +187,9 @@ export const useTasksStore = defineStore('tasks', () => {
       });
 
       if (!res.ok) throw new Error('Failed to parse PRD');
+      if (!res.body) throw new Error('No response body');
 
-      const reader = res.body!.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let newTasks: Task[] = [];
@@ -208,13 +209,16 @@ export const useTasksStore = defineStore('tasks', () => {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
+              if (data.error) throw new Error(data.error);
               if (data.text && onDelta) onDelta(data.text);
               if (data.tasks) {
                 newTasks = data.tasks;
                 tasks.value.push(...newTasks);
               }
-              if (data.error) throw new Error(data.error);
-            } catch { /* skip */ }
+            } catch (err) {
+              if (err instanceof Error && err.message !== line.slice(6)) throw err;
+              // skip unparseable SSE lines
+            }
           }
         }
       }
@@ -234,8 +238,9 @@ export const useTasksStore = defineStore('tasks', () => {
     });
 
     if (!res.ok) throw new Error('Failed to expand task');
+    if (!res.body) throw new Error('No response body');
 
-    const reader = res.body!.getReader();
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let subtasks: Task[] = [];
@@ -252,14 +257,16 @@ export const useTasksStore = defineStore('tasks', () => {
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6));
+            if (data.error) throw new Error(data.error);
             if (data.text && onDelta) onDelta(data.text);
             if (data.subtasks) {
               subtasks = data.subtasks;
-              // Remove old subtasks, add new ones
               tasks.value = tasks.value.filter(t => t.parentId !== taskId);
               tasks.value.push(...subtasks);
             }
-          } catch { /* skip */ }
+          } catch (err) {
+            if (err instanceof Error && err.message !== line.slice(6)) throw err;
+          }
         }
       }
     }

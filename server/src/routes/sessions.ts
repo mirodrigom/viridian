@@ -280,12 +280,15 @@ router.get('/:id/messages', async (req, res) => {
     }
 
     // Pagination params
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-    const before = req.query.before !== undefined
-      ? parseInt(req.query.before as string)
+    const rawLimit = parseInt(req.query.limit as string);
+    const limit = Math.min(Number.isNaN(rawLimit) ? 50 : rawLimit, 200);
+    const rawBefore = parseInt(req.query.before as string);
+    const before = req.query.before !== undefined && !Number.isNaN(rawBefore)
+      ? rawBefore
       : undefined;
-    const after = req.query.after !== undefined
-      ? parseInt(req.query.after as string)
+    const rawAfter = parseInt(req.query.after as string);
+    const after = req.query.after !== undefined && !Number.isNaN(rawAfter)
+      ? rawAfter
       : undefined;
 
     interface ParsedMessage {
@@ -531,7 +534,7 @@ router.delete('/:id', async (req, res) => {
 
     unlinkSync(filePath);
     // Clean up cache
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch { /* ignore */ }
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch (err) { console.warn('[sessions] Cache cleanup failed:', err); }
     res.json({ success: true });
   } catch (err) {
     console.error('[sessions] Error deleting session:', err);
@@ -567,7 +570,7 @@ router.delete('/project/:dir', async (req, res) => {
     }
 
     // Clean up cache for this project
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch { /* ignore */ }
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch (err) { console.warn('[sessions] Cache cleanup failed:', err); }
 
     // Remove the directory if empty
     try {
@@ -575,7 +578,7 @@ router.delete('/project/:dir', async (req, res) => {
       if (remaining.length === 0) {
         rmSync(dirPath, { recursive: true });
       }
-    } catch { /* ignore cleanup errors */ }
+    } catch (err) { console.warn('[sessions] Dir cleanup failed:', err); }
 
     console.log(`[sessions] Deleted project ${projectDir} (${files.length} sessions)`);
     res.json({ success: true, deleted: files.length });

@@ -76,10 +76,9 @@ export const useChatStore = defineStore('chat', () => {
 
   // Latest TodoWrite todos — extracted from the most recent TodoWrite tool call
   const latestTodos = computed(() => {
-    const todoMessages = messages.value.filter(m => m.toolUse?.tool === 'TodoWrite');
-    if (todoMessages.length === 0) return [];
-    const last = todoMessages[todoMessages.length - 1]!;
-    const todos = last.toolUse!.input.todos;
+    const lastTodoMsg = messages.value.findLast(m => m.toolUse?.tool === 'TodoWrite');
+    if (!lastTodoMsg?.toolUse?.input.todos) return [];
+    const todos = lastTodoMsg.toolUse.input.todos;
     if (!Array.isArray(todos)) return [];
     return todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
   });
@@ -155,6 +154,16 @@ export const useChatStore = defineStore('chat', () => {
         msg.isStreaming = false;
       }
     }
+    // Remove trailing empty assistant messages (e.g. from rate limit errors
+    // where stream_start created the bubble but no text arrived)
+    while (messages.value.length > 0) {
+      const last = messages.value[messages.value.length - 1]!;
+      if (last.role === 'assistant' && !last.content.trim()) {
+        messages.value.pop();
+      } else {
+        break;
+      }
+    }
   }
 
   function updateUsage(data: Partial<TokenUsage>) {
@@ -186,6 +195,7 @@ export const useChatStore = defineStore('chat', () => {
     inPlanMode.value = false;
     planReviewText.value = null;
     isPlanReviewActive.value = false;
+    clearRateLimit();
   }
 
   function setProjectPath(path: string) {

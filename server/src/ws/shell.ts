@@ -55,9 +55,9 @@ export function setupShellWs(server: Server) {
       try {
         const msg = JSON.parse(raw.toString());
 
-        if (msg.type === 'input') {
+        if (msg.type === 'input' && typeof msg.data === 'string') {
           writeTerminal(session.id, msg.data);
-        } else if (msg.type === 'resize') {
+        } else if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
           resizeTerminal(session.id, msg.cols, msg.rows);
         }
       } catch {

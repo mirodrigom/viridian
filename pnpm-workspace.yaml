@@ -1,6 +1,7 @@
 packages:
   - "client"
   - "server"
+  - "docs"
 onlyBuiltDependencies:
   - bcrypt
   - better-sqlite3

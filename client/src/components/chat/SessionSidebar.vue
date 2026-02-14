@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { toast } from 'vue-sonner';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
@@ -130,10 +131,14 @@ async function deleteSession() {
   if (!session) return;
   isDeleting.value = true;
   try {
-    await fetch(`/api/sessions/${session.id}?projectDir=${encodeURIComponent(session.projectDir)}`, {
+    const res = await fetch(`/api/sessions/${session.id}?projectDir=${encodeURIComponent(session.projectDir)}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${auth.token}` },
     });
+    if (!res.ok) {
+      toast.error('Failed to delete session');
+      return;
+    }
     sessions.value = sessions.value.filter(s => s.id !== session.id);
     if (chat.sessionId === session.id) {
       chat.clearMessages();
@@ -141,7 +146,8 @@ async function deleteSession() {
     }
     deleteDialogOpen.value = false;
   } catch (err) {
-    console.error('Failed to delete session:', err);
+    console.warn('[SessionSidebar] deleteSession failed:', err);
+    toast.error('Failed to delete session');
   } finally {
     isDeleting.value = false;
   }
@@ -238,7 +244,6 @@ function connectSessionsWs() {
 
         if (changed && changed.eventType === 'change') {
           const match = changed.sessionId === chat.sessionId && changed.projectDir === chat.activeProjectDir;
-          console.log('[live-update] WS change:', changed.sessionId, 'vs', chat.sessionId, '| dir:', changed.projectDir, 'vs', chat.activeProjectDir, '| streaming:', chat.isStreaming, '| match:', match);
           if (match && !chat.isStreaming) {
             fetchNewMessages(changed.projectDir);
           }

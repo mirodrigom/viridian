@@ -25,19 +25,20 @@ function runMigrations(db: Database.Database) {
     );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id),
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       project_path TEXT NOT NULL,
       claude_session_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS api_keys (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER REFERENCES users(id),
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       key_prefix TEXT NOT NULL,
       key_hash TEXT NOT NULL,
@@ -45,6 +46,8 @@ function runMigrations(db: Database.Database) {
       last_used_at DATETIME,
       revoked INTEGER DEFAULT 0
     );
+    CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -75,6 +78,25 @@ function runMigrations(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_graphs_user_project ON graphs(user_id, project_path);
 
+    CREATE TABLE IF NOT EXISTS graph_runs (
+      id TEXT PRIMARY KEY,
+      graph_id TEXT REFERENCES graphs(id) ON DELETE SET NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      status TEXT DEFAULT 'running',
+      final_output TEXT,
+      error TEXT,
+      timeline TEXT DEFAULT '[]',
+      executions TEXT DEFAULT '{}',
+      total_input_tokens INTEGER DEFAULT 0,
+      total_output_tokens INTEGER DEFAULT 0,
+      started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_runs_graph ON graph_runs(graph_id);
+    CREATE INDEX IF NOT EXISTS idx_graph_runs_user_project ON graph_runs(user_id, project_path);
+
     CREATE TABLE IF NOT EXISTS session_cache (
       id TEXT NOT NULL,
       project_dir TEXT NOT NULL,
@@ -101,6 +123,7 @@ function runMigrations(db: Database.Database) {
       is_builtin INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_profiles_user ON autopilot_profiles(user_id);
 
     CREATE TABLE IF NOT EXISTS autopilot_configs (
       id TEXT PRIMARY KEY,

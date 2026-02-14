@@ -247,28 +247,11 @@ function wireRunPersistence(
     addTimeline('node_failed', e.nodeId, exec?.nodeLabel ?? e.nodeId, `Failed: ${e.error}`);
   });
 
-  on('node_error', (d: unknown) => {
-    const e = d as { nodeId: string; error: string };
-    const exec = executions[e.nodeId];
-    if (exec) {
-      exec.status = 'failed';
-      exec.error = e.error;
-      exec.completedAt = Date.now();
-    }
-    addTimeline('node_failed', e.nodeId, exec?.nodeLabel ?? e.nodeId, `Error: ${e.error}`);
-  });
-
   on('node_skipped', (d: unknown) => {
     const e = d as { nodeId: string; reason: string };
     const exec = executions[e.nodeId];
     if (exec) { exec.status = 'completed'; exec.completedAt = Date.now(); }
     addTimeline('node_skipped', e.nodeId, exec?.nodeLabel ?? e.nodeId, `Skipped: ${e.reason}`);
-  });
-
-  on('node_phase', (d: unknown) => {
-    const e = d as { nodeId: string; phase: string };
-    const exec = executions[e.nodeId];
-    addTimeline('node_phase', e.nodeId, exec?.nodeLabel ?? e.nodeId, `Phase: ${e.phase}`);
   });
 
   on('delegation', (d: unknown) => {
@@ -348,9 +331,6 @@ function wireRunEvents(ws: WebSocket, ctx: RunContext): () => void {
   on('result_return', (d: unknown) => { safeSend(ws, { type: 'result_return', ...(d as object) }); });
   on('node_delegated', (d: unknown) => { safeSend(ws, { type: 'node_delegated', ...(d as object) }); });
   on('node_skipped', (d: unknown) => { safeSend(ws, { type: 'node_skipped', ...(d as object) }); });
-  on('node_phase', (d: unknown) => { safeSend(ws, { type: 'node_phase', ...(d as object) }); });
-  on('budget_warning', (d: unknown) => { safeSend(ws, { type: 'budget_warning', ...(d as object) }); });
-  on('budget_exceeded', (d: unknown) => { safeSend(ws, { type: 'budget_exceeded', ...(d as object) }); });
   on('run_completed', (d: unknown) => { safeSend(ws, { type: 'run_completed', ...(d as object) }); });
   on('run_failed', (d: unknown) => { safeSend(ws, { type: 'run_failed', ...(d as object) }); });
   on('run_aborted', (d: unknown) => { safeSend(ws, { type: 'run_aborted', ...(d as object) }); });

@@ -56,6 +56,10 @@ export const useGitStore = defineStore('git', () => {
       const res = await fetch(`/api/git/status?cwd=${encodeURIComponent(cwd())}`, {
         headers: authHeaders(),
       });
+      if (!res.ok) {
+        toast.error('Failed to fetch git status');
+        return;
+      }
       const data = await res.json();
       branch.value = data.current || '';
       staged.value = (data.files || [])
@@ -63,6 +67,8 @@ export const useGitStore = defineStore('git', () => {
         .map((f: GitFileStatus) => ({ path: f.path, index: f.index, working_dir: f.working_dir }));
       modified.value = data.modified?.map((p: string) => ({ path: p, index: ' ', working_dir: 'M' })) || [];
       untracked.value = data.not_added || [];
+    } catch {
+      toast.error('Failed to fetch git status');
     } finally {
       loading.value = false;
     }
@@ -76,6 +82,7 @@ export const useGitStore = defineStore('git', () => {
       const res = await fetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
         headers: authHeaders(),
       });
+      if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
       diff.value = data.diff || '';
     } catch {
@@ -91,6 +98,7 @@ export const useGitStore = defineStore('git', () => {
         `/api/git/file-diff?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
         { headers: authHeaders() },
       );
+      if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
       diff.value = data.diff || '';
     } catch {
@@ -102,11 +110,12 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/stage', {
+      const res = await fetch('/api/git/stage', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd(), files }),
       });
+      if (!res.ok) throw new Error('HTTP error');
       await fetchStatus();
     } catch {
       toast.error('Failed to stage files');
@@ -119,11 +128,12 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/unstage', {
+      const res = await fetch('/api/git/unstage', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd(), files }),
       });
+      if (!res.ok) throw new Error('HTTP error');
       await fetchStatus();
     } catch {
       toast.error('Failed to unstage files');
@@ -136,16 +146,20 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd() || !commitMessage.value.trim()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/commit', {
+      const res = await fetch('/api/git/commit', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd(), message: commitMessage.value }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || 'Commit failed');
+      }
       commitMessage.value = '';
       await fetchStatus();
       diff.value = '';
-    } catch {
-      toast.error('Failed to commit');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to commit');
     } finally {
       operationLoading.value = false;
     }
@@ -155,11 +169,12 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/discard', {
+      const res = await fetch('/api/git/discard', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ cwd: cwd(), file: filePath }),
       });
+      if (!res.ok) throw new Error('HTTP error');
       await fetchStatus();
     } catch {
       toast.error('Failed to discard changes');
@@ -174,6 +189,7 @@ export const useGitStore = defineStore('git', () => {
       const res = await fetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
         headers: authHeaders(),
       });
+      if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
       log.value = data.all || [];
     } catch {
@@ -187,11 +203,12 @@ export const useGitStore = defineStore('git', () => {
       const res = await fetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
         headers: authHeaders(),
       });
+      if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
-      branches.value = Object.values(data.branches || {}).map((b: any) => ({
-        name: b.name,
-        current: b.current,
-      }));
+      branches.value = Object.values(data.branches || {}).map((b: unknown) => {
+        const branch = b as { name: string; current: boolean };
+        return { name: branch.name, current: branch.current };
+      });
     } catch {
       toast.error('Failed to fetch branches');
     }
@@ -354,6 +371,7 @@ export const useGitStore = defineStore('git', () => {
         `/api/git/show?cwd=${encodeURIComponent(cwd())}&hash=${encodeURIComponent(hash)}`,
         { headers: authHeaders() },
       );
+      if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
       diff.value = data.show || '';
       selectedFile.value = null;

@@ -18,6 +18,7 @@ import {
 } from '../services/autopilot.js';
 import { getProfile } from '../services/autopilot-profiles.js';
 import { getDb } from '../db/database.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 
 export function setupAutopilotWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -151,7 +152,7 @@ export function setupAutopilotWs(server: Server) {
             agentBProfileId: row.agent_b_profile as string,
             agentAModel: row.agent_a_model as string,
             agentBModel: row.agent_b_model as string,
-            allowedPaths: JSON.parse((row.allowed_paths as string) || '[]'),
+            allowedPaths: safeJsonParse<string[]>(row.allowed_paths as string, []),
             maxIterations: row.max_iterations as number,
             maxTokensPerSession: row.max_tokens_per_session as number,
           };

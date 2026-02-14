@@ -4,6 +4,7 @@
 
 import { getDb } from '../db/database.js';
 import { v4 as uuid } from 'uuid';
+import { safeJsonParse } from '../lib/safeJson.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -1399,15 +1400,15 @@ function rowToProfile(row: Record<string, unknown>): AutopilotProfile {
     role: row.role as string,
     description: row.description as string,
     systemPrompt: row.system_prompt as string,
-    allowedTools: JSON.parse((row.allowed_tools as string) || '[]'),
-    disallowedTools: JSON.parse((row.disallowed_tools as string) || '[]'),
+    allowedTools: safeJsonParse<string[]>(row.allowed_tools as string, []),
+    disallowedTools: safeJsonParse<string[]>(row.disallowed_tools as string, []),
     model: row.model as string | null,
     isBuiltin: (row.is_builtin as number) === 1,
     createdAt: row.created_at as string,
     category: (row.category as string) || 'general',
-    tags: JSON.parse((row.tags as string) || '[]'),
-    subagents: JSON.parse((row.subagents as string) || '[]'),
-    mcpServers: JSON.parse((row.mcp_servers as string) || '[]'),
+    tags: safeJsonParse<string[]>(row.tags as string, []),
+    subagents: safeJsonParse<unknown[]>(row.subagents as string, []),
+    mcpServers: safeJsonParse<unknown[]>(row.mcp_servers as string, []),
     appendSystemPrompt: (row.append_system_prompt as string) || null,
     maxTurns: (row.max_turns as number) || null,
     permissionMode: (row.permission_mode as string) || null,

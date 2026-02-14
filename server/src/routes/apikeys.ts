@@ -56,15 +56,21 @@ router.delete('/:id', (req, res) => {
   const { id } = req.params;
   const db = getDb();
 
+  const numId = Number(id);
+  if (Number.isNaN(numId)) {
+    res.status(400).json({ error: 'Invalid key ID' });
+    return;
+  }
+
   const key = db.prepare('SELECT id FROM api_keys WHERE id = ? AND user_id = ?').get(
-    Number(id), authReq.user!.id,
+    numId, authReq.user!.id,
   );
   if (!key) {
     res.status(404).json({ error: 'Key not found' });
     return;
   }
 
-  db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(Number(id));
+  db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(numId);
   res.json({ ok: true });
 });
 

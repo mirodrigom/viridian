@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -19,7 +20,7 @@ interface GraphRow {
 }
 
 function rowToGraph(row: GraphRow) {
-  const graphData = JSON.parse(row.graph_data || '{}');
+  const graphData = safeJsonParse<Record<string, unknown>>(row.graph_data, {});
   return {
     id: row.id,
     name: row.name,
@@ -258,6 +259,12 @@ router.post('/generate-prompt', async (req: AuthRequest, res) => {
     const abortController = new AbortController();
     res.on('close', () => abortController.abort());
 
+    const timeout = setTimeout(() => {
+      abortController.abort();
+      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+      res.end();
+    }, 5 * 60_000);
+
     for await (const msg of claudeQuery({
       prompt,
       cwd: process.cwd(),
@@ -271,9 +278,11 @@ router.post('/generate-prompt', async (req: AuthRequest, res) => {
         res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
       }
     }
+    clearTimeout(timeout);
     res.write(`event: done\ndata: {}\n\n`);
     res.end();
   } catch (err) {
+    clearTimeout(timeout);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to generate prompt' });
     } else {

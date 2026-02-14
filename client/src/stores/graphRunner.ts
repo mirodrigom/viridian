@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from '@/stores/auth';
+import { useGraphStore } from '@/stores/graph';
+import { createStoreWebSocket } from '@/lib/storeWebSocket';
 import type {
-  GraphRun, NodeExecution,
+  GraphRun, GraphRunSummary, NodeExecution,
   TimelineEntry, TimelineEntryMeta, EdgeFlowState,
-  NodeExecStatus,
+  NodeExecStatus, RunStatus,
 } from '@/types/graph-runner';
 
 export const useGraphRunnerStore = defineStore('graphRunner', () => {
@@ -20,100 +23,12 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   const playbackPlaying = ref(false);
   const playbackSpeed = ref(1);
 
+  // ─── Run History State ───────────────────────────────────────────────
+  const runHistory = ref<GraphRunSummary[]>([]);
+  const loadingHistory = ref(false);
+
   // ─── WebSocket (lives in store so it persists across tab switches) ─
-  let ws: WebSocket | null = null;
-  const wsConnected = ref(false);
-  const handlers = new Map<string, Set<(data: unknown) => void>>();
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let reconnectAttempts = 0;
-  let intentionalClose = false;
-
-  const MAX_RECONNECT_DELAY = 10_000;
-  const BASE_RECONNECT_DELAY = 500;
-
-  function wsConnect() {
-    if (ws) {
-      intentionalClose = true;
-      ws.close();
-      ws = null;
-    }
-    intentionalClose = false;
-
-    const auth = useAuthStore();
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const url = `${protocol}//${host}/ws/graph-runner?token=${auth.token}`;
-
-    const socket = new WebSocket(url);
-
-    socket.onopen = () => {
-      wsConnected.value = true;
-      reconnectAttempts = 0;
-    };
-
-    socket.onclose = () => {
-      wsConnected.value = false;
-      ws = null;
-      if (!intentionalClose) {
-        scheduleReconnect();
-      }
-    };
-
-    socket.onerror = () => {
-      // onerror is always followed by onclose
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const type = data.type as string;
-        const typeHandlers = handlers.get(type);
-        if (typeHandlers) {
-          typeHandlers.forEach(handler => handler(data));
-        }
-      } catch {
-        // ignore non-JSON
-      }
-    };
-
-    ws = socket;
-  }
-
-  function scheduleReconnect() {
-    if (reconnectTimer) return;
-    const delay = Math.min(BASE_RECONNECT_DELAY * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
-    reconnectAttempts++;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      wsConnect();
-    }, delay);
-  }
-
-  function wsSend(data: Record<string, unknown>): boolean {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
-      return true;
-    }
-    return false;
-  }
-
-  function wsOn(type: string, handler: (data: unknown) => void) {
-    if (!handlers.has(type)) {
-      handlers.set(type, new Set());
-    }
-    handlers.get(type)!.add(handler);
-  }
-
-  function wsDisconnect() {
-    intentionalClose = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    ws?.close();
-    ws = null;
-    wsConnected.value = false;
-  }
+  const { connected: wsConnected, connect: wsConnect, disconnect: wsDisconnect, send: wsSend, on: wsOn } = createStoreWebSocket('/ws/graph-runner');
 
   // ─── Computed: Playback time bounds ────────────────────────────────
   const isRunning = computed(() => currentRun.value?.status === 'running');
@@ -242,6 +157,9 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     return currentRun.value.executions[selectedNodeId.value] ?? null;
   });
 
+  // ─── Edge Flow Timers (tracked for cleanup) ─────────────────────
+  const edgeFlowTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   // ─── Computed: Playback-aware edge flows ──────────────────────────
   const EDGE_FLOW_WINDOW = 1500;
 
@@ -272,9 +190,11 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     playbackMode.value = false;
     playbackPlaying.value = false;
 
+    const graph = useGraphStore();
+
     currentRun.value = {
       runId: data.runId,
-      graphId: null,
+      graphId: graph.currentGraphId ?? null,
       status: 'running',
       rootNodeId: data.rootNodeId,
       executions: {},
@@ -489,11 +409,13 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     const edgeId = `e-${data.parentNodeId}-${data.childNodeId}`;
     const startedAt = Date.now();
     activeEdgeFlows.value[edgeId] = { direction: 'forward', type: 'delegation', startedAt };
-    setTimeout(() => {
+    if (edgeFlowTimers.has(edgeId)) clearTimeout(edgeFlowTimers.get(edgeId)!);
+    edgeFlowTimers.set(edgeId, setTimeout(() => {
+      edgeFlowTimers.delete(edgeId);
       if (activeEdgeFlows.value[edgeId]?.startedAt === startedAt) {
         delete activeEdgeFlows.value[edgeId];
       }
-    }, 1500);
+    }, 1500));
   }
 
   function onResultReturn(data: { parentNodeId: string; childNodeId: string; childLabel: string; result: string }) {
@@ -507,11 +429,13 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     const edgeId = `e-${data.parentNodeId}-${data.childNodeId}`;
     const startedAt = Date.now();
     activeEdgeFlows.value[edgeId] = { direction: 'reverse', type: 'result_return', startedAt };
-    setTimeout(() => {
+    if (edgeFlowTimers.has(edgeId)) clearTimeout(edgeFlowTimers.get(edgeId)!);
+    edgeFlowTimers.set(edgeId, setTimeout(() => {
+      edgeFlowTimers.delete(edgeId);
       if (activeEdgeFlows.value[edgeId]?.startedAt === startedAt) {
         delete activeEdgeFlows.value[edgeId];
       }
-    }, 1500);
+    }, 1500));
   }
 
   // ─── Actions: Run Completion ──────────────────────────────────────
@@ -572,6 +496,76 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     playbackSpeed.value = speed;
   }
 
+  // ─── Run History Actions ─────────────────────────────────────────
+
+  async function fetchRunHistory(graphId: string) {
+    const auth = useAuthStore();
+    loadingHistory.value = true;
+    try {
+      const res = await fetch(`/api/graph-runs?graphId=${encodeURIComponent(graphId)}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) throw new Error('Failed to fetch run history');
+      const data = await res.json();
+      runHistory.value = data.runs;
+    } finally {
+      loadingHistory.value = false;
+    }
+  }
+
+  async function loadRun(runId: string) {
+    const auth = useAuthStore();
+    const res = await fetch(`/api/graph-runs/${runId}`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    });
+    if (!res.ok) throw new Error('Failed to load run');
+    const data = await res.json();
+
+    const startedMs = new Date(data.startedAt).getTime();
+    const completedMs = data.completedAt ? new Date(data.completedAt).getTime() : null;
+
+    // Add isThinking: false to each execution (not persisted but needed by UI)
+    const executions: Record<string, NodeExecution> = {};
+    for (const [id, exec] of Object.entries(data.executions as Record<string, Omit<NodeExecution, 'isThinking'>>)) {
+      executions[id] = { ...exec, isThinking: false };
+    }
+
+    currentRun.value = {
+      runId: data.id,
+      graphId: data.graphId,
+      status: data.status as RunStatus,
+      rootNodeId: Object.values(executions).find(e => !e.parentExecutionId)?.nodeId ?? null,
+      executions,
+      timeline: data.timeline,
+      startedAt: startedMs,
+      completedAt: completedMs,
+      finalOutput: data.finalOutput,
+    };
+
+    showRunnerPanel.value = true;
+    enterPlayback();
+    // Jump to end so user sees complete state, can scrub back
+    setPlaybackTime(completedMs ?? startedMs);
+  }
+
+  async function deleteRun(runId: string) {
+    const auth = useAuthStore();
+    try {
+      const res = await fetch(`/api/graph-runs/${runId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) {
+        toast.error('Failed to delete run');
+        return;
+      }
+      runHistory.value = runHistory.value.filter(r => r.id !== runId);
+    } catch (err) {
+      console.warn('[graphRunner] deleteRun failed:', err);
+      toast.error('Failed to delete run');
+    }
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────
 
   function addTimeline(type: TimelineEntry['type'], nodeId: string, nodeLabel: string, detail: string, meta?: TimelineEntryMeta) {
@@ -601,6 +595,9 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     playbackMode.value = false;
     playbackPlaying.value = false;
     playbackTimeMs.value = 0;
+    // Clean up edge flow timers
+    for (const timer of edgeFlowTimers.values()) clearTimeout(timer);
+    edgeFlowTimers.clear();
   }
 
   return {
@@ -608,6 +605,8 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun, showRunnerPanel, selectedNodeId, wsConnected, activeEdgeFlows,
     // Playback state
     playbackMode, playbackTimeMs, playbackPlaying, playbackSpeed,
+    // Run history state
+    runHistory, loadingHistory,
     // Computed
     isRunning, activeNodeIds, completedNodeIds, failedNodeIds, delegatedNodeIds,
     timeline, selectedExecution,
@@ -619,6 +618,8 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,
     selectExecution, togglePanel, reset, nodeExecStatus,
+    // Run history actions
+    fetchRunHistory, loadRun, deleteRun,
     // Playback actions
     enterPlayback, exitPlayback, setPlaybackTime, setPlaybackRatio,
     togglePlayPause, setPlaybackSpeed,

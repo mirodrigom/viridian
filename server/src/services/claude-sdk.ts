@@ -16,7 +16,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { v4 as uuid } from 'uuid';
 
-const DEBUG_LOG = '/tmp/graph-runner-debug.log';
+const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
 function debugLog(msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   const line = `[${ts}] ${msg}\n`;
@@ -220,6 +220,7 @@ interface BlockState {
   claudeSessionId?: string;
   currentParentToolUseId: string | null; // tracks which agent (parent/sub) owns current events
   emittedToolUseIds: Set<string>; // deduplicate tool_use events (--include-partial-messages can re-emit)
+  hasEmittedText: boolean; // track whether any text was emitted (for empty-response error detection)
 }
 
 // ─── Core query function — returns AsyncGenerator ───────────────────────────
@@ -367,6 +368,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     currentToolName: null,
     currentParentToolUseId: null,
     emittedToolUseIds: new Set(),
+    hasEmittedText: false,
   };
 
   let buffer = '';
@@ -404,7 +406,10 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   proc.stderr!.on('data', (chunk: Buffer) => {
     const text = chunk.toString().trim();
     if (!text) return;
-    if (text.includes('Error') || text.includes('error') || text.includes('ENOENT')) {
+    if (
+      text.includes('Error') || text.includes('error') || text.includes('ENOENT') ||
+      /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(text)
+    ) {
       push({ type: 'error', error: text });
     }
   });
@@ -426,6 +431,12 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     // Clean up temp images
     if (imageTempDir) {
       try { rmSync(imageTempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
+    // If CLI exited with error code and no text was produced, emit a fallback error
+    // so the frontend doesn't show an empty message bubble
+    if (code && code !== 0 && !state.hasEmittedText) {
+      push({ type: 'error', error: `Claude exited unexpectedly (exit code ${code}). You may have hit your usage limit.` });
     }
 
     push({
@@ -653,6 +664,7 @@ function processStreamEvent(state: BlockState, event: Record<string, unknown>): 
     if (delta.type === 'thinking_delta' && delta.thinking) {
       messages.push({ type: 'thinking_delta', text: decodeUnicodeEscapes(delta.thinking as string), parentToolUseId: ptui });
     } else if (delta.type === 'text_delta' && delta.text) {
+      state.hasEmittedText = true;
       messages.push({ type: 'text_delta', text: decodeUnicodeEscapes(delta.text as string), parentToolUseId: ptui });
     } else if (delta.type === 'input_json_delta' && delta.partial_json) {
       state.currentToolInputJson += delta.partial_json as string;

@@ -34,9 +34,16 @@ let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Draft persistence - save/restore typed text per session
 const DRAFT_KEY = 'chat-draft';
+function getDrafts(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
 function saveDraft() {
   const key = chat.sessionId || '_new';
-  const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+  const drafts = getDrafts();
   if (input.value.trim()) {
     drafts[key] = input.value;
   } else {
@@ -46,7 +53,7 @@ function saveDraft() {
 }
 function loadDraft() {
   const key = chat.sessionId || '_new';
-  const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+  const drafts = getDrafts();
   input.value = drafts[key] || '';
   nextTick(() => autoResize());
 }
@@ -307,7 +314,7 @@ function executeCommand(cmd: SlashCommand) {
   // otherwise the command text (e.g. "/clear") gets persisted and
   // reappears when navigating back to this session.
   const key = chat.sessionId || '_new';
-  const drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+  const drafts = getDrafts();
   delete drafts[key];
   localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
   cmd.action();

@@ -119,11 +119,17 @@ export async function getDirectoryChildren(rootPath: string, relativePath: strin
   }
 }
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
 export async function getFileContent(rootPath: string, filePath: string): Promise<string> {
   const fullPath = join(rootPath, filePath);
   // Security: ensure the path doesn't escape the root
   if (!fullPath.startsWith(rootPath)) {
     throw new Error('Access denied: path traversal detected');
+  }
+  const stats = await stat(fullPath);
+  if (stats.size > MAX_FILE_SIZE) {
+    throw new Error(`File too large: ${(stats.size / 1024 / 1024).toFixed(1)} MB exceeds 10 MB limit`);
   }
   return readFile(fullPath, 'utf-8');
 }

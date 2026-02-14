@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { unlinkSync } from 'fs';
 import { join } from 'path';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 
@@ -51,7 +52,7 @@ function rowToTask(row: TaskRow) {
     status: row.status,
     priority: row.priority,
     parentId: row.parent_id,
-    dependencyIds: JSON.parse(row.dependency_ids || '[]') as string[],
+    dependencyIds: safeJsonParse<string[]>(row.dependency_ids, []),
     prdSource: row.prd_source,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
@@ -197,8 +198,8 @@ router.delete('/:id', (req: AuthRequest, res) => {
 // POST /reorder — reorder tasks
 router.post('/reorder', (req: AuthRequest, res) => {
   const { taskIds } = req.body;
-  if (!Array.isArray(taskIds)) {
-    res.status(400).json({ error: 'taskIds array required' });
+  if (!Array.isArray(taskIds) || !taskIds.every((id: unknown) => typeof id === 'string')) {
+    res.status(400).json({ error: 'taskIds must be an array of strings' });
     return;
   }
   const db = getDb();
@@ -249,6 +250,12 @@ ${prd}`;
   let claudeSessionId: string | undefined;
 
   res.on('close', () => abortController.abort());
+
+  const timeout = setTimeout(() => {
+    abortController.abort();
+    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+    res.end();
+  }, 5 * 60_000);
 
   (async () => {
     try {
@@ -344,10 +351,12 @@ ${prd}`;
       ).all(...allIds) as TaskRow[];
       const savedTasks = allRows.map(rowToTask);
 
+      clearTimeout(timeout);
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
       res.end();
       cleanupClaudeSession(claudeSessionId, project);
     } catch (err) {
+      clearTimeout(timeout);
       const msg = err instanceof Error ? err.message : 'PRD parsing failed';
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();
@@ -386,6 +395,12 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
   let claudeSessionId: string | undefined;
 
   res.on('close', () => abortController.abort());
+
+  const expandTimeout = setTimeout(() => {
+    abortController.abort();
+    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+    res.end();
+  }, 5 * 60_000);
 
   (async () => {
     try {
@@ -438,10 +453,12 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
         .all(task.id, userId) as TaskRow[];
       for (const row of rows) saved.push(rowToTask(row));
 
+      clearTimeout(expandTimeout);
       res.write(`event: done\ndata: ${JSON.stringify({ subtasks: saved })}\n\n`);
       res.end();
       cleanupClaudeSession(claudeSessionId, task.project_path);
     } catch (err) {
+      clearTimeout(expandTimeout);
       const msg = err instanceof Error ? err.message : 'Task expansion failed';
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();

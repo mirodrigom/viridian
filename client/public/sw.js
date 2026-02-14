@@ -20,10 +20,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 
-  // Skip WebSocket, API, and non-GET requests
+  // Skip WebSocket, API, Vite dev, and non-GET requests
   if (
     request.url.includes('/ws/') ||
     request.url.includes('/api/') ||
+    request.url.includes('/@vite/') ||
+    request.url.includes('/@fs/') ||
+    request.url.includes('/src/') ||
+    request.url.includes('node_modules') ||
     request.method !== 'GET'
   ) {
     return;
@@ -32,11 +36,15 @@ self.addEventListener('fetch', (event) => {
   // Network-first for HTML, cache-first for assets
   if (request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
-      fetch(request).catch(() => caches.match(request))
+      fetch(request)
+        .catch(() => caches.match(request))
+        .then((r) => r || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/html' } }))
     );
   } else {
     event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request))
+      caches.match(request)
+        .then((cached) => cached || fetch(request))
+        .catch(() => new Response('', { status: 503 }))
     );
   }
 });

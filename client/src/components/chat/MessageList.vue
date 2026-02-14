@@ -329,12 +329,28 @@ watch(() => chat.contentVersion, () => {
 });
 
 // Attach scroll listener
+let activeViewport: HTMLElement | null = null;
 watch(scrollContainer, (el) => {
+  // Clean up previous listener
+  if (activeViewport) {
+    activeViewport.removeEventListener('scroll', handleScroll);
+    activeViewport = null;
+  }
   if (el) {
     nextTick(() => {
       const viewport = getViewport();
-      viewport?.addEventListener('scroll', handleScroll);
+      if (viewport) {
+        viewport.addEventListener('scroll', handleScroll);
+        activeViewport = viewport;
+      }
     });
+  }
+});
+
+onUnmounted(() => {
+  if (activeViewport) {
+    activeViewport.removeEventListener('scroll', handleScroll);
+    activeViewport = null;
   }
 });
 </script>

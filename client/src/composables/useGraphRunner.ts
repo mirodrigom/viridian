@@ -120,6 +120,7 @@ export function useGraphRunner() {
       graphData,
       prompt,
       cwd,
+      graphId: graph.currentGraphId,
     });
     if (!sent) {
       toast.error('Graph runner not connected. Reconnecting...', { duration: 4000 });

@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from '@/stores/auth';
+import { createStoreWebSocket } from '@/lib/storeWebSocket';
 import type {
   AutopilotRun,
   AutopilotCycle,
@@ -26,92 +28,18 @@ export const useAutopilotStore = defineStore('autopilot', () => {
   const isLoadingRun = ref(false);
 
   // ─── WebSocket (persists across tab switches) ─────────────────────
-  let ws: WebSocket | null = null;
-  const wsConnected = ref(false);
-  const handlers = new Map<string, Set<(data: unknown) => void>>();
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let reconnectAttempts = 0;
-  let intentionalClose = false;
-
-  const MAX_RECONNECT_DELAY = 10_000;
-  const BASE_RECONNECT_DELAY = 500;
+  const { connected: wsConnected, connect: wsConnectBase, disconnect: wsDisconnect, send: wsSend, on: wsOn } = createStoreWebSocket('/ws/autopilot');
 
   function wsConnect() {
-    if (ws) {
-      intentionalClose = true;
-      ws.close();
-      ws = null;
+    wsConnectBase();
+    // Re-wire to active run after reconnect so events (e.g. Agent B deltas) keep flowing
+    // Use wsOn to listen for the 'open' equivalent — handled by sending get_run_state on connect
+    if (currentRun.value && ['running', 'paused', 'rate_limited'].includes(currentRun.value.status)) {
+      // Small delay to ensure socket is open
+      setTimeout(() => {
+        wsSend({ type: 'get_run_state', runId: currentRun.value?.runId });
+      }, 100);
     }
-    intentionalClose = false;
-
-    const auth = useAuthStore();
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const url = `${protocol}//${host}/ws/autopilot?token=${auth.token}`;
-
-    const socket = new WebSocket(url);
-
-    socket.onopen = () => {
-      wsConnected.value = true;
-      reconnectAttempts = 0;
-
-      // Re-wire to active run after reconnect so events (e.g. Agent B deltas) keep flowing
-      if (currentRun.value && ['running', 'paused', 'rate_limited'].includes(currentRun.value.status)) {
-        socket.send(JSON.stringify({ type: 'get_run_state', runId: currentRun.value.runId }));
-      }
-    };
-
-    socket.onclose = () => {
-      wsConnected.value = false;
-      ws = null;
-      if (!intentionalClose) scheduleReconnect();
-    };
-
-    socket.onerror = () => {};
-
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const type = data.type as string;
-        const typeHandlers = handlers.get(type);
-        if (typeHandlers) {
-          typeHandlers.forEach((handler) => handler(data));
-        }
-      } catch { /* ignore */ }
-    };
-
-    ws = socket;
-  }
-
-  function scheduleReconnect() {
-    if (reconnectTimer) return;
-    const delay = Math.min(BASE_RECONNECT_DELAY * 2 ** reconnectAttempts, MAX_RECONNECT_DELAY);
-    reconnectAttempts++;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      wsConnect();
-    }, delay);
-  }
-
-  function wsSend(data: Record<string, unknown>): boolean {
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(data));
-      return true;
-    }
-    return false;
-  }
-
-  function wsOn(type: string, handler: (data: unknown) => void) {
-    if (!handlers.has(type)) handlers.set(type, new Set());
-    handlers.get(type)!.add(handler);
-  }
-
-  function wsDisconnect() {
-    intentionalClose = true;
-    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-    ws?.close();
-    ws = null;
-    wsConnected.value = false;
   }
 
   // ─── Computed ─────────────────────────────────────────────────────
@@ -210,47 +138,62 @@ export const useAutopilotStore = defineStore('autopilot', () => {
   const auth = useAuthStore();
 
   async function fetchProfiles() {
-    const res = await fetch('/api/autopilot/profiles', {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch('/api/autopilot/profiles', {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) return;
       const data = await res.json();
       profiles.value = data.profiles;
+    } catch (err) {
+      console.warn('[autopilot] fetchProfiles failed:', err);
+      toast.error('Failed to load profiles');
     }
   }
 
   async function fetchConfigs(project: string) {
-    const res = await fetch(`/api/autopilot/configs?project=${encodeURIComponent(project)}`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/autopilot/configs?project=${encodeURIComponent(project)}`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) return;
       const data = await res.json();
       configs.value = data.configs;
+    } catch (err) {
+      console.warn('[autopilot] fetchConfigs failed:', err);
+      toast.error('Failed to load configs');
     }
   }
 
   async function fetchRuns(project?: string) {
-    const url = project
-      ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=20`
-      : '/api/autopilot/runs?limit=20';
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
-    if (res.ok) {
+    try {
+      const url = project
+        ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=20`
+        : '/api/autopilot/runs?limit=20';
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) return [];
       return (await res.json()).runs;
+    } catch (err) {
+      console.warn('[autopilot] fetchRuns failed:', err);
+      return [];
     }
-    return [];
   }
 
   async function fetchRunHistory(project?: string) {
-    const url = project
-      ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=50`
-      : '/api/autopilot/runs?limit=50';
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
-    if (res.ok) {
+    try {
+      const url = project
+        ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=50`
+        : '/api/autopilot/runs?limit=50';
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) return;
       runs.value = (await res.json()).runs as AutopilotRunSummary[];
+    } catch (err) {
+      console.warn('[autopilot] fetchRunHistory failed:', err);
+      toast.error('Failed to load run history');
     }
   }
 

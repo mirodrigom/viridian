@@ -15,6 +15,7 @@ let fitAddon: FitAddon | null = null;
 let ws: WebSocket | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let authDismissTimer: ReturnType<typeof setTimeout> | null = null;
+let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
 
 // Patterns that indicate an auth/login URL
 const AUTH_URL_PATTERN = /https?:\/\/[^\s"'<>]+(?:\/(?:auth|login|oauth|authorize|device|callback|verify|confirm|activate)[^\s"'<>]*|[?&](?:code|token|state)=[^\s"'<>]*)/i;
@@ -135,14 +136,16 @@ onMounted(() => {
   });
 
   // Right-click paste
-  terminalRef.value.addEventListener('contextmenu', (e: MouseEvent) => {
+  const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     navigator.clipboard.readText().then((text) => {
       if (text && ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data: text }));
       }
     });
-  });
+  };
+  terminalRef.value.addEventListener('contextmenu', handleContextMenu);
+  contextMenuHandler = handleContextMenu;
 
   terminal.onData((data) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -161,6 +164,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (contextMenuHandler && terminalRef.value) {
+    terminalRef.value.removeEventListener('contextmenu', contextMenuHandler);
+  }
   resizeObserver?.disconnect();
   ws?.close();
   terminal?.dispose();

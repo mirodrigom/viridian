@@ -320,7 +320,7 @@ export function useClaudeStream() {
       // Detect rate limit messages and extract reset time
       // Examples: "resets Feb 13, 12pm", "resets Feb 13, 3:30pm", "resets Feb 13, 12am"
       const rateLimitMatch = d.error.match(/resets?\s+(\w+\s+\d{1,2},?\s+\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
-      if (rateLimitMatch || /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit/i.test(d.error)) {
+      if (rateLimitMatch || /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(d.error)) {
         const resetTime = rateLimitMatch ? parseResetTime(rateLimitMatch[1]!) : null;
         if (resetTime) {
           chat.setRateLimitedUntil(resetTime);

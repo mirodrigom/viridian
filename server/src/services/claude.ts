@@ -18,9 +18,23 @@ interface ClaudeSession {
   stdinWrite?: (data: string) => void;
   /** Buffered events while waiting for user to answer AskUserQuestion. null = not buffering. */
   pendingQuestionBuffer: { event: string; data: unknown }[] | null;
+  /** Last activity timestamp for idle session cleanup. */
+  lastActivity: number;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
+
+// Clean up idle non-streaming sessions every 5 minutes
+const SESSION_IDLE_TIMEOUT = 30 * 60_000; // 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of activeSessions) {
+    if (!session.isStreaming && now - session.lastActivity > SESSION_IDLE_TIMEOUT) {
+      abortSession(id);
+      activeSessions.delete(id);
+    }
+  }
+}, 5 * 60_000).unref();
 
 export function createSession(cwd: string, claudeSessionId?: string): ClaudeSession {
   const session: ClaudeSession = {
@@ -33,6 +47,7 @@ export function createSession(cwd: string, claudeSessionId?: string): ClaudeSess
     isStreaming: false,
     accumulatedText: '',
     pendingQuestionBuffer: null,
+    lastActivity: Date.now(),
   };
   activeSessions.set(session.id, session);
   return session;
@@ -58,6 +73,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   const abortController = new AbortController();
   session.abortController = abortController;
   session.isStreaming = true;
+  session.lastActivity = Date.now();
 
   session.accumulatedText = '';
   session.emitter.emit('stream_start');
@@ -88,6 +104,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       session.isStreaming = false;
+      session.lastActivity = Date.now();
       session.emitter.emit('error', { error: errorMsg });
       session.emitter.emit('stream_end', { sessionId: session.id });
     }
@@ -137,6 +154,7 @@ function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: strin
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
       session.process = null;
       session.isStreaming = false;
+      session.lastActivity = Date.now();
       session.stdinWrite = undefined;
       return { event: 'stream_end', data: { sessionId: session.id, claudeSessionId: session.claudeSessionId, exitCode: msg.exitCode, usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens } } };
     default:

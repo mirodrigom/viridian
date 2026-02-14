@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Play, Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck } from 'lucide-vue-next';
+import { GOAL_PRESETS } from '@/data/goalPresets';
 
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{
@@ -131,6 +132,17 @@ const typeIcons: Record<string, typeof Bot> = {
         <!-- Prompt -->
         <div class="space-y-1.5">
           <Label class="text-sm">Task Prompt</Label>
+          <div class="flex flex-wrap gap-1">
+            <Badge
+              v-for="preset in GOAL_PRESETS"
+              :key="preset.id"
+              variant="outline"
+              class="cursor-pointer text-[10px] transition-colors hover:bg-accent hover:text-accent-foreground"
+              @click="prompt = preset.prompt"
+            >
+              {{ preset.label }}
+            </Badge>
+          </div>
           <Textarea
             v-model="prompt"
             placeholder="Describe the task you want the agent graph to perform..."

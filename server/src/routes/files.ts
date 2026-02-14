@@ -12,10 +12,11 @@ router.use(authMiddleware);
 router.get('/tree', async (req, res) => {
   try {
     const rootPath = (req.query.path as string) || process.env.HOME || '/home';
-    const depth = parseInt(req.query.depth as string) || 1;
+    const depth = Math.max(1, Math.min(10, parseInt(req.query.depth as string) || 1));
     const tree = await getFileTree(rootPath, depth);
     res.json({ tree, rootPath });
   } catch (err) {
+    console.warn('[files/tree]', err);
     res.status(500).json({ error: 'Failed to read directory' });
   }
 });
@@ -79,6 +80,7 @@ router.get('/search', async (req, res) => {
     const files = await searchFiles(rootPath, query);
     res.json({ files });
   } catch (err) {
+    console.warn('[files/search]', err);
     res.status(500).json({ error: 'Failed to search files' });
   }
 });
@@ -123,6 +125,12 @@ router.post('/clone', (req, res) => {
     env: { ...process.env },
   });
 
+  const cloneTimeout = setTimeout(() => {
+    proc.kill();
+    sendEvent('error', { message: 'Clone timed out after 10 minutes' });
+    res.end();
+  }, 10 * 60_000);
+
   // git clone writes progress to stderr
   proc.stderr.on('data', (chunk: Buffer) => {
     const text = chunk.toString();
@@ -137,6 +145,7 @@ router.post('/clone', (req, res) => {
   });
 
   proc.on('close', (code) => {
+    clearTimeout(cloneTimeout);
     if (code === 0) {
       sendEvent('complete', { path: clonePath, repoName });
     } else {
@@ -146,12 +155,14 @@ router.post('/clone', (req, res) => {
   });
 
   proc.on('error', (err) => {
+    clearTimeout(cloneTimeout);
     sendEvent('error', { message: err.message });
     res.end();
   });
 
   // Handle client disconnect
   res.on('close', () => {
+    clearTimeout(cloneTimeout);
     proc.kill();
   });
 });

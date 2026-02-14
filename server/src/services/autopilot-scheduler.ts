@@ -4,6 +4,7 @@
  */
 
 import { getDb } from '../db/database.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 import {
   startAutopilotRun,
   getActiveRun,
@@ -88,7 +89,7 @@ function tick() {
             agentBProfileId: cfg.agent_b_profile as string,
             agentAModel: cfg.agent_a_model as string,
             agentBModel: cfg.agent_b_model as string,
-            allowedPaths: JSON.parse((cfg.allowed_paths as string) || '[]'),
+            allowedPaths: safeJsonParse<string[]>(cfg.allowed_paths as string, []),
             maxIterations: cfg.max_iterations as number,
             maxTokensPerSession: cfg.max_tokens_per_session as number,
             scheduleEndTime: getWindowEnd(cfg, now),
@@ -116,7 +117,7 @@ function isWithinWindow(cfg: Record<string, unknown>, now: Date): boolean {
   if (!startStr || !endStr) return false;
 
   // Check day of week
-  const days: number[] = JSON.parse((cfg.schedule_days as string) || '[1,2,3,4,5]');
+  const days: number[] = safeJsonParse<number[]>(cfg.schedule_days as string, [1, 2, 3, 4, 5]);
   const currentDay = now.getDay(); // 0=Sun, 1=Mon, ...
   if (!days.includes(currentDay)) return false;
 

@@ -234,21 +234,24 @@ function handleSave() {
   }
 }
 
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    handleSave();
+  }
+}
+
 onMounted(() => {
   // If we have an active file but the editor wasn't created yet (container wasn't ready), create it now
   if (activeFileData.value && !editorView) {
     createEditor(activeFileData.value.content, activeFileData.value.language);
   }
 
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      handleSave();
-    }
-  });
+  document.addEventListener('keydown', handleKeydown);
 });
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
   editorView?.destroy();
 });
 </script>

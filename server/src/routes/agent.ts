@@ -85,57 +85,73 @@ router.post('/run', (req, res) => {
   });
 
   const emitter = session.emitter;
+  const listeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
   let fullText = '';
   let thinkingText = '';
 
-  emitter.on('stream_start', () => {
+  function addHandler(event: string, handler: (...args: unknown[]) => void) {
+    emitter.on(event, handler);
+    listeners.push({ event, handler });
+  }
+
+  function cleanupListeners() {
+    for (const { event, handler } of listeners) {
+      emitter.removeListener(event, handler);
+    }
+    listeners.length = 0;
+  }
+
+  addHandler('stream_start', () => {
     res.write(`event: start\ndata: ${JSON.stringify({ sessionId: session.id })}\n\n`);
   });
 
-  emitter.on('stream_delta', (d: { text: string }) => {
-    fullText += d.text;
-    res.write(`event: delta\ndata: ${JSON.stringify({ text: d.text })}\n\n`);
+  addHandler('stream_delta', (d: unknown) => {
+    fullText += (d as { text: string }).text;
+    res.write(`event: delta\ndata: ${JSON.stringify({ text: (d as { text: string }).text })}\n\n`);
   });
 
-  emitter.on('thinking_start', () => {
+  addHandler('thinking_start', () => {
     res.write(`event: thinking_start\ndata: {}\n\n`);
   });
 
-  emitter.on('thinking_delta', (d: { text: string }) => {
-    thinkingText += d.text;
-    res.write(`event: thinking_delta\ndata: ${JSON.stringify({ text: d.text })}\n\n`);
+  addHandler('thinking_delta', (d: unknown) => {
+    thinkingText += (d as { text: string }).text;
+    res.write(`event: thinking_delta\ndata: ${JSON.stringify({ text: (d as { text: string }).text })}\n\n`);
   });
 
-  emitter.on('thinking_end', () => {
+  addHandler('thinking_end', () => {
     res.write(`event: thinking_end\ndata: ${JSON.stringify({ thinking: thinkingText })}\n\n`);
   });
 
-  emitter.on('tool_use', (d: { tool: string; input: unknown; requestId: string }) => {
+  addHandler('tool_use', (d: unknown) => {
     res.write(`event: tool_use\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('tool_input_complete', (d: { requestId: string; tool: string; input: unknown }) => {
+  addHandler('tool_input_complete', (d: unknown) => {
     res.write(`event: tool_result\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('error', (d: { error: string }) => {
+  addHandler('error', (d: unknown) => {
     res.write(`event: error\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('stream_end', (d: { sessionId: string; claudeSessionId?: string; exitCode?: number }) => {
+  addHandler('stream_end', (d: unknown) => {
+    const data = d as { sessionId: string; claudeSessionId?: string; exitCode?: number };
     res.write(`event: done\ndata: ${JSON.stringify({
-      sessionId: d.sessionId,
-      claudeSessionId: d.claudeSessionId,
-      exitCode: d.exitCode,
+      sessionId: data.sessionId,
+      claudeSessionId: data.claudeSessionId,
+      exitCode: data.exitCode,
       text: fullText,
       thinking: thinkingText || undefined,
     })}\n\n`);
+    cleanupListeners();
     res.end();
     removeSession(session.id);
   });
 
   // Handle client disconnect
   res.on('close', () => {
+    cleanupListeners();
     abortSession(session.id);
     removeSession(session.id);
   });
@@ -144,8 +160,8 @@ router.post('/run', (req, res) => {
   if (model) options.model = model;
   if (permissionMode) options.permissionMode = permissionMode;
   if (maxOutputTokens && typeof maxOutputTokens === 'number') options.maxOutputTokens = maxOutputTokens;
-  if (allowedTools && Array.isArray(allowedTools)) options.allowedTools = allowedTools;
-  if (disallowedTools && Array.isArray(disallowedTools)) options.disallowedTools = disallowedTools;
+  if (allowedTools && Array.isArray(allowedTools)) options.allowedTools = allowedTools.filter((t: unknown): t is string => typeof t === 'string');
+  if (disallowedTools && Array.isArray(disallowedTools)) options.disallowedTools = disallowedTools.filter((t: unknown): t is string => typeof t === 'string');
 
   sendMessage(session.id, prompt, options);
 });
@@ -182,54 +198,69 @@ router.post('/sessions/:id', (req, res) => {
   });
 
   const emitter = session.emitter;
-  emitter.removeAllListeners();
+  const listeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
+
+  function addHandler(event: string, handler: (...args: unknown[]) => void) {
+    emitter.on(event, handler);
+    listeners.push({ event, handler });
+  }
+
+  function cleanupListeners() {
+    for (const { event, handler } of listeners) {
+      emitter.removeListener(event, handler);
+    }
+    listeners.length = 0;
+  }
 
   let fullText = '';
 
-  emitter.on('stream_start', () => {
+  addHandler('stream_start', () => {
     res.write(`event: start\ndata: ${JSON.stringify({ sessionId: session.id })}\n\n`);
   });
 
-  emitter.on('stream_delta', (d: { text: string }) => {
-    fullText += d.text;
-    res.write(`event: delta\ndata: ${JSON.stringify({ text: d.text })}\n\n`);
+  addHandler('stream_delta', (d: unknown) => {
+    fullText += (d as { text: string }).text;
+    res.write(`event: delta\ndata: ${JSON.stringify({ text: (d as { text: string }).text })}\n\n`);
   });
 
-  emitter.on('thinking_start', () => {
+  addHandler('thinking_start', () => {
     res.write(`event: thinking_start\ndata: {}\n\n`);
   });
 
-  emitter.on('thinking_delta', (d: { text: string }) => {
-    res.write(`event: thinking_delta\ndata: ${JSON.stringify({ text: d.text })}\n\n`);
+  addHandler('thinking_delta', (d: unknown) => {
+    res.write(`event: thinking_delta\ndata: ${JSON.stringify({ text: (d as { text: string }).text })}\n\n`);
   });
 
-  emitter.on('thinking_end', () => {
+  addHandler('thinking_end', () => {
     res.write(`event: thinking_end\ndata: {}\n\n`);
   });
 
-  emitter.on('tool_use', (d: { tool: string; input: unknown; requestId: string }) => {
+  addHandler('tool_use', (d: unknown) => {
     res.write(`event: tool_use\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('tool_input_complete', (d: { requestId: string; tool: string; input: unknown }) => {
+  addHandler('tool_input_complete', (d: unknown) => {
     res.write(`event: tool_result\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('error', (d: { error: string }) => {
+  addHandler('error', (d: unknown) => {
     res.write(`event: error\ndata: ${JSON.stringify(d)}\n\n`);
   });
 
-  emitter.on('stream_end', (d: { sessionId: string; claudeSessionId?: string; exitCode?: number }) => {
+  addHandler('stream_end', (d: unknown) => {
+    const data = d as { sessionId: string; claudeSessionId?: string; exitCode?: number };
     res.write(`event: done\ndata: ${JSON.stringify({
-      sessionId: d.sessionId,
-      claudeSessionId: d.claudeSessionId,
-      exitCode: d.exitCode,
+      sessionId: data.sessionId,
+      claudeSessionId: data.claudeSessionId,
+      exitCode: data.exitCode,
       text: fullText,
     })}\n\n`);
+    cleanupListeners();
     res.end();
   });
 
   res.on('close', () => {
+    cleanupListeners();
     abortSession(session.id);
   });
 
@@ -237,8 +268,8 @@ router.post('/sessions/:id', (req, res) => {
   if (model) options.model = model;
   if (permissionMode) options.permissionMode = permissionMode;
   if (maxOutputTokens && typeof maxOutputTokens === 'number') options.maxOutputTokens = maxOutputTokens;
-  if (allowedTools && Array.isArray(allowedTools)) options.allowedTools = allowedTools;
-  if (disallowedTools && Array.isArray(disallowedTools)) options.disallowedTools = disallowedTools;
+  if (allowedTools && Array.isArray(allowedTools)) options.allowedTools = allowedTools.filter((t: unknown): t is string => typeof t === 'string');
+  if (disallowedTools && Array.isArray(disallowedTools)) options.disallowedTools = disallowedTools.filter((t: unknown): t is string => typeof t === 'string');
 
   sendMessage(session.id, prompt, options);
 });

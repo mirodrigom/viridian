@@ -6,7 +6,10 @@
     "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter client dev\"",
     "build": "pnpm --filter client build && pnpm --filter server build",
     "dev:client": "pnpm --filter client dev",
-    "dev:server": "pnpm --filter server dev"
+    "dev:server": "pnpm --filter server dev",
+    "dev:docs": "pnpm --filter docs dev",
+    "docs:generate": "pnpm --filter docs generate",
+    "docs:build": "pnpm --filter docs generate && pnpm --filter docs build"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

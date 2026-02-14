@@ -37,9 +37,18 @@ function getJwtSecret(): string {
   return secret!;
 }
 
+function getPort(): number {
+  const parsed = parseInt(process.env.PORT || '3010', 10);
+  if (Number.isNaN(parsed) || parsed < 1 || parsed > 65535) {
+    console.warn(`Invalid PORT "${process.env.PORT}", falling back to 3010`);
+    return 3010;
+  }
+  return parsed;
+}
+
 export const config = {
   host: process.env.HOST || 'localhost',
-  port: parseInt(process.env.PORT || '3010', 10),
+  port: getPort(),
   jwtSecret: getJwtSecret(),
   dbPath: resolve(__dirname, '..', 'data', 'auth.db'),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5174',

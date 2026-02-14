@@ -137,5 +137,14 @@ export function setupSessionsWs(server: Server) {
 
   console.log(`[sessions-ws] Watching ${CLAUDE_DIR} for JSONL changes`);
 
-  return wss;
+  return {
+    wss,
+    close() {
+      for (const timer of debounceTimers.values()) {
+        clearTimeout(timer);
+      }
+      debounceTimers.clear();
+      watcher.close();
+    },
+  };
 }

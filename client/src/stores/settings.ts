@@ -47,7 +47,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const maxOutputTokens = ref(16384);
   const allowedTools = ref<string[]>([]);
   const disallowedTools = ref<string[]>([]);
-  const projectsDir = ref('/home/rodrigom/Documents');
+  const projectsDir = ref('');
   const editorWordWrap = ref(false);
   const editorTabSize = ref(2);
   const editorFontSize = ref(13);
@@ -79,7 +79,7 @@ export const useSettingsStore = defineStore('settings', () => {
       maxOutputTokens.value = parsed.maxOutputTokens ?? 16384;
       allowedTools.value = parsed.allowedTools ?? [];
       disallowedTools.value = parsed.disallowedTools ?? [];
-      projectsDir.value = parsed.projectsDir ?? '/home/rodrigom/Documents';
+      projectsDir.value = parsed.projectsDir ?? '';
       editorWordWrap.value = parsed.editorWordWrap ?? false;
       editorTabSize.value = parsed.editorTabSize ?? 2;
       editorFontSize.value = parsed.editorFontSize ?? 13;

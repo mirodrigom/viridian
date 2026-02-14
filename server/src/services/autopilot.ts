@@ -11,6 +11,7 @@ import { claudeQuery, type SDKMessage } from './claude-sdk.js';
 import { getProfile, type AutopilotProfile } from './autopilot-profiles.js';
 import { createAutopilotBranch, autoCommit, pushAndCreatePR } from './autopilot-git.js';
 import { getDb } from '../db/database.js';
+import { safeJsonParse } from '../lib/safeJson.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -239,7 +240,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
       agentBModel = (cfg.agent_b_model as string) || agentBModel;
       maxIterations = (cfg.max_iterations as number) || maxIterations;
       maxTokens = (cfg.max_tokens_per_session as number) || maxTokens;
-      allowedPaths = JSON.parse((cfg.allowed_paths as string) || '[]');
+      allowedPaths = safeJsonParse<string[]>(cfg.allowed_paths as string, []);
     }
   }
 
@@ -443,7 +444,7 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
             emitter.emit('pr_created', { runId, prUrl: result.prUrl });
           }
         })
-        .catch(() => { /* already logged inside pushAndCreatePR */ });
+        .catch((err) => { console.warn('[Autopilot] PR creation failed:', err); });
     }
   }
 

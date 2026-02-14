@@ -14,6 +14,7 @@ router.get('/status', async (req, res) => {
     const status = await gitService.getStatus(cwd);
     res.json(status);
   } catch (err) {
+    console.warn('[git/status]', err);
     res.status(500).json({ error: 'Failed to get git status' });
   }
 });
@@ -26,6 +27,7 @@ router.get('/diff', async (req, res) => {
     const diff = await gitService.getDiff(cwd, staged);
     res.json({ diff });
   } catch (err) {
+    console.warn('[git/diff]', err);
     res.status(500).json({ error: 'Failed to get diff' });
   }
 });
@@ -37,6 +39,7 @@ router.post('/stage', async (req, res) => {
     await gitService.stageFiles(cwd, files);
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/stage]', err);
     res.status(500).json({ error: 'Failed to stage files' });
   }
 });
@@ -48,6 +51,7 @@ router.post('/unstage', async (req, res) => {
     await gitService.unstageFiles(cwd, files);
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/unstage]', err);
     res.status(500).json({ error: 'Failed to unstage files' });
   }
 });
@@ -59,7 +63,9 @@ router.post('/commit', async (req, res) => {
     const result = await gitService.commit(cwd, message);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to commit' });
+    console.warn('[git/commit]', err);
+    const msg = err instanceof Error ? err.message : 'Failed to commit';
+    res.status(500).json({ error: msg });
   }
 });
 
@@ -70,6 +76,7 @@ router.get('/log', async (req, res) => {
     const log = await gitService.getLog(cwd);
     res.json(log);
   } catch (err) {
+    console.warn('[git/log]', err);
     res.status(500).json({ error: 'Failed to get log' });
   }
 });
@@ -81,6 +88,7 @@ router.get('/branches', async (req, res) => {
     const branches = await gitService.getBranches(cwd);
     res.json(branches);
   } catch (err) {
+    console.warn('[git/branches]', err);
     res.status(500).json({ error: 'Failed to get branches' });
   }
 });
@@ -92,6 +100,7 @@ router.post('/pull', async (req, res) => {
     const result = await gitService.pull(cwd);
     res.json(result);
   } catch (err) {
+    console.warn('[git/pull]', err);
     const msg = err instanceof Error ? err.message : 'Failed to pull';
     res.status(500).json({ error: msg });
   }
@@ -104,6 +113,7 @@ router.post('/push', async (req, res) => {
     const result = await gitService.push(cwd);
     res.json(result);
   } catch (err) {
+    console.warn('[git/push]', err);
     const msg = err instanceof Error ? err.message : 'Failed to push';
     res.status(500).json({ error: msg });
   }
@@ -116,6 +126,7 @@ router.post('/fetch', async (req, res) => {
     const result = await gitService.fetch(cwd);
     res.json(result);
   } catch (err) {
+    console.warn('[git/fetch]', err);
     res.status(500).json({ error: 'Failed to fetch' });
   }
 });
@@ -127,6 +138,7 @@ router.post('/checkout', async (req, res) => {
     await gitService.checkoutBranch(cwd, branch);
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/checkout]', err);
     const msg = err instanceof Error ? err.message : 'Failed to checkout';
     res.status(500).json({ error: msg });
   }
@@ -139,6 +151,7 @@ router.post('/create-branch', async (req, res) => {
     await gitService.createBranch(cwd, branch);
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/create-branch]', err);
     const msg = err instanceof Error ? err.message : 'Failed to create branch';
     res.status(500).json({ error: msg });
   }
@@ -151,6 +164,7 @@ router.post('/discard', async (req, res) => {
     await gitService.discardFile(cwd, file);
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/discard]', err);
     res.status(500).json({ error: 'Failed to discard file' });
   }
 });
@@ -164,6 +178,7 @@ router.get('/file-diff', async (req, res) => {
     const diff = await gitService.getFileDiff(cwd, file, staged);
     res.json({ diff });
   } catch (err) {
+    console.warn('[git/file-diff]', err);
     res.status(500).json({ error: 'Failed to get file diff' });
   }
 });
@@ -176,6 +191,7 @@ router.get('/show', async (req, res) => {
     const show = await gitService.getShowCommit(cwd, hash);
     res.json({ show });
   } catch (err) {
+    console.warn('[git/show]', err);
     res.status(500).json({ error: 'Failed to get commit details' });
   }
 });
@@ -189,6 +205,7 @@ router.get('/file-versions', async (req, res) => {
     const versions = await gitService.getFileVersions(cwd, file, staged);
     res.json(versions);
   } catch (err) {
+    console.warn('[git/file-versions]', err);
     res.status(500).json({ error: 'Failed to get file versions' });
   }
 });
@@ -225,6 +242,12 @@ ${truncatedDiff}`;
     const abortController = new AbortController();
     res.on('close', () => abortController.abort());
 
+    const timeout = setTimeout(() => {
+      abortController.abort();
+      res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+      res.end();
+    }, 5 * 60_000);
+
     (async () => {
       try {
         for await (const msg of claudeQuery({
@@ -241,15 +264,19 @@ ${truncatedDiff}`;
             res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
           }
         }
+        clearTimeout(timeout);
         res.write(`event: done\ndata: {}\n\n`);
         res.end();
       } catch (err) {
+        clearTimeout(timeout);
+        console.warn('[git/generate-commit-message]', err);
         const msg = err instanceof Error ? err.message : 'Failed to generate commit message';
         res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
         res.end();
       }
     })();
   } catch (err) {
+    console.warn('[git/generate-commit-message]', err);
     res.status(500).json({ error: 'Failed to generate commit message' });
   }
 });
@@ -261,6 +288,7 @@ router.get('/user-config', async (req, res) => {
     const config = await gitService.getUserConfig(cwd);
     res.json(config);
   } catch (err) {
+    console.warn('[git/user-config]', err);
     res.status(500).json({ error: 'Failed to get git user config' });
   }
 });
@@ -272,6 +300,7 @@ router.put('/user-config', async (req, res) => {
     await gitService.setUserConfig(cwd, name || '', email || '');
     res.json({ success: true });
   } catch (err) {
+    console.warn('[git/user-config]', err);
     res.status(500).json({ error: 'Failed to set git user config' });
   }
 });

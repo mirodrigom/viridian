@@ -50,6 +50,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function checkStatus(): Promise<{ hasUsers: boolean }> {
     const res = await fetch('/api/auth/status');
+    if (!res.ok) {
+      throw new Error('Failed to check auth status');
+    }
     return res.json();
   }
 

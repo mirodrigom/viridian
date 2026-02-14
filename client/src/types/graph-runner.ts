@@ -63,6 +63,19 @@ export interface TimelineEntry {
   meta?: TimelineEntryMeta;
 }
 
+// ─── Run history summary (from REST API) ─────────────────────────────
+export interface GraphRunSummary {
+  id: string;
+  graphId: string | null;
+  prompt: string;
+  status: RunStatus;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  startedAt: string;
+  completedAt: string | null;
+  error: string | null;
+}
+
 // ─── Full run state ────────────────────────────────────────────────────
 export interface GraphRun {
   runId: string;
@@ -85,6 +98,7 @@ export interface WsRunGraph {
   };
   prompt: string;
   cwd: string;
+  graphId?: string | null;
 }
 
 export interface WsAbortRun {

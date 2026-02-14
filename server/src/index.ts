@@ -14,6 +14,7 @@ import apikeysRoutes from './routes/apikeys.js';
 import agentRoutes from './routes/agent.js';
 import tasksRoutes from './routes/tasks.js';
 import graphsRoutes from './routes/graphs.js';
+import graphRunsRoutes from './routes/graph-runs.js';
 import autopilotRoutes from './routes/autopilot.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
@@ -21,14 +22,15 @@ import { setupShellWs } from './ws/shell.js';
 import { setupSessionsWs } from './ws/sessions.js';
 import { setupGraphRunnerWs } from './ws/graph-runner.js';
 import { setupAutopilotWs } from './ws/autopilot.js';
-import { startScheduler } from './services/autopilot-scheduler.js';
+import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
+import { destroyAllTerminals } from './services/terminal.js';
 
 const app: Express = express();
 const server = createServer(app);
 
 app.use(cors({ origin: config.corsOrigin }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Public routes
 app.use('/api/auth', authRoutes);
@@ -42,6 +44,7 @@ app.use('/api/keys', apikeysRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/graphs', graphsRoutes);
+app.use('/api/graph-runs', graphRunsRoutes);
 app.use('/api/autopilot', autopilotRoutes);
 
 app.get('/api/health', (_req, res) => {
@@ -70,7 +73,7 @@ app.get('/api/me', authMiddleware, (req, res) => {
 // WebSocket handlers
 setupChatWs(server);
 setupShellWs(server);
-setupSessionsWs(server);
+const sessionsWs = setupSessionsWs(server);
 setupGraphRunnerWs(server);
 setupAutopilotWs(server);
 
@@ -80,6 +83,32 @@ server.listen(config.port, config.host, () => {
   cleanupZombieRuns();
   // Start the autopilot scheduler after server is ready
   startScheduler();
+});
+
+// Graceful shutdown
+function shutdown() {
+  console.log('Shutting down...');
+  stopScheduler();
+  sessionsWs.close();
+  destroyAllTerminals();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+  // Force exit after 5s if graceful shutdown stalls
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception:', err);
+  shutdown();
 });
 
 export { server, app };

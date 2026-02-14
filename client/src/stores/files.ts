@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { toast } from 'vue-sonner';
 import { useAuthStore } from './auth';
 
 export interface FileNode {
@@ -40,9 +41,16 @@ export const useFilesStore = defineStore('files', () => {
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${auth.token}` },
       });
+      if (!res.ok) {
+        toast.error('Failed to load file tree');
+        return;
+      }
       const data = await res.json();
       tree.value = data.tree;
       rootPath.value = data.rootPath;
+    } catch (err) {
+      toast.error('Failed to load file tree');
+      console.error('fetchTree error:', err);
     } finally {
       loading.value = false;
     }
@@ -88,19 +96,28 @@ export const useFilesStore = defineStore('files', () => {
     }
 
     const auth = useAuthStore();
-    const res = await fetch(
-      `/api/files/content?root=${encodeURIComponent(rootPath.value)}&path=${encodeURIComponent(filePath)}`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
-    );
-    const data = await res.json();
-    openFiles.value.push({
-      path: filePath,
-      name: filePath.split('/').pop() || filePath,
-      content: data.content,
-      language: data.language,
-      modified: false,
-    });
-    activeFile.value = filePath;
+    try {
+      const res = await fetch(
+        `/api/files/content?root=${encodeURIComponent(rootPath.value)}&path=${encodeURIComponent(filePath)}`,
+        { headers: { Authorization: `Bearer ${auth.token}` } },
+      );
+      if (!res.ok) {
+        toast.error('Failed to open file');
+        return;
+      }
+      const data = await res.json();
+      openFiles.value.push({
+        path: filePath,
+        name: filePath.split('/').pop() || filePath,
+        content: data.content,
+        language: data.language,
+        modified: false,
+      });
+      activeFile.value = filePath;
+    } catch (err) {
+      toast.error('Failed to open file');
+      console.error('openFile error:', err);
+    }
   }
 
   async function saveFile(filePath: string) {
@@ -108,19 +125,28 @@ export const useFilesStore = defineStore('files', () => {
     if (!file) return;
 
     const auth = useAuthStore();
-    await fetch('/api/files/content', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
-      },
-      body: JSON.stringify({
-        root: rootPath.value,
-        path: filePath,
-        content: file.content,
-      }),
-    });
-    file.modified = false;
+    try {
+      const res = await fetch('/api/files/content', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          root: rootPath.value,
+          path: filePath,
+          content: file.content,
+        }),
+      });
+      if (!res.ok) {
+        toast.error('Failed to save file');
+        return;
+      }
+      file.modified = false;
+    } catch (err) {
+      toast.error('Failed to save file');
+      console.error('saveFile error:', err);
+    }
   }
 
   function closeFile(filePath: string) {

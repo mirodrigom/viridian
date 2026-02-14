@@ -118,13 +118,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-cicd',
     type: 'skill',
     position: { x: -150, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill CI/CD', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill CI/CD', command: '/cicd-analyze', promptTemplate: 'Analyze the CI/CD pipeline configuration in this project. Look for GitHub Actions workflows, Dockerfiles, and build scripts. Identify: (1) missing caching strategies, (2) jobs that could run in parallel, (3) unnecessary steps that slow the pipeline, (4) missing fail-fast configurations. Report findings with specific file paths and recommended fixes.', allowedTools: ['Read', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-deploy',
     type: 'skill',
     position: { x: 190, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Deploy', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Deploy', command: '/deploy-review', promptTemplate: 'Review the deployment configuration for this project. Check Dockerfiles for multi-stage build best practices, verify docker-compose or orchestration configs, review environment variable handling, and ensure health checks are defined. Flag any hardcoded secrets, missing .dockerignore entries, or non-pinned base image versions.', allowedTools: ['Read', 'Glob', 'Grep', 'Bash'] },
   },
 
   // ── Subagent: Frontend (col 1, row 1) ──
@@ -173,13 +173,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-components',
     type: 'skill',
     position: { x: 450, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Building Components', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Building Components', command: '/build-component', promptTemplate: 'Create or update a Vue/React component following the project\'s existing patterns. Steps: (1) Check the component library for existing primitives to reuse, (2) Use Composition API with proper TypeScript interfaces for props and emits, (3) Ensure responsive design with mobile-first breakpoints, (4) Add keyboard navigation and ARIA attributes, (5) Follow the project\'s CSS approach (Tailwind classes, spacing scale, color tokens).', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-lint',
     type: 'skill',
     position: { x: 790, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Linting', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Linting', command: '/lint-check', promptTemplate: 'Run the project\'s linting and formatting checks. Execute the lint command from package.json, collect all warnings and errors, and categorize them by severity. For auto-fixable issues, apply the fixes. For manual fixes, report the exact file:line and the rule being violated with a suggested correction.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
 
   // ── Subagent: Backend (col 2, row 1) ──
@@ -238,13 +238,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-migrate',
     type: 'skill',
     position: { x: 1050, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Migrate', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Migrate', command: '/db-migrate', promptTemplate: 'Manage database migrations for this project. Analyze the current schema, check for pending migrations, and generate new migration files when needed. Ensure migrations use parameterized queries, wrap multi-step changes in transactions, add proper up/down functions, and follow the project\'s migration naming convention.', allowedTools: ['Read', 'Write', 'Bash', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-test-backend',
     type: 'skill',
     position: { x: 1390, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Test', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Test', command: '/run-tests', promptTemplate: 'Run the project\'s test suite and analyze the results. Execute the test command from package.json, identify failing tests, check coverage reports if available. For failures, report the test name, expected vs actual values, and the likely cause. Suggest fixes for common issues like stale snapshots, timing-dependent tests, or missing mocks.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
 
   // ── Subagent: Documentation (col 3, row 1) ──
@@ -292,7 +292,7 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-gen-docs',
     type: 'skill',
     position: { x: 1820, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Generate Docs', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Generate Docs', command: '/gen-docs', promptTemplate: 'Generate documentation by reading the source code. For each public module: (1) Extract function signatures and types, (2) Write JSDoc/TSDoc comments explaining purpose and parameters, (3) Create markdown docs with usage examples, (4) Generate Mermaid diagrams for data flow where appropriate. Ensure all documentation references actual code — no placeholder content.', allowedTools: ['Read', 'Write', 'Glob', 'Grep'] },
   },
 
   // ── Subagent: Conventions (col 4, row 1) ──
@@ -330,7 +330,7 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-trade-issues',
     type: 'skill',
     position: { x: 2400, y: 800 },
-    data: { nodeType: 'skill', label: 'Skill Trade Issues', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Trade Issues', command: '/trade-issues', promptTemplate: 'Analyze the codebase for code quality trade-offs and technical debt. Identify: (1) inconsistent naming conventions across files, (2) dead code (unused imports, unreachable branches, commented-out blocks), (3) duplicated logic that should be extracted into shared utilities, (4) overly complex functions (>50 lines, deep nesting). Create GitHub issues for each finding with severity, location, and remediation steps.', allowedTools: ['Read', 'Glob', 'Grep', 'Bash'] },
   },
 
   // ══════════════════════════════════════════════════════════════════════
@@ -383,19 +383,19 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-pull-requests',
     type: 'skill',
     position: { x: 50, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Pull Requests', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Pull Requests', command: '/review-pr', promptTemplate: 'Review a pull request for code quality and correctness. Analyze the diff to check: (1) Correctness of logic and handling of edge cases, (2) Test coverage for changed code paths, (3) Consistent naming and style with the rest of the codebase, (4) No hardcoded secrets or debug artifacts, (5) Proper error handling. Leave actionable comments on specific lines with suggested improvements.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-create-issues',
     type: 'skill',
     position: { x: 340, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Create Issues', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Create Issues', command: '/create-issue', promptTemplate: 'Create a well-structured GitHub issue. Include: (1) A clear, concise title under 72 characters, (2) Description with context and reproduction steps if applicable, (3) Acceptance criteria as a checklist, (4) Labels for type (bug, feature, enhancement) and priority, (5) Related issue references. Use the gh CLI to create the issue on the repository.', allowedTools: ['Bash', 'Read', 'Grep'] },
   },
   {
     id: 'skill-create-pull-request',
     type: 'skill',
     position: { x: 630, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Create Pull Request', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Create Pull Request', command: '/create-pr', promptTemplate: 'Create a pull request with proper documentation. Steps: (1) Verify all changes are committed and the branch is pushed, (2) Write a descriptive title using conventional commit style (feat:, fix:, chore:), (3) Write a body with summary of changes, testing instructions, and linked issues (Closes #N), (4) Request appropriate reviewers. Use the gh CLI to create the PR.', allowedTools: ['Bash', 'Read', 'Grep'] },
   },
 
   // ── Subagent: QA (col 1, row 2) ──
@@ -444,13 +444,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-gen-tests',
     type: 'skill',
     position: { x: 750, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Generate Tests', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Generate Tests', command: '/gen-tests', promptTemplate: 'Generate comprehensive tests for the specified module or function. Steps: (1) Read the implementation to understand all code paths, (2) Identify the testing framework used in the project, (3) Write tests covering happy paths, error cases, edge cases, and boundary conditions, (4) Use descriptive test names that explain the scenario being tested. Follow the project\'s existing test conventions and directory structure.', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-playwright',
     type: 'skill',
     position: { x: 1090, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Playwright', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Playwright', command: '/e2e-test', promptTemplate: 'Write or run Playwright end-to-end tests. Steps: (1) Identify key user flows to test (login, CRUD operations, navigation), (2) Write page object models for reusable selectors, (3) Create test cases with proper setup/teardown, (4) Use web-first assertions (expect(locator).toBeVisible()), (5) Handle async operations with proper waits. Run tests and report results with screenshots for failures.', allowedTools: ['Read', 'Write', 'Bash', 'Glob', 'Grep'] },
   },
 
   // ── Subagent: DEV-OPS (col 2, row 2) ──
@@ -487,13 +487,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'skill-cicd-devops',
     type: 'skill',
     position: { x: 1350, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill CI/CD', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill CI/CD', command: '/cicd-optimize', promptTemplate: 'Optimize CI/CD pipeline performance and reliability. Analyze workflow files for: (1) jobs running sequentially that could be parallel, (2) missing dependency caching (node_modules, pip, cargo), (3) overly broad triggers running full suites on non-code changes, (4) missing concurrency controls causing duplicate runs, (5) slow test suites that should be split across matrix workers. Provide optimized workflow configurations.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-deploy-devops',
     type: 'skill',
     position: { x: 1690, y: 1600 },
-    data: { nodeType: 'skill', label: 'Skill Deploy', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Deploy', command: '/deploy-setup', promptTemplate: 'Set up or improve deployment configuration. Check for: (1) Dockerfile multi-stage builds with minimal final images, (2) docker-compose service definitions with health checks and resource limits, (3) environment-specific configs (dev, staging, prod), (4) rollback strategies and blue-green deployment support, (5) proper secrets management via environment variables. Create or update deployment configs following best practices.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash'] },
   },
 
   // ── Subagent: Region/Integration (col 3, row 2) ──
@@ -520,13 +520,13 @@ const fullStackNodes: SerializedNode[] = [
     id: 'mcp-region-1',
     type: 'mcp',
     position: { x: 1950, y: 1360 },
-    data: { nodeType: 'mcp', label: 'MCP', serverType: 'stdio', command: '', args: [], tools: [] },
+    data: { nodeType: 'mcp', label: 'Context7 Docs', serverType: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], tools: ['resolve-library-id', 'query-docs'] },
   },
   {
     id: 'mcp-region-2',
     type: 'mcp',
     position: { x: 2290, y: 1360 },
-    data: { nodeType: 'mcp', label: 'MCP', serverType: 'stdio', command: '', args: [], tools: [] },
+    data: { nodeType: 'mcp', label: 'Context7 Docs', serverType: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], tools: ['resolve-library-id', 'query-docs'] },
   },
   {
     id: 'exp-integrations',
@@ -709,13 +709,13 @@ For each finding: severity (High/Medium/Low), exact file:line, description, and 
     id: 'skill-lint-review',
     type: 'skill',
     position: { x: 150, y: 830 },
-    data: { nodeType: 'skill', label: 'Skill Lint Check', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Lint Check', command: '/lint-check', promptTemplate: 'Run the project\'s linter and static analysis tools. Execute ESLint, Prettier, or equivalent from package.json scripts. Collect all errors and warnings, group by severity, and report with exact file:line locations. Highlight any rules that are disabled inline and whether the disabling is justified.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-test-review',
     type: 'skill',
     position: { x: 650, y: 830 },
-    data: { nodeType: 'skill', label: 'Skill Run Tests', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Run Tests', command: '/run-tests', promptTemplate: 'Run the full test suite to verify code quality. Execute the test runner, capture output, and analyze results. Report: (1) Total pass/fail/skip counts, (2) Any newly failing tests with stack traces, (3) Coverage percentage if available, (4) Slow tests (>5s) that may need optimization. Focus on regressions — tests that were passing before but fail now.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
   {
     id: 'rule-no-secrets',
@@ -764,19 +764,19 @@ When given a task, first explore the relevant code, then implement with clean, f
     id: 'skill-search',
     type: 'skill',
     position: { x: -100, y: 280 },
-    data: { nodeType: 'skill', label: 'Skill Search', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Search', command: '/search-codebase', promptTemplate: 'Search the codebase for relevant code patterns, definitions, and usages. Use glob patterns to find files by name and grep to search file contents. Summarize findings with file paths, line numbers, and code snippets. This skill is for read-only exploration — use it to understand the project structure before making changes.', allowedTools: ['Read', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-write',
     type: 'skill',
     position: { x: 240, y: 280 },
-    data: { nodeType: 'skill', label: 'Skill Write', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Write', command: '/write-code', promptTemplate: 'Implement code changes following the project\'s existing conventions. Steps: (1) Read surrounding code to understand patterns, (2) Write or edit files with minimal changes to achieve the goal, (3) Verify the changes are syntactically valid, (4) Check that imports and exports are correct. Prefer editing existing files over creating new ones. Keep changes focused and atomic.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'] },
   },
   {
     id: 'mcp-starter',
     type: 'mcp',
     position: { x: -100, y: 520 },
-    data: { nodeType: 'mcp', label: 'MCP Server', serverType: 'stdio', command: '', args: [], tools: [] },
+    data: { nodeType: 'mcp', label: 'Context7 Docs', serverType: 'stdio', command: 'npx', args: ['-y', '@upstash/context7-mcp'], tools: ['resolve-library-id', 'query-docs'] },
   },
   {
     id: 'rule-starter',
@@ -925,13 +925,13 @@ Report each finding with: package name, current version, vulnerability descripti
     id: 'skill-audit-scan',
     type: 'skill',
     position: { x: 50, y: 810 },
-    data: { nodeType: 'skill', label: 'Skill Security Scan', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Security Scan', command: '/security-scan', promptTemplate: 'Perform a security scan of the codebase. Search for: (1) SQL injection patterns — string concatenation or template literals in database queries, (2) Command injection — exec/spawn/execSync with unsanitized input, (3) Path traversal — user input in file path operations without validation, (4) Hardcoded secrets — API keys, passwords, tokens in source files, (5) Insecure dependencies — check package.json for known vulnerable packages. Report each finding with CWE ID, file:line, severity, and remediation.', allowedTools: ['Read', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-dep-check',
     type: 'skill',
     position: { x: 750, y: 810 },
-    data: { nodeType: 'skill', label: 'Skill Dependency Check', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Dependency Check', command: '/dep-check', promptTemplate: 'Audit project dependencies for security vulnerabilities and maintenance status. Run npm audit or equivalent, check for outdated packages with known CVEs, identify unmaintained dependencies (no updates in 2+ years), and flag packages with suspicious install scripts. Report each finding with package name, current version, vulnerability description, and recommended upgrade path.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
 ];
 
@@ -1074,13 +1074,13 @@ Read the source code thoroughly — every diagram and description must reflect t
     id: 'skill-gen-readme',
     type: 'skill',
     position: { x: 750, y: 570 },
-    data: { nodeType: 'skill', label: 'Skill Generate README', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Generate README', command: '/gen-readme', promptTemplate: 'Generate a comprehensive README.md by analyzing the actual project structure. Include: (1) Project name and one-line description, (2) Features list extracted from the codebase, (3) Quick start in 3-5 steps from clone to running, (4) Configuration reference — all environment variables with descriptions and defaults, (5) Development workflow — how to run tests, lint, and build, (6) Tech stack summary. Test every setup instruction against the actual project files.', allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-gen-api-spec',
     type: 'skill',
     position: { x: 50, y: 570 },
-    data: { nodeType: 'skill', label: 'Skill Generate API Spec', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Generate API Spec', command: '/gen-api-spec', promptTemplate: 'Generate an OpenAPI 3.x specification from the project\'s route handlers. Scan for Express router definitions (app.get, router.post, etc.), extract path parameters, query parameters, request body schemas, and response shapes. For each endpoint document: method, path, auth requirements, request/response schemas with TypeScript types mapped to JSON Schema, and example curl commands.', allowedTools: ['Read', 'Glob', 'Grep'] },
   },
 ];
 
@@ -1221,13 +1221,13 @@ Report: pass/fail status, new type errors, deprecation warnings, and any remaini
     id: 'skill-codemods',
     type: 'skill',
     position: { x: 300, y: 570 },
-    data: { nodeType: 'skill', label: 'Skill Codemods', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Codemods', command: '/run-codemod', promptTemplate: 'Apply automated code transformations across the codebase for migration. Steps: (1) Identify all files matching the target pattern using glob, (2) For each file, apply the transformation (API rename, import rewrite, syntax upgrade), (3) Preserve existing functionality — migration must be behavior-preserving, (4) Add TODO comments where automated transformation is ambiguous, (5) List all modified files and the specific patterns changed.', allowedTools: ['Read', 'Write', 'Edit', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-test-run',
     type: 'skill',
     position: { x: 750, y: 810 },
-    data: { nodeType: 'skill', label: 'Skill Run Tests', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Run Tests', command: '/run-tests', promptTemplate: 'Run the full test suite to verify migration correctness. Execute tests, check for: (1) Newly failing tests — likely caused by the migration, (2) Type errors from API changes, (3) Deprecation warnings in output, (4) Remaining references to old API patterns (grep for deprecated imports/calls). Report pass/fail status, new errors, and any old-version references that still need migration.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
 ];
 
@@ -1370,13 +1370,13 @@ For each finding: quantified impact (e.g., "reduces O(n) queries to O(1)"), exac
     id: 'skill-profiling',
     type: 'skill',
     position: { x: 50, y: 810 },
-    data: { nodeType: 'skill', label: 'Skill Profiling', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Profiling', command: '/profile-app', promptTemplate: 'Profile the application for performance bottlenecks. Analyze: (1) Bundle size — look for large imports, missing tree-shaking, entire libraries imported for one function, (2) Component render patterns — unnecessary re-renders from unstable references or missing memoization, (3) Network waterfall — sequential API calls that could be parallelized, (4) Lazy loading — routes and heavy components not code-split. Report each finding with estimated impact, file:line, and specific optimization.', allowedTools: ['Read', 'Glob', 'Grep', 'Bash'] },
   },
   {
     id: 'skill-benchmark',
     type: 'skill',
     position: { x: 750, y: 810 },
-    data: { nodeType: 'skill', label: 'Skill Benchmarking', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill Benchmarking', command: '/benchmark', promptTemplate: 'Run performance benchmarks on the project. Measure: (1) API endpoint response times using curl with timing, (2) Database query execution times using EXPLAIN for SQLite or equivalent, (3) Build time and bundle sizes from the build output, (4) Memory usage patterns. Compare results against baseline thresholds and report any endpoints or queries exceeding targets. Produce a summary table with measurements.', allowedTools: ['Read', 'Bash', 'Glob', 'Grep'] },
   },
 ];
 
@@ -1550,13 +1550,13 @@ Use descriptive test names: "POST /users - should return 400 when email is missi
     id: 'skill-api-test',
     type: 'skill',
     position: { x: 1050, y: 570 },
-    data: { nodeType: 'skill', label: 'Skill API Testing', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill API Testing', command: '/test-api', promptTemplate: 'Write and run API integration tests for the project\'s endpoints. For each endpoint cover: (1) Happy path — valid request returns correct status and shape, (2) Validation — missing/invalid fields return 400 with field detail, (3) Auth — missing token returns 401, insufficient role returns 403, (4) Not found — invalid IDs return 404, (5) Edge cases — empty lists, max pagination, special characters. Use descriptive test names like "POST /users - should return 400 when email is missing".', allowedTools: ['Read', 'Write', 'Bash', 'Glob', 'Grep'] },
   },
   {
     id: 'skill-openapi-gen',
     type: 'skill',
     position: { x: 350, y: 570 },
-    data: { nodeType: 'skill', label: 'Skill OpenAPI Gen', command: '', promptTemplate: '', allowedTools: [] },
+    data: { nodeType: 'skill', label: 'Skill OpenAPI Gen', command: '/gen-openapi', promptTemplate: 'Generate an OpenAPI 3.x specification from the implemented API. Scan route handlers to extract: (1) All endpoints with HTTP method and path, (2) Request body schemas with types, required fields, and validation constraints, (3) Response schemas for success (200/201) and error cases (400/401/403/404/500), (4) Path and query parameters with types, (5) Authentication requirements per endpoint. Output a valid YAML or JSON OpenAPI spec with example values.', allowedTools: ['Read', 'Write', 'Glob', 'Grep'] },
   },
 ];
 

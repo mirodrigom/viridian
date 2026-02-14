@@ -66,3 +66,10 @@ export function destroyTerminal(id: string) {
     sessions.delete(id);
   }
 }
+
+export function destroyAllTerminals() {
+  for (const [id, session] of sessions) {
+    session.pty.kill();
+    sessions.delete(id);
+  }
+}

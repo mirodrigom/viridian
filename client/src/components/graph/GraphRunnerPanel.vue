@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
+import { useGraphStore } from '@/stores/graph';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'vue-sonner';
 import {
   Clock, Play, CheckCircle, XCircle, ArrowRight, Wrench,
-  ChevronLeft, Loader2, Brain, ArrowDown, Bot,
+  ChevronLeft, Loader2, Brain, ArrowDown, Bot, History, Trash2,
 } from 'lucide-vue-next';
 
 const runner = useGraphRunnerStore();
+const graph = useGraphStore();
 const activeTab = ref('timeline');
 const timelineEnd = ref<HTMLDivElement>();
 
@@ -20,6 +23,27 @@ watch(
     if (runner.playbackMode) return;
     await nextTick();
     timelineEnd.value?.scrollIntoView({ behavior: 'smooth' });
+  },
+);
+
+// Fetch history when panel opens and a graph is loaded
+watch(
+  () => runner.showRunnerPanel,
+  (shown) => {
+    if (shown && graph.currentGraphId) {
+      runner.fetchRunHistory(graph.currentGraphId);
+    }
+  },
+  { immediate: true },
+);
+
+// Re-fetch when a run completes
+watch(
+  () => runner.currentRun?.status,
+  (status) => {
+    if ((status === 'completed' || status === 'failed' || status === 'aborted') && graph.currentGraphId) {
+      runner.fetchRunHistory(graph.currentGraphId);
+    }
   },
 );
 
@@ -93,6 +117,41 @@ function selectNode(nodeId: string) {
     activeTab.value = 'detail';
   }
 }
+
+// ─── History helpers ──────────────────────────────────────────────────
+
+async function onLoadRun(runId: string) {
+  try {
+    await runner.loadRun(runId);
+    activeTab.value = 'timeline';
+  } catch {
+    toast.error('Failed to load run');
+  }
+}
+
+async function onDeleteRun(runId: string) {
+  try {
+    await runner.deleteRun(runId);
+  } catch {
+    toast.error('Failed to delete run');
+  }
+}
+
+function formatDuration(startedAt: string, completedAt: string | null): string {
+  if (!completedAt) return 'In progress';
+  const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+}
+
+function formatDate(isoStr: string): string {
+  return new Date(isoStr).toLocaleString('en-US', {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+    hour12: false,
+  });
+}
 </script>
 
 <template>
@@ -121,27 +180,30 @@ function selectNode(nodeId: string) {
       </div>
     </div>
 
-    <!-- No run state -->
-    <div v-if="!runner.currentRun" class="flex flex-1 items-center justify-center p-6">
-      <div class="text-center text-sm text-muted-foreground">
-        <Play class="mx-auto mb-2 h-8 w-8 opacity-30" />
-        <p>No active run</p>
-        <p class="mt-1 text-xs">Click Run in the toolbar to execute this graph</p>
-      </div>
-    </div>
-
-    <!-- Tabs -->
-    <Tabs v-else v-model="activeTab" class="flex flex-1 flex-col overflow-hidden">
+    <!-- Tabs — always visible so History is accessible even without an active run -->
+    <Tabs v-model="activeTab" class="flex flex-1 flex-col overflow-hidden">
       <TabsList class="mx-3 mt-2 h-8">
         <TabsTrigger value="timeline" class="h-6 text-xs">Timeline</TabsTrigger>
         <TabsTrigger value="detail" class="h-6 text-xs" :disabled="!runner.selectedExecution">
           Node Detail
         </TabsTrigger>
+        <TabsTrigger value="history" class="h-6 text-xs">
+          History
+        </TabsTrigger>
       </TabsList>
 
       <!-- Timeline View -->
       <TabsContent value="timeline" class="flex-1 overflow-hidden m-0 p-0">
-        <ScrollArea class="h-full">
+        <!-- Empty state when no run -->
+        <div v-if="!runner.currentRun" class="flex h-full items-center justify-center p-6">
+          <div class="text-center text-sm text-muted-foreground">
+            <Play class="mx-auto mb-2 h-8 w-8 opacity-30" />
+            <p>No active run</p>
+            <p class="mt-1 text-xs">Click Run in the toolbar to execute this graph</p>
+          </div>
+        </div>
+
+        <ScrollArea v-else class="h-full">
           <div class="space-y-0.5 p-3">
             <div
               v-for="(entry, i) in runner.effectiveTimeline"
@@ -272,6 +334,66 @@ function selectNode(nodeId: string) {
             <!-- Error -->
             <div v-if="runner.selectedExecution.error" class="rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-400">
               {{ runner.selectedExecution.error }}
+            </div>
+          </div>
+        </ScrollArea>
+      </TabsContent>
+
+      <!-- History View -->
+      <TabsContent value="history" class="flex-1 overflow-hidden m-0 p-0">
+        <ScrollArea class="h-full">
+          <div class="space-y-1 p-3">
+            <!-- Loading -->
+            <div v-if="runner.loadingHistory" class="flex items-center justify-center py-8">
+              <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+
+            <!-- No graph saved -->
+            <div v-else-if="!graph.currentGraphId" class="py-8 text-center text-sm text-muted-foreground">
+              <History class="mx-auto mb-2 h-8 w-8 opacity-30" />
+              <p>Save this graph first to see run history.</p>
+            </div>
+
+            <!-- Empty history -->
+            <div v-else-if="runner.runHistory.length === 0" class="py-8 text-center text-sm text-muted-foreground">
+              <History class="mx-auto mb-2 h-8 w-8 opacity-30" />
+              <p>No runs yet</p>
+              <p class="mt-1 text-xs">Click Run in the toolbar to execute this graph</p>
+            </div>
+
+            <!-- Run list -->
+            <div
+              v-else
+              v-for="run in runner.runHistory"
+              :key="run.id"
+              class="group flex items-start gap-2 rounded border border-border bg-card/50 px-3 py-2 cursor-pointer transition-colors hover:bg-accent/50"
+              @click="onLoadRun(run.id)"
+            >
+              <!-- Status icon -->
+              <CheckCircle v-if="run.status === 'completed'" class="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+              <XCircle v-else-if="run.status === 'failed'" class="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <Loader2 v-else-if="run.status === 'running'" class="mt-0.5 h-4 w-4 shrink-0 animate-spin text-yellow-500" />
+              <Clock v-else class="mt-0.5 h-4 w-4 shrink-0 text-orange-500" />
+
+              <div class="min-w-0 flex-1">
+                <p class="text-xs font-medium truncate">{{ run.prompt }}</p>
+                <div class="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <span>{{ formatDate(run.startedAt) }}</span>
+                  <span>{{ formatDuration(run.startedAt, run.completedAt) }}</span>
+                  <span v-if="run.totalInputTokens || run.totalOutputTokens">
+                    {{ (run.totalInputTokens + run.totalOutputTokens).toLocaleString() }} tok
+                  </span>
+                </div>
+              </div>
+
+              <!-- Delete button -->
+              <button
+                class="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-destructive/20 transition-opacity"
+                title="Delete run"
+                @click.stop="onDeleteRun(run.id)"
+              >
+                <Trash2 class="h-3 w-3 text-muted-foreground hover:text-destructive" />
+              </button>
             </div>
           </div>
         </ScrollArea>

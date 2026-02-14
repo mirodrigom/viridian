@@ -21,6 +21,7 @@ import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
+import { GOAL_PRESETS } from '@/data/goalPresets';
 import type { AutopilotProfile, ProfileCategory } from '@/types/autopilot';
 
 const store = useAutopilotStore();
@@ -153,6 +154,10 @@ function startRun() {
   showConfig.value = false;
 }
 
+function applyPreset(prompt: string) {
+  goalPrompt.value = prompt;
+}
+
 const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverride.value.trim().length > 0);
 </script>
 
@@ -203,6 +208,17 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
 
           <div class="space-y-2">
             <Label>What should the Autopilot work on?</Label>
+            <div class="flex flex-wrap gap-1.5">
+              <Badge
+                v-for="preset in GOAL_PRESETS"
+                :key="preset.id"
+                variant="outline"
+                class="cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground"
+                @click="applyPreset(preset.prompt)"
+              >
+                {{ preset.label }}
+              </Badge>
+            </div>
             <Textarea
               v-model="goalPrompt"
               placeholder="e.g., Improve error handling across the application, add proper try-catch blocks, user-friendly error messages, and logging..."
