@@ -57,7 +57,7 @@ function onDirSelect(path: string) {
               <ClaudeLogo :size="36" class="text-primary" />
             </div>
           </div>
-          <DialogTitle class="text-center text-xl">Welcome to Claude Code Web</DialogTitle>
+          <DialogTitle class="text-center text-xl">Welcome to Viridian</DialogTitle>
           <DialogDescription class="text-center">
             Let's get you set up in a few quick steps.
           </DialogDescription>

@@ -2,18 +2,18 @@
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStore } from '@/stores/chat';
-import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS, type ClaudeModel, type PermissionMode } from '@/stores/settings';
+import { useSettingsStore } from '@/stores/settings';
 import { useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import OnboardingWizard from '@/components/OnboardingWizard.vue';
 import {
   FolderOpen, ArrowRight, Clock, Moon, Sun, LogOut,
-  Zap, Shield, FileEdit, ClipboardList, Search, ArrowUpCircle, X,
+  Search, ArrowUpCircle, X,
   GitBranch, Loader2,
 } from 'lucide-vue-next';
 import { useVersionCheck } from '@/composables/useVersionCheck';
@@ -130,22 +130,6 @@ function logout() {
   router.push('/login');
 }
 
-function selectModel(value: ClaudeModel) {
-  settings.model = value;
-  settings.save();
-}
-
-function selectPermission(value: PermissionMode) {
-  settings.permissionMode = value;
-  settings.save();
-}
-
-const permissionIcons: Record<string, typeof Zap> = {
-  bypassPermissions: Zap,
-  acceptEdits: FileEdit,
-  plan: ClipboardList,
-  default: Shield,
-};
 </script>
 
 <template>
@@ -171,7 +155,7 @@ const permissionIcons: Record<string, typeof Zap> = {
     <header class="flex h-11 items-center justify-between border-b border-border px-4">
       <div class="flex items-center gap-2">
         <ClaudeLogo :size="18" class="text-primary" />
-        <span class="text-sm font-medium text-foreground">Claude Code Web</span>
+        <span class="text-sm font-medium text-foreground">Viridian</span>
       </div>
       <div class="flex items-center gap-1">
         <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="settings.toggleDarkMode()">
@@ -292,65 +276,12 @@ const permissionIcons: Record<string, typeof Zap> = {
           </CardContent>
         </Card>
 
-        <!-- Quick settings row -->
-        <div class="grid grid-cols-2 gap-4">
-          <!-- Model selection -->
-          <Card>
-            <CardHeader class="pb-2">
-              <CardTitle class="text-sm">Model</CardTitle>
-              <CardDescription class="text-xs">Select Claude model</CardDescription>
-            </CardHeader>
-            <CardContent class="space-y-1.5">
-              <button
-                v-for="m in MODEL_OPTIONS"
-                :key="m.value"
-                class="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all"
-                :class="settings.model === m.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-transparent hover:border-border hover:bg-accent'"
-                @click="selectModel(m.value)"
-              >
-                <div class="flex-1">
-                  <div class="text-sm font-medium text-foreground">{{ m.label }}</div>
-                  <div class="text-xs text-muted-foreground">{{ m.description }}</div>
-                </div>
-                <div v-if="settings.model === m.value" class="h-2 w-2 rounded-full bg-primary" />
-              </button>
-            </CardContent>
-          </Card>
-
-          <!-- Permission mode -->
-          <Card>
-            <CardHeader class="pb-2">
-              <CardTitle class="text-sm">Permissions</CardTitle>
-              <CardDescription class="text-xs">Tool approval mode</CardDescription>
-            </CardHeader>
-            <CardContent class="space-y-1.5">
-              <button
-                v-for="p in PERMISSION_OPTIONS"
-                :key="p.value"
-                class="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all"
-                :class="settings.permissionMode === p.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-transparent hover:border-border hover:bg-accent'"
-                @click="selectPermission(p.value)"
-              >
-                <component :is="permissionIcons[p.value] || Shield" class="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div class="flex-1">
-                  <div class="text-sm font-medium text-foreground">{{ p.label }}</div>
-                  <div class="text-xs text-muted-foreground">{{ p.description }}</div>
-                </div>
-                <div v-if="settings.permissionMode === p.value" class="h-2 w-2 rounded-full bg-primary" />
-              </button>
-            </CardContent>
-          </Card>
-        </div>
       </div>
     </div>
 
     <!-- Version footer -->
     <footer v-if="currentVersion" class="py-2 text-center text-[11px] text-muted-foreground">
-      Claude Code Web v{{ currentVersion }}
+      Viridian v{{ currentVersion }}
     </footer>
 
     <DirectoryPicker

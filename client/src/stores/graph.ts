@@ -70,7 +70,9 @@ export const useGraphStore = defineStore('graph', () => {
   function updateNodeData(id: string, updates: Partial<NodeData>) {
     const node = nodes.value.find(n => n.id === id);
     if (node) {
-      node.data = { ...node.data, ...updates };
+      // Prevent nodeType mutation — it must stay in sync with node.type (used by VueFlow for template selection)
+      const { nodeType: _, ...safeUpdates } = updates as Record<string, unknown>;
+      node.data = { ...node.data, ...safeUpdates };
       isDirty.value = true;
     }
   }
@@ -99,7 +101,30 @@ export const useGraphStore = defineStore('graph', () => {
     const targetType = (targetNode.data as NodeData).nodeType;
 
     const rules = CONNECTION_RULES[sourceType];
-    return rules.some(rule => rule.targets.includes(targetType));
+    if (!rules.some(rule => rule.targets.includes(targetType))) return false;
+
+    // Prevent cycles: check if target can already reach source via existing edges
+    if (wouldCreateCycle(connection.source, connection.target)) return false;
+
+    return true;
+  }
+
+  /** BFS from target to check if source is reachable — adding this edge would create a cycle. */
+  function wouldCreateCycle(source: string, target: string): boolean {
+    const visited = new Set<string>();
+    const queue = [target];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current === source) return true;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const edge of edges.value) {
+        if (edge.source === current) {
+          queue.push(edge.target);
+        }
+      }
+    }
+    return false;
   }
 
   function getEdgeType(sourceType: GraphNodeType, targetType: GraphNodeType): EdgeType | null {
@@ -211,22 +236,46 @@ export const useGraphStore = defineStore('graph', () => {
     const VERTICAL_GAP = 200;
     let y = 50;
 
+    // Build a map of positioned nodes for edge-aware child alignment
+    const positionedNodes = new Map<string, { x: number; y: number }>();
+
     for (const layerTypes of layers) {
       const layerNodes = nodes.value.filter(n =>
         layerTypes.includes((n.data as NodeData).nodeType),
       );
       if (layerNodes.length === 0) continue;
 
+      // Sort children by their parent's x position to cluster related nodes
+      if (positionedNodes.size > 0) {
+        layerNodes.sort((a, b) => {
+          const aParentX = getParentAverageX(a.id, positionedNodes);
+          const bParentX = getParentAverageX(b.id, positionedNodes);
+          return aParentX - bParentX;
+        });
+      }
+
       const totalWidth = layerNodes.length * HORIZONTAL_GAP;
       let x = -(totalWidth / 2) + HORIZONTAL_GAP / 2;
 
       for (const node of layerNodes) {
         node.position = { x, y };
+        positionedNodes.set(node.id, { x, y });
         x += HORIZONTAL_GAP;
       }
       y += VERTICAL_GAP;
     }
     isDirty.value = true;
+  }
+
+  /** Average x of all parent nodes (sources of edges targeting this node). Falls back to 0. */
+  function getParentAverageX(nodeId: string, positionedNodes: Map<string, { x: number; y: number }>): number {
+    const parentEdges = edges.value.filter(e => e.target === nodeId);
+    const parentPositions = parentEdges
+      .map(e => positionedNodes.get(e.source))
+      .filter((p): p is { x: number; y: number } => p != null);
+
+    if (parentPositions.length === 0) return 0;
+    return parentPositions.reduce((sum, p) => sum + p.x, 0) / parentPositions.length;
   }
 
   // ─── Serialization ────────────────────────────────────────────────
@@ -257,7 +306,7 @@ export const useGraphStore = defineStore('graph', () => {
     savedViewport.value = config.viewport ?? null;
     nodes.value = config.nodes.map(n => ({
       id: n.id,
-      type: n.type,
+      type: n.data.nodeType ?? n.type, // data.nodeType is the source of truth
       position: n.position,
       data: n.data,
     }));

@@ -217,5 +217,10 @@ export function setupChatWs(server: Server) {
 function safeSend(ws: WebSocket, data: unknown) {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
+  } else {
+    const d = data as { type?: string };
+    if (d.type === 'stream_end') {
+      console.warn(`[Chat WS] Tried to send stream_end but WebSocket is in state ${ws.readyState} (not OPEN)`);
+    }
   }
 }

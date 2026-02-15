@@ -154,7 +154,7 @@ Not all node types can connect to each other. The following table shows valid co
 
 | Source Node | Can Connect To | Edge Type |
 |-------------|---------------|-----------|
-| **Agent** | Subagent | delegation |
+| **Agent** | Subagent, Expert | delegation |
 | **Agent** | Skill | skill-usage |
 | **Agent** | MCP | tool-access |
 | **Agent** | Rule | rule-constraint |
@@ -277,11 +277,141 @@ When a graph runs, the following sequence occurs:
 
 5. **Delegation** -- When the root agent calls the `Task` tool with a `subagent_type`, the server maps that to a graph node via the agent key-to-nodeId mapping. The child node enters a "delegated" state (pending activation). When the child produces its first output (text, tool use, or thinking), it transitions to "running".
 
-6. **Cascading** -- For deeply nested graphs, downstream nodes are activated with staggered delays (800ms between starts, 400ms between completions) to create a visible progression in the timeline.
+6. **Cascading** -- For deeply nested graphs, downstream nodes are activated with staggered delays (300ms between starts, 200ms between completions) to create a visible progression in the timeline.
 
 7. **Completion** -- When a subagent returns its result, downstream nodes complete in bottom-up order (skills first, then delegates), followed by the subagent itself. A `result_return` event triggers a reverse edge flow animation.
 
 8. **Cleanup** -- The temporary directory is removed and graph runner session IDs are cleaned up so they don't appear in the chat sidebar.
+
+### Timeout Protection
+
+Each node execution has a **10-minute inactivity timeout**. If a node stops producing any events (text, tool calls, thinking) for 10 minutes, the runner automatically aborts the entire run and emits an error. This prevents graph runs from hanging indefinitely due to network issues, rate limits, or other problems.
+
+The timeout resets every time the node produces any output, so long-running tasks that are actively working will not be interrupted.
+
+## How It Works Under the Hood
+
+This section explains the internal architecture of the Graph Runner engine -- what happens between clicking "Run" and seeing results. Understanding this helps you design better graphs and debug issues when execution doesn't go as expected.
+
+### The Temporary Directory Trick
+
+Claude CLI auto-discovers configuration files from its current working directory:
+- **`CLAUDE.md`** -- Project-level instructions and rules
+- **`.mcp.json`** -- MCP server configuration
+
+The Graph Runner exploits this by creating a **temporary directory** (e.g., `/tmp/graph-run-abc123/`) and writing these files based on your Rule and MCP nodes. The Claude CLI process runs from this tmpdir, so it automatically picks up your rules and MCP servers without any special flags.
+
+```
+/tmp/graph-run-abc123/
+├── CLAUDE.md          ← Generated from all Rule nodes in the graph
+└── .mcp.json          ← Generated from all MCP nodes in the graph
+```
+
+Since the CLI runs from the tmpdir instead of your project, every agent (root and sub-agents) gets an explicit instruction in its system prompt:
+
+> *"IMPORTANT: The project you are working on is located at: /path/to/your/project. You MUST use absolute paths..."*
+
+This ensures agents read, write, and search files in your actual project directory.
+
+::: warning
+If no Rule or MCP nodes are connected, no tmpdir is created and the CLI runs directly from your project directory. This is the simplest and fastest path.
+:::
+
+### Agent Flattening: From Tree to Flat Pool
+
+Claude CLI's `--agents` flag accepts a **flat** pool of agents -- it doesn't support nested hierarchies. But your graph might have a tree structure like:
+
+```
+Agent (Orchestrator)
+├── Subagent Frontend
+│   ├── Expert UI
+│   └── Expert A11y
+└── Subagent Backend
+    └── Expert Database
+```
+
+The Graph Runner solves this with a **two-pass flattening** algorithm:
+
+**Pass 1 (BFS):** Walk the delegation tree from the root. Every reachable delegate is registered in the flat pool with a unique PascalCase key derived from its label:
+
+```json
+{
+  "SubagentFrontend": { "description": "...", "prompt": "...", "tools": [...] },
+  "ExpertUi": { "description": "...", "prompt": "...", "tools": [...] },
+  "ExpertA11y": { "description": "...", "prompt": "...", "tools": [...] },
+  "SubagentBackend": { "description": "...", "prompt": "...", "tools": [...] },
+  "ExpertDatabase": { "description": "...", "prompt": "...", "tools": [...] }
+}
+```
+
+**Pass 2 (Orchestrator detection):** Any delegate that has its own delegates is an **intermediate orchestrator**. These get:
+- Delegation instructions injected into their prompt (telling them which sub-agents to use)
+- Tools restricted to `[Task, TodoWrite]` (so they delegate instead of doing work directly)
+
+In the example above, `SubagentFrontend` would become an intermediate orchestrator because it has `ExpertUi` and `ExpertA11y` as delegates. The root agent is also an orchestrator.
+
+### The Delegation Detection Pipeline
+
+When the root agent calls the `Task` tool to delegate work, the Graph Runner intercepts the event and maps it to the corresponding graph node. Here's how:
+
+1. **Tool call detected** -- The CLI emits a `tool_use` event with `tool: "Task"` and `input.subagent_type: "SubagentFrontend"`.
+
+2. **Key lookup** -- The server looks up `"SubagentFrontend"` in the `agentKeyToNodeId` map to find the graph node ID.
+
+3. **Fuzzy fallback** -- If the exact key isn't found (Claude sometimes uses different names, e.g., `"general-purpose"` or its own labels), the server tries:
+   - Case-insensitive match against delegate labels
+   - Partial string matching (contains/contained-in)
+   - If there's only one delegate, it unambiguously routes there
+
+4. **Event mapping** -- The Task tool's `requestId` is mapped to the child node ID. All subsequent events from this sub-agent (text deltas, tool calls, thinking) are routed to the correct node in the timeline.
+
+5. **Lazy activation** -- The child node starts in a "delegated" state (blue dashed border on the canvas). It only transitions to "running" (yellow pulse) when it produces its first real output. This prevents nodes from appearing active before they've actually started working.
+
+### Leaf vs Orchestrator Behavior
+
+| Behavior | Leaf Agent | Orchestrator |
+|----------|-----------|--------------|
+| **System prompt** | Appended to Claude's defaults | Appended to Claude's defaults + delegation instructions |
+| **Available tools** | All tools (Bash, Read, Write, etc.) | Only Task + TodoWrite |
+| **User prompt** | Passed directly | Wrapped with "you MUST delegate" instruction |
+| **Slash commands** | Enabled | Disabled (prevents interference) |
+| **Permission mode** | Configurable per node | Defaults to bypassPermissions |
+
+### Event Routing for Multi-Level Graphs
+
+In a multi-level graph, events from different agents are interleaved in a single stream. The Graph Runner uses `parentToolUseId` to route events to the correct node:
+
+```
+Event: text_delta { parentToolUseId: null }
+  → Root node (parentToolUseId is null = root agent)
+
+Event: text_delta { parentToolUseId: "tu_abc123" }
+  → Look up "tu_abc123" in taskToolUseToNodeId map
+  → Route to the node that was delegated via that Task call
+```
+
+This is how the timeline shows per-node output even though there's only one Claude CLI process running.
+
+### Cascade Timing
+
+When a sub-agent starts or completes, the Graph Runner cascades activation/completion to its downstream nodes (delegates and skills) with staggered delays:
+
+- **Start cascade:** 300ms between each node activation
+- **Completion cascade:** 200ms between each node completion (bottom-up: skills first, then delegates)
+
+This creates a visual "wave" effect in the timeline and on the canvas, making it clear which nodes are being activated as part of which delegation.
+
+### What Happens When Things Go Wrong
+
+| Scenario | What the Runner Does |
+|----------|---------------------|
+| **Claude picks a wrong agent name** | Fuzzy matching tries to find the intended delegate; falls back to the only delegate if unambiguous |
+| **Node produces no output** | Node is marked as "skipped" (completed without content) |
+| **Node fails** | `node_failed` event emitted, error shown in timeline and node detail |
+| **Run fails** | All nodes stop, `run_failed` event emitted, timeline shows the error |
+| **Node hangs for 10+ minutes** | Inactivity timeout triggers, entire run is aborted with a timeout error |
+| **WebSocket disconnects** | Client auto-reconnects; the run continues server-side |
+| **User aborts** | `abort_run` message sent, Claude CLI process is killed with SIGTERM |
 
 ### Aborting a Run
 

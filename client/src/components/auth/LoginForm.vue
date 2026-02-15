@@ -61,7 +61,7 @@ async function handleSubmit() {
             <ClaudeLogo :size="40" class="text-primary" />
           </div>
         </div>
-        <h1 class="text-2xl font-bold tracking-tight text-foreground">Claude Code Web</h1>
+        <h1 class="text-2xl font-bold tracking-tight text-foreground">Viridian</h1>
         <p class="mt-1 text-sm text-muted-foreground">
           {{ needsSetup ? 'Set up your first account to get started' : 'Sign in to start coding with Claude' }}
         </p>
@@ -136,7 +136,7 @@ async function handleSubmit() {
       </Card>
 
       <p class="text-center text-xs text-muted-foreground">
-        Powered by Claude Code &middot; Anthropic
+        Powered by Claude &middot; Anthropic
       </p>
     </div>
   </div>

@@ -142,7 +142,7 @@ export const NODE_CONFIG: Record<GraphNodeType, {
 // ─── Connection rules ───────────────────────────────────────────────────
 export const CONNECTION_RULES: Record<GraphNodeType, { targets: GraphNodeType[]; edgeType: EdgeType }[]> = {
   agent: [
-    { targets: ['subagent'], edgeType: 'delegation' },
+    { targets: ['subagent', 'expert'], edgeType: 'delegation' },
     { targets: ['skill'],    edgeType: 'skill-usage' },
     { targets: ['mcp'],      edgeType: 'tool-access' },
     { targets: ['rule'],     edgeType: 'rule-constraint' },

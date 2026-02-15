@@ -37,7 +37,7 @@ function logout() {
       <div class="flex min-w-0 items-center gap-1.5 md:gap-2">
         <div class="flex shrink-0 items-center gap-1.5">
           <ClaudeLogo :size="20" class="text-primary" />
-          <span class="hidden text-sm font-semibold text-foreground sm:inline">Claude Code</span>
+          <span class="hidden text-sm font-semibold text-foreground sm:inline">Viridian</span>
         </div>
 
         <Separator orientation="vertical" class="mx-0.5 hidden h-5 sm:block md:mx-1" />

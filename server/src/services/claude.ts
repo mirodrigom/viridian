@@ -101,12 +101,29 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       for await (const msg of stream) {
         emitSDKMessage(session, msg);
       }
+      // Safety net: if the generator finished but isStreaming is still true,
+      // it means buildEmitEvent never saw a 'result' message (or pendingQuestionBuffer
+      // swallowed the stream_end). Force-emit stream_end so the client isn't left hanging.
+      if (session.isStreaming) {
+        console.warn(`[Claude] stream generator finished but session ${session.id} still marked as streaming — forcing stream_end`);
+        session.isStreaming = false;
+        session.lastActivity = Date.now();
+        session.emitter.emit('stream_end', {
+          sessionId: session.id,
+          claudeSessionId: session.claudeSessionId,
+          usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
+        });
+      }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       session.isStreaming = false;
       session.lastActivity = Date.now();
       session.emitter.emit('error', { error: errorMsg });
-      session.emitter.emit('stream_end', { sessionId: session.id });
+      session.emitter.emit('stream_end', {
+        sessionId: session.id,
+        claudeSessionId: session.claudeSessionId,
+        usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
+      });
     }
   })();
 }
@@ -168,7 +185,15 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
   // Allow through: control_request (so client shows the modal) and tool_input events
   // for the AskUserQuestion tool itself (so input streams to the client).
   if (session.pendingQuestionBuffer !== null) {
-    if (msg.type === 'control_request' || msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
+    if (msg.type === 'result') {
+      // NEVER buffer stream_end — flush the buffer first, then emit stream_end
+      const buffered = session.pendingQuestionBuffer;
+      session.pendingQuestionBuffer = null;
+      for (const evt of buffered) {
+        session.emitter.emit(evt.event, evt.data);
+      }
+      // Fall through to emit the result/stream_end normally
+    } else if (msg.type === 'control_request' || msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
       // These pass through to the client
     } else {
       const evt = buildEmitEvent(session, msg);

@@ -73,6 +73,11 @@ interface RunEnvironment {
   cleanup: () => void;
 }
 
+/** Default token budget for a graph run (if root node doesn't specify maxTokens) */
+const DEFAULT_TOKEN_BUDGET = 500_000;
+/** Emit a budget_warning event at this fraction of the budget */
+const BUDGET_WARNING_THRESHOLD = 0.8;
+
 interface ExecutionContext {
   runId: string;
   cwd: string;
@@ -87,6 +92,10 @@ interface ExecutionContext {
   usages: Map<string, { inputTokens: number; outputTokens: number }>;
   pendingNodes: Set<string>; // nodes delegated-to but not yet producing output
   pendingNodeParents: Map<string, string>; // nodeId → callerNodeId for deferred activation
+  // Token budget tracking
+  tokenBudget: number;           // max total tokens for this run
+  totalTokensUsed: number;       // running total across all nodes
+  budgetWarningEmitted: boolean; // whether 80% warning was already emitted
 }
 
 // ─── Run Environment (tmpdir with CLAUDE.md + .mcp.json) ────────────────
@@ -294,7 +303,7 @@ function toAgentKey(label: string, usedKeys: Set<string>): string {
     .replace(/[^a-zA-Z0-9\s_-]/g, '')
     .split(/[\s_-]+/)
     .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join('');
 
   if (!key) key = 'Agent';
@@ -375,15 +384,28 @@ function buildAgentsConfig(
       // Explicitly set tools for every sub-agent. The root uses --tools to restrict
       // its own toolset, and sub-agents in --agents JSON need their own tools field
       // to ensure they have the right capabilities.
-      // Default: full tool set for leaf agents. Pass 2 overrides this for orchestrators.
+      // No Task tool — nested delegation doesn't work in CLI's flat agent pool.
+      const defaultLeafTools = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch'];
       const delegateAllowedTools = (delegate.data.allowedTools as string[]) || undefined;
-      const defaultLeafTools = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch', 'Task'];
+      const agentTools = delegateAllowedTools || defaultLeafTools;
+
+      // Add universal instructions for all sub-agents
+      agentPrompt += `\n\nIMPORTANT INSTRUCTIONS:
+- Focus on the specific task you receive. Only perform work relevant to the user's actual request.
+- If your role description mentions "delegating" to other agents, IGNORE that — do the work yourself directly using your tools.
+- Your available tools are (case-sensitive, use EXACTLY these names): ${agentTools.join(', ')}
+- To read files use Read (NOT cat, read_file, or file_read)
+- To run commands use Bash (NOT bash, shell, or execute)
+- To search files use Glob and Grep (NOT find or grep)
+- Do NOT use tools named: Task, read_file, file_read, cat, bash, shell, execute, run_command, view_file, LS`;
 
       agents[agentKey] = {
         description: desc,
         prompt: agentPrompt,
         tools: delegateAllowedTools || defaultLeafTools,
-        model: (delegate.data.model as string) || undefined,
+        // NOTE: Do NOT pass `model` here — Claude CLI v2.1.x silently fails to
+        // register ANY custom agents when the `model` field is present in the
+        // --agents JSON. Sub-agents inherit the root's model by default.
         permissionMode: (delegate.data.permissionMode as string) || 'bypassPermissions',
         maxTurns: (delegate.data.maxTurns as number) || 25,
       };
@@ -396,38 +418,11 @@ function buildAgentsConfig(
     }
   }
 
-  // ── Pass 2: Add delegation instructions to intermediate orchestrators ──
-  // An intermediate orchestrator is a delegate that has its OWN delegates
-  // (e.g. SubagentGitHub has Expert delegates). These need:
-  //   1. Delegation instructions in their prompt (so they know to use Task tool)
-  //   2. Tool restrictions: only Task + TodoWrite (so they don't do work directly)
-  for (const [delegateNodeId, agentKey] of nodeIdToKey) {
-    const delegateResolved = resolvedNodes.get(delegateNodeId);
-    if (!delegateResolved || delegateResolved.delegates.length === 0) continue;
-
-    // This delegate has its own delegates — it's an intermediate orchestrator
-    // Collect its child agents from the flat pool
-    const childAgents: Record<string, AgentConfig> = {};
-    for (const childDelegate of delegateResolved.delegates) {
-      const childKey = nodeIdToKey.get(childDelegate.id);
-      if (childKey && agents[childKey]) {
-        childAgents[childKey] = agents[childKey];
-      }
-    }
-
-    if (Object.keys(childAgents).length > 0) {
-      // Append delegation instructions to this agent's prompt
-      agents[agentKey]!.prompt = appendDelegationInstructions(
-        agents[agentKey]!.prompt,
-        childAgents,
-      );
-      // Restrict tools to force delegation
-      agents[agentKey]!.tools = ['Task', 'TodoWrite'];
-
-      const childLabel = (delegateResolved.node.data.label as string) || delegateNodeId;
-      debugLog(`[GraphRunner] Intermediate orchestrator "${childLabel}" → delegates to: [${Object.keys(childAgents).join(', ')}], tools restricted to Task+TodoWrite`);
-    }
-  }
+  // NOTE: Pass 2 (intermediate orchestrator delegation) is intentionally removed.
+  // Claude CLI's flat agent pool does NOT support nested delegation — sub-agents
+  // calling Task to invoke other sub-agents always results in "Skipped: no_output".
+  // Only the root orchestrator can delegate via Task. All sub-agents should do
+  // work directly with their own tools (Read, Bash, Grep, etc.).
 
   return { agents, keyToNodeId };
 }
@@ -440,9 +435,9 @@ function composeSystemPrompt(
 ): string {
   const parts: string[] = [];
 
-  // 0. Project path instruction (when running from tmpdir)
+  // 0. Project path instruction — always included so agents know where files are
   if (opts?.projectPath) {
-    parts.push(`The project you are working on is located at ${opts.projectPath}. Always use absolute paths when reading, editing, or creating project files.`);
+    parts.push(`IMPORTANT: The project you are working on is located at: ${opts.projectPath}\nYou MUST use absolute paths (starting with ${opts.projectPath}) when reading, editing, creating, or searching project files. Do NOT use relative paths.`);
   }
 
   // 1. Node's own system prompt
@@ -496,7 +491,7 @@ function appendDelegationInstructions(
   const allowedNames = agentEntries.map(([key]) => `"${key}"`).join(', ');
 
   const delegation = `
-## YOU ARE AN ORCHESTRATOR — DELEGATE EVERYTHING
+## YOU ARE AN ORCHESTRATOR — DELEGATE VIA TASK TOOL
 
 You are a coordinator. You have NO tools except Task. You CANNOT read files, write code, or run commands.
 Your ONLY capability is delegating to sub-agents via the Task tool.
@@ -515,11 +510,13 @@ Example:
 {"subagent_type": "${agentEntries[0]![0]}", "prompt": "Do X, Y, Z...", "description": "Handle the task"}
 \`\`\`
 
-### Rules
-1. ONLY use subagent_type values from: ${allowedNames}. No other values are valid.
-2. NEVER try to do work directly — you have no tools for it.
-3. Delegate to the SINGLE best-matching sub-agent first.
-4. After receiving results, synthesize and present the final answer.`;
+### CRITICAL RULES
+1. The \`subagent_type\` parameter MUST be EXACTLY one of: ${allowedNames}. These are CASE-SENSITIVE.
+2. NEVER use built-in agent types like "general-purpose", "Bash", "Explore", "Plan", etc. Those will FAIL.
+3. NEVER try to do work directly — you have no tools for it.
+4. Only delegate to sub-agents whose specialty is RELEVANT to the user's request. Do NOT use all agents — only the ones needed.
+5. For simple tasks, a single sub-agent may be enough. Do NOT over-delegate.
+6. After receiving results, synthesize and present the final answer.`;
 
   return systemPrompt ? `${systemPrompt}\n${delegation}` : delegation.trim();
 }
@@ -550,10 +547,13 @@ async function executeNode(
   });
 
   // Compose options: skip rules in system prompt when they're in CLAUDE.md (tmpdir),
-  // and provide the real project path so agents know where to find files
-  const composeOpts = ctx.env.tmpDir
-    ? { skipRules: true, projectPath: ctx.env.realProjectPath }
-    : undefined;
+  // and ALWAYS provide the project path so agents know where to find files.
+  // This is critical because sub-agents in the --agents pool may not inherit
+  // the correct cwd, and even when they do, explicit paths prevent confusion.
+  const composeOpts = {
+    skipRules: !!ctx.env.tmpDir,
+    projectPath: ctx.env.realProjectPath,
+  };
 
   // Build agents config from delegation edges (flattened)
   const { agents, keyToNodeId } = buildAgentsConfig(nodeId, ctx.resolvedNodes, composeOpts);
@@ -567,19 +567,33 @@ async function executeNode(
   let systemPrompt = composeSystemPrompt(resolved, composeOpts);
   const hasAgents = Object.keys(agents).length > 0;
 
-  // For orchestrators (nodes with sub-agents), use --system-prompt (replaces
-  // Claude defaults) so delegation instructions have maximum authority.
-  // For leaf agents, use --append-system-prompt to augment defaults.
-  let useSystemPrompt: string | undefined;
+  // Always use --append-system-prompt to augment Claude's defaults (never replace them).
+  // Orchestrators and leaf agents both benefit from Claude's built-in instructions.
   let useAppendSystemPrompt: string | undefined;
   let effectivePrompt = prompt;
 
   if (hasAgents) {
-    systemPrompt = appendDelegationInstructions(systemPrompt, agents);
-    useSystemPrompt = systemPrompt;
-    // Wrap the user prompt so the orchestrator knows it must delegate
-    effectivePrompt = `The user's task is below. You MUST delegate this to your sub-agents using the Task tool. Do NOT attempt to do the work yourself.\n\n---\n\n${prompt}`;
-    debugLog(`[GraphRunner] Node "${nodeLabel}" has ${Object.keys(agents).length} agents: [${Object.keys(agents).join(', ')}]`);
+    // Only show the root's DIRECT children in delegation instructions,
+    // not the entire flattened pool. This prevents the root from bypassing
+    // intermediate orchestrators and delegating directly to leaf experts.
+    const directChildAgents: Record<string, AgentConfig> = {};
+    for (const delegate of resolved.delegates) {
+      const childKey = [...keyToNodeId.entries()].find(([, nid]) => nid === delegate.id)?.[0];
+      if (childKey && agents[childKey]) {
+        directChildAgents[childKey] = agents[childKey];
+      }
+    }
+    const agentsForPrompt = Object.keys(directChildAgents).length > 0 ? directChildAgents : agents;
+
+    systemPrompt = appendDelegationInstructions(systemPrompt, agentsForPrompt);
+    // Use --append-system-prompt (not --system-prompt) to preserve Claude's defaults.
+    // Claude needs its built-in tool usage instructions even for orchestrators.
+    useAppendSystemPrompt = systemPrompt;
+    // Wrap the user prompt so the orchestrator knows it must delegate.
+    // Reinforce custom agent names to prevent using built-in types.
+    const agentNames = Object.keys(agentsForPrompt).map(k => `"${k}"`).join(', ');
+    effectivePrompt = `TASK-DRIVEN DELEGATION: Read the user's task below carefully. Delegate ONLY to sub-agents whose specialty is directly relevant to what the user is asking for. Ignore any fixed process or numbered steps in your system prompt — the user's actual request decides which agents to use and how many. For a simple task, one sub-agent is enough.\n\nYour subagent_type values are EXACTLY: ${agentNames}. Do NOT use "general-purpose" or any other built-in type.\n\nIMPORTANT: Do NOT retry or re-delegate to the same sub-agent. Each sub-agent runs once. Accept the result and synthesize your final answer from it. If a result is incomplete, present what you have — do NOT call the same agent again.\n\n---\n\nUSER TASK: ${prompt}`;
+    debugLog(`[GraphRunner] Node "${nodeLabel}" has ${Object.keys(agents).length} agents in pool: [${Object.keys(agents).join(', ')}], direct children for prompt: [${Object.keys(agentsForPrompt).join(', ')}]`);
   } else {
     useAppendSystemPrompt = systemPrompt || undefined;
     debugLog(`[GraphRunner] Node "${nodeLabel}" has NO agents (delegates: ${resolved.delegates.length})`);
@@ -597,8 +611,13 @@ async function executeNode(
   let allowedTools: string[] | undefined;
   let disallowedTools: string[] | undefined;
   if (hasAgents) {
-    tools = ['Task', 'TodoWrite'];
-    debugLog(`[GraphRunner] Node "${nodeLabel}" is orchestrator — --tools restricted to: ${tools.join(', ')}`);
+    // NOTE: Do NOT use --tools to restrict root to Task,TodoWrite.
+    // --tools is a GLOBAL restriction that also applies to sub-agents,
+    // preventing them from using Read, Bash, Glob, etc. even if their
+    // individual agent config specifies those tools.
+    // Instead, rely on the system prompt to make the root only use Task.
+    // Sub-agents need full tool access to do their work.
+    debugLog(`[GraphRunner] Node "${nodeLabel}" is orchestrator — no --tools restriction (sub-agents need tool access)`);
   } else {
     allowedTools = resolved.node.data.allowedTools as string[] | undefined;
     disallowedTools = resolved.node.data.disallowedTools as string[] | undefined;
@@ -608,6 +627,10 @@ async function executeNode(
   let inputTokens = 0;
   let outputTokens = 0;
   let accumulatedText = '';
+
+  // Timeout: abort node if it runs longer than NODE_EXECUTION_TIMEOUT
+  let nodeTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastActivityAt = Date.now();
 
   try {
     const stream = claudeQuery({
@@ -619,14 +642,24 @@ async function executeNode(
       allowedTools,
       disallowedTools,
       disableSlashCommands: hasAgents, // prevent built-in Skill tool from interfering
-      systemPrompt: useSystemPrompt,
       appendSystemPrompt: useAppendSystemPrompt,
       agents: hasAgents ? agents : undefined,
       abortSignal: ctx.abortController.signal,
     });
 
+    // Start a periodic check for inactivity (every 60s)
+    nodeTimeout = setInterval(() => {
+      const elapsed = Date.now() - lastActivityAt;
+      if (elapsed > NODE_EXECUTION_TIMEOUT) {
+        debugLog(`[GraphRunner] Node "${nodeLabel}" (${nodeId}) timed out after ${Math.round(elapsed / 1000)}s of inactivity. Aborting run.`);
+        ctx.emitter.emit('node_error', { nodeId, error: `Node timed out after ${Math.round(NODE_EXECUTION_TIMEOUT / 60000)} minutes of inactivity` });
+        ctx.abortController.abort();
+      }
+    }, 60_000);
+
     for await (const msg of stream) {
       if (ctx.abortController.signal.aborted) break;
+      lastActivityAt = Date.now();
       processNodeMessage(ctx, nodeId, msg, {
         onText: (text) => { accumulatedText += text; },
         onInputTokens: (t) => { inputTokens = t; },
@@ -641,6 +674,8 @@ async function executeNode(
     const error = err instanceof Error ? err.message : 'Unknown error';
     ctx.emitter.emit('node_failed', { nodeId, error });
     throw err;
+  } finally {
+    if (nodeTimeout) clearInterval(nodeTimeout);
   }
 
   // Store final output
@@ -702,138 +737,46 @@ function activateNodeIfPending(ctx: ExecutionContext, nodeId: string): boolean {
     parentNodeId,
   });
 
-  emitDownstreamActivation(ctx, nodeId, resolved, 'started');
+  // No cascade — nested delegation doesn't work in CLI's flat agent pool,
+  // so downstream nodes (experts, skills) won't actually execute.
   return true;
 }
 
-/** Delay between each cascaded node activation (ms) */
-const CASCADE_START_DELAY = 800;  // visible progression when starting
-const CASCADE_COMPLETE_DELAY = 400; // faster wrap-up when completing
-
 /**
- * Recursively activate ALL downstream nodes (delegates, skills) when a
- * sub-agent starts or completes. The Claude CLI's --agents flat pool only
- * streams first-level delegation events — deeper delegations happen opaquely.
- * So we "cascade" activation to make the entire subtree visible in the timeline.
- *
- * Uses staggered delays so the timeline shows a visible progression instead
- * of all nodes appearing at the same timestamp.
- *
- * For starts:  delegates first → recurse into their subtrees → skills last
- * For completions: skills first → recurse into subtrees → delegates last
- *                  (leaves complete before parents — natural bottom-up order)
- *
- * Returns the total number of steps scheduled (for computing final delay).
+ * Check if the run has exceeded its token budget.
+ * Emits a warning at 80% and aborts at 100%.
  */
-function emitDownstreamActivation(
-  ctx: ExecutionContext,
-  parentNodeId: string,
-  resolved: ResolvedNode,
-  phase: 'started' | 'completed',
-  visited = new Set<string>(),
-  step = { value: 0 },
-): number {
-  const stepDelay = phase === 'started' ? CASCADE_START_DELAY : CASCADE_COMPLETE_DELAY;
+function checkTokenBudget(ctx: ExecutionContext) {
+  const ratio = ctx.totalTokensUsed / ctx.tokenBudget;
 
-  if (phase === 'started') {
-    // ── Start order: delegates first, then recurse, then skills ──
-    for (const delegate of resolved.delegates) {
-      if (visited.has(delegate.id)) continue;
-      visited.add(delegate.id);
-      const delegateResolved = ctx.resolvedNodes.get(delegate.id);
-      const delegateLabel = (delegate.data.label as string) || delegate.type;
-      const delay = step.value++ * stepDelay;
-
-      setTimeout(() => {
-        if (ctx.abortController.signal.aborted) return;
-        ctx.emitter.emit('delegation', {
-          parentNodeId,
-          childNodeId: delegate.id,
-          childLabel: delegateLabel,
-          task: '(cascaded from parent delegation)',
-        });
-        ctx.emitter.emit('node_started', {
-          nodeId: delegate.id,
-          nodeLabel: delegateLabel,
-          nodeType: delegate.type,
-          inputPrompt: '',
-          parentNodeId,
-        });
-      }, delay);
-
-      // Recurse into this delegate's subtree
-      if (delegateResolved) {
-        emitDownstreamActivation(ctx, delegate.id, delegateResolved, phase, visited, step);
-      }
-    }
-
-    // Skills come after all delegates and their subtrees
-    for (const skill of resolved.skills) {
-      if (visited.has(skill.id)) continue;
-      visited.add(skill.id);
-      const skillLabel = (skill.data.label as string) || 'Skill';
-      const delay = step.value++ * stepDelay;
-
-      setTimeout(() => {
-        if (ctx.abortController.signal.aborted) return;
-        ctx.emitter.emit('node_started', {
-          nodeId: skill.id,
-          nodeLabel: skillLabel,
-          nodeType: 'skill',
-          inputPrompt: '',
-          parentNodeId,
-        });
-      }, delay);
-    }
-  } else {
-    // ── Complete order: skills first, then recurse into subtrees, then delegates ──
-    // (leaves complete before parents — natural bottom-up order)
-    for (const skill of resolved.skills) {
-      if (visited.has(skill.id)) continue;
-      visited.add(skill.id);
-      const delay = step.value++ * stepDelay;
-
-      setTimeout(() => {
-        if (ctx.abortController.signal.aborted) return;
-        ctx.emitter.emit('node_completed', {
-          nodeId: skill.id,
-          outputText: '',
-          usage: { inputTokens: 0, outputTokens: 0 },
-        });
-      }, delay);
-    }
-
-    for (const delegate of resolved.delegates) {
-      if (visited.has(delegate.id)) continue;
-      visited.add(delegate.id);
-      const delegateResolved = ctx.resolvedNodes.get(delegate.id);
-      const delegateLabel = (delegate.data.label as string) || delegate.type;
-
-      // Recurse into this delegate's subtree first (children complete before parent)
-      if (delegateResolved) {
-        emitDownstreamActivation(ctx, delegate.id, delegateResolved, phase, visited, step);
-      }
-
-      const delay = step.value++ * stepDelay;
-      setTimeout(() => {
-        if (ctx.abortController.signal.aborted) return;
-        ctx.emitter.emit('node_completed', {
-          nodeId: delegate.id,
-          outputText: '',
-          usage: { inputTokens: 0, outputTokens: 0 },
-        });
-        ctx.emitter.emit('result_return', {
-          parentNodeId,
-          childNodeId: delegate.id,
-          childLabel: delegateLabel,
-          result: '(completed with parent)',
-        });
-      }, delay);
-    }
+  if (!ctx.budgetWarningEmitted && ratio >= BUDGET_WARNING_THRESHOLD) {
+    ctx.budgetWarningEmitted = true;
+    const pct = Math.round(ratio * 100);
+    debugLog(`[GraphRunner] Token budget warning: ${ctx.totalTokensUsed.toLocaleString()} / ${ctx.tokenBudget.toLocaleString()} (${pct}%)`);
+    ctx.emitter.emit('budget_warning', {
+      totalTokensUsed: ctx.totalTokensUsed,
+      tokenBudget: ctx.tokenBudget,
+      percentage: pct,
+    });
   }
 
-  return step.value;
+  if (ratio >= 1.0) {
+    debugLog(`[GraphRunner] Token budget EXCEEDED: ${ctx.totalTokensUsed.toLocaleString()} / ${ctx.tokenBudget.toLocaleString()}. Aborting run.`);
+    ctx.emitter.emit('budget_exceeded', {
+      totalTokensUsed: ctx.totalTokensUsed,
+      tokenBudget: ctx.tokenBudget,
+    });
+    ctx.abortController.abort();
+  }
 }
+
+/** Maximum time (ms) a single node execution can run before being considered stuck */
+const NODE_EXECUTION_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+
+// NOTE: Cascade activation (emitDownstreamActivation) was removed because
+// nested delegation doesn't work in Claude CLI's flat agent pool. Only the
+// root can delegate via Task — sub-agents do work directly with their tools.
+// The timeline only shows nodes that actually execute.
 
 /**
  * Handle a Task tool call from any agent level — creates the parentToolUseId→nodeId
@@ -852,12 +795,11 @@ function handleTaskDelegation(
   let delegateNodeId = ctx.agentKeyToNodeId.get(agentType);
   let delegateResolved = delegateNodeId ? ctx.resolvedNodes.get(delegateNodeId) : null;
 
-  // Fallback: if Claude chose a built-in agent (Bash, general-purpose, etc.)
-  // instead of our custom agents, route to the first available custom delegate.
-  // This happens when the CLI pool includes both built-in and custom agents.
+  // Fallback: if Claude chose a built-in agent name (e.g. "general-purpose",
+  // "Bash") instead of one of our custom agent keys, try to match by fuzzy name.
   if (!delegateResolved || !delegateNodeId) {
     const customKeys = [...ctx.agentKeyToNodeId.keys()];
-    debugLog(`[GraphRunner] Task delegation: agentType="${agentType}" not found in agentKeyToNodeId (keys=[${customKeys.join(', ')}]). Attempting fallback...`);
+    debugLog(`[GraphRunner] Task delegation: agentType="${agentType}" not found in agentKeyToNodeId (keys=[${customKeys.join(', ')}]). taskPrompt="${taskPrompt.slice(0, 150)}". Attempting fuzzy match...`);
 
     // Determine the caller node to find its direct delegates
     const callerNodeId = parentToolUseId
@@ -866,18 +808,67 @@ function handleTaskDelegation(
     const callerResolved = ctx.resolvedNodes.get(callerNodeId);
 
     if (callerResolved && callerResolved.delegates.length > 0) {
-      // Route to the first delegate of the caller
-      const fallbackDelegate = callerResolved.delegates[0]!;
-      const fallbackKey = customKeys.find(k => ctx.agentKeyToNodeId.get(k) === fallbackDelegate.id);
-      if (fallbackKey) {
-        delegateNodeId = ctx.agentKeyToNodeId.get(fallbackKey)!;
+      // Try fuzzy match: compare agentType against delegate labels (case-insensitive)
+      const agentTypeLower = agentType.toLowerCase().replace(/[-_\s]/g, '');
+      let bestMatch: { key: string; nodeId: string } | null = null;
+
+      for (const delegate of callerResolved.delegates) {
+        const delegateLabel = ((delegate.data.label as string) || '').toLowerCase().replace(/[-_\s]/g, '');
+        const delegateKey = customKeys.find(k => ctx.agentKeyToNodeId.get(k) === delegate.id);
+        if (!delegateKey) continue;
+
+        // Exact match on normalized label
+        if (delegateLabel === agentTypeLower || delegateKey.toLowerCase() === agentTypeLower) {
+          bestMatch = { key: delegateKey, nodeId: delegate.id };
+          break;
+        }
+        // Partial match: agentType contains or is contained in label
+        if (delegateLabel.includes(agentTypeLower) || agentTypeLower.includes(delegateLabel)) {
+          bestMatch = { key: delegateKey, nodeId: delegate.id };
+        }
+      }
+
+      // Content-based fallback: when agentType is a built-in (e.g. "general-purpose"),
+      // match the task prompt against delegate descriptions to find the best fit.
+      if (!bestMatch && taskPrompt) {
+        const promptLower = taskPrompt.toLowerCase();
+        let bestScore = 0;
+        for (const delegate of callerResolved.delegates) {
+          const delegateKey = customKeys.find(k => ctx.agentKeyToNodeId.get(k) === delegate.id);
+          if (!delegateKey) continue;
+          // Score: count how many words from the delegate's description/label appear in the prompt
+          const desc = ((delegate.data.taskDescription as string) || (delegate.data.label as string) || '').toLowerCase();
+          const words = desc.split(/\s+/).filter(w => w.length > 3);
+          const score = words.reduce((s, w) => s + (promptLower.includes(w) ? 1 : 0), 0);
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = { key: delegateKey, nodeId: delegate.id };
+          }
+        }
+        if (bestMatch) {
+          debugLog(`[GraphRunner] Content-based fallback: routing "${agentType}" → "${bestMatch.key}" (score=${bestScore})`);
+        }
+      }
+
+      // Last resort: use first delegate only if there's exactly one (unambiguous)
+      if (!bestMatch && callerResolved.delegates.length === 1) {
+        const onlyDelegate = callerResolved.delegates[0]!;
+        const onlyKey = customKeys.find(k => ctx.agentKeyToNodeId.get(k) === onlyDelegate.id);
+        if (onlyKey) {
+          bestMatch = { key: onlyKey, nodeId: onlyDelegate.id };
+          debugLog(`[GraphRunner] Fallback: single delegate available, routing "${agentType}" → "${onlyKey}"`);
+        }
+      }
+
+      if (bestMatch) {
+        delegateNodeId = bestMatch.nodeId;
         delegateResolved = ctx.resolvedNodes.get(delegateNodeId) ?? null;
-        debugLog(`[GraphRunner] Fallback: routing "${agentType}" → "${fallbackKey}" (${delegateNodeId})`);
+        debugLog(`[GraphRunner] Fuzzy match: routing "${agentType}" → "${bestMatch.key}" (${delegateNodeId})`);
       }
     }
 
     if (!delegateResolved || !delegateNodeId) {
-      debugLog(`[GraphRunner] Task delegation: no fallback available, ignoring.`);
+      debugLog(`[GraphRunner] Task delegation: no fallback available for "${agentType}", ignoring.`);
       return;
     }
   }
@@ -1019,28 +1010,19 @@ function processNodeMessage(
         const childResolved = ctx.resolvedNodes.get(childNodeId);
         const childLabel = (childResolved?.node.data.label as string) || childNodeId;
 
-        // First cascade completions to downstream nodes (with staggered delays)
-        let totalSteps = 0;
-        if (childResolved) {
-          totalSteps = emitDownstreamActivation(ctx, childNodeId, childResolved, 'completed');
-        }
-
-        // Then complete the sub-agent itself after all downstream completions
-        const finalDelay = totalSteps * CASCADE_COMPLETE_DELAY;
-        setTimeout(() => {
-          if (ctx.abortController.signal.aborted) return;
-          ctx.emitter.emit('node_completed', {
-            nodeId: childNodeId,
-            outputText: msg.content,
-            usage: { inputTokens: 0, outputTokens: 0 },
-          });
-          ctx.emitter.emit('result_return', {
-            parentNodeId: nodeId,
-            childNodeId,
-            childLabel,
-            result: msg.content.slice(0, 200),
-          });
-        }, finalDelay);
+        // Emit completion immediately — no cascade needed since nested
+        // delegation doesn't work in CLI's flat agent pool.
+        ctx.emitter.emit('node_completed', {
+          nodeId: childNodeId,
+          outputText: msg.content,
+          usage: { inputTokens: 0, outputTokens: 0 },
+        });
+        ctx.emitter.emit('result_return', {
+          parentNodeId: nodeId,
+          childNodeId,
+          childLabel,
+          result: msg.content.slice(0, 200),
+        });
       }
       break;
     }
@@ -1051,11 +1033,19 @@ function processNodeMessage(
       if (effectiveNodeId === nodeId) {
         callbacks.onInputTokens(input);
       }
+      // Track global token budget
+      ctx.totalTokensUsed += input;
+      checkTokenBudget(ctx);
       break;
     }
     case 'message_delta':
       if (msg.outputTokens && effectiveNodeId === nodeId) {
         callbacks.onOutputTokens(msg.outputTokens);
+      }
+      // Track global token budget
+      if (msg.outputTokens) {
+        ctx.totalTokensUsed += msg.outputTokens;
+        checkTokenBudget(ctx);
       }
       break;
     case 'system':
@@ -1105,6 +1095,11 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
   // Prepare tmpdir environment with CLAUDE.md + .mcp.json (if graph has rules/mcps)
   const env = prepareRunEnvironment(resolved, cwd);
 
+  // Extract token budget from root node's maxTokens (or use default)
+  const rootMaxTokens = rootNode.data.maxTokens as number | undefined;
+  const tokenBudget = rootMaxTokens && rootMaxTokens > 0 ? rootMaxTokens : DEFAULT_TOKEN_BUDGET;
+  debugLog(`[GraphRunner] Token budget for run: ${tokenBudget.toLocaleString()} tokens (source: ${rootMaxTokens ? 'root node maxTokens' : 'default'})`);
+
   const ctx: ExecutionContext = {
     runId,
     cwd,
@@ -1119,6 +1114,9 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     usages: new Map(),
     pendingNodes: new Set(),
     pendingNodeParents: new Map(),
+    tokenBudget,
+    totalTokensUsed: 0,
+    budgetWarningEmitted: false,
   };
 
   // Run asynchronously — defer so callers can wire listeners before events fire

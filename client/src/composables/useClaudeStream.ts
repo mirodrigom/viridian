@@ -142,6 +142,13 @@ export function useClaudeStream() {
           totalCost: d.totalCost || 0,
         });
       }
+      // Check the last assistant message for rate limit text
+      // (rate limit messages often arrive as normal text, not as error events)
+      const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
+      if (lastAssistant?.content) {
+        detectRateLimit(lastAssistant.content);
+      }
+
       chat.finishStreaming();
 
       // If we reconnected mid-stream, we likely missed tool events and intermediate
@@ -317,18 +324,8 @@ export function useClaudeStream() {
       if (!isForCurrentSession(data)) return;
       const d = data as { error: string };
 
-      // Detect rate limit messages and extract reset time
-      // Examples: "resets Feb 13, 12pm", "resets Feb 13, 3:30pm", "resets Feb 13, 12am"
-      const rateLimitMatch = d.error.match(/resets?\s+(\w+\s+\d{1,2},?\s+\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
-      if (rateLimitMatch || /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(d.error)) {
-        const resetTime = rateLimitMatch ? parseResetTime(rateLimitMatch[1]!) : null;
-        if (resetTime) {
-          chat.setRateLimitedUntil(resetTime);
-        } else {
-          // Fallback: block for 5 minutes if we can't parse the time
-          chat.setRateLimitedUntil(Date.now() + 5 * 60 * 1000);
-        }
-      }
+      // Detect rate limit from error messages
+      detectRateLimit(d.error);
 
       chat.addMessage({
         id: uuid(),
@@ -458,6 +455,29 @@ export function useClaudeStream() {
     }
   }
 
+  /** Detect rate limit from any text (assistant message content or error). */
+  function detectRateLimit(text: string) {
+    // Match "resets Feb 13, 12pm" or "resets 10pm" (with optional timezone)
+    const rateLimitWithDateMatch = text.match(/resets?\s+(\w+\s+\d{1,2},?\s+\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
+    const rateLimitTimeOnlyMatch = !rateLimitWithDateMatch && text.match(/resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))/i);
+    const isRateLimit = rateLimitWithDateMatch || rateLimitTimeOnlyMatch || /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(text);
+
+    if (!isRateLimit) return;
+
+    const resetTime = rateLimitWithDateMatch
+      ? parseResetTime(rateLimitWithDateMatch[1]!)
+      : rateLimitTimeOnlyMatch
+        ? parseResetTimeOnly(rateLimitTimeOnlyMatch[1]!)
+        : null;
+
+    if (resetTime) {
+      chat.setRateLimitedUntil(resetTime);
+    } else {
+      // Fallback: block for 5 minutes if we can't parse the time
+      chat.setRateLimitedUntil(Date.now() + 5 * 60 * 1000);
+    }
+  }
+
   /** Parse a reset time string like "Feb 13, 12pm" into a timestamp. */
   function parseResetTime(timeStr: string): number | null {
     try {
@@ -485,6 +505,32 @@ export function useClaudeStream() {
       // If the parsed date is in the past, it might be next year
       if (resetDate.getTime() < Date.now()) {
         resetDate.setFullYear(resetDate.getFullYear() + 1);
+      }
+
+      return resetDate.getTime();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Parse a time-only reset string like "10pm" or "3:30am" into a timestamp (today or tomorrow). */
+  function parseResetTimeOnly(timeStr: string): number | null {
+    try {
+      const cleaned = timeStr.trim();
+      const match = cleaned.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+      if (!match) return null;
+
+      let hour = parseInt(match[1]!, 10);
+      const minute = match[2] ? parseInt(match[2], 10) : 0;
+      if (match[3]!.toLowerCase() === 'pm' && hour !== 12) hour += 12;
+      if (match[3]!.toLowerCase() === 'am' && hour === 12) hour = 0;
+
+      const now = new Date();
+      const resetDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+
+      // If the time is in the past today, it means tomorrow
+      if (resetDate.getTime() < Date.now()) {
+        resetDate.setDate(resetDate.getDate() + 1);
       }
 
       return resetDate.getTime();

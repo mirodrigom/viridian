@@ -91,6 +91,16 @@ export function useGraphRunner() {
       });
     });
 
+    runner.wsOn('budget_warning', (data: unknown) => {
+      const d = data as { totalTokensUsed: number; tokenBudget: number; percentage: number };
+      toast.warning(`Token budget at ${d.percentage}% (${d.totalTokensUsed.toLocaleString()} / ${d.tokenBudget.toLocaleString()})`, { duration: 10000 });
+    });
+
+    runner.wsOn('budget_exceeded', (data: unknown) => {
+      const d = data as { totalTokensUsed: number; tokenBudget: number };
+      toast.error(`Token budget exceeded (${d.totalTokensUsed.toLocaleString()} / ${d.tokenBudget.toLocaleString()}). Run aborted.`, { duration: 15000 });
+    });
+
     runner.wsOn('run_completed', (data: unknown) => {
       runner.onRunCompleted(data as { runId: string; finalOutput: string });
     });

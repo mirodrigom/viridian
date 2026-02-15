@@ -55,7 +55,7 @@ export default {
   },
   settings: {
     title: 'Settings',
-    description: 'Configure your Claude Code Web preferences',
+    description: 'Configure your Viridian preferences',
     appearance: 'Appearance',
     darkMode: 'Dark Mode',
     editorFontSize: 'Editor Font Size',
@@ -78,7 +78,7 @@ export default {
   },
   mcp: {
     title: 'MCP Servers',
-    description: 'Manage Model Context Protocol servers for Claude Code',
+    description: 'Manage Model Context Protocol servers',
     noServers: 'No MCP servers configured',
     addServer: 'Add Server',
     serverName: 'Name',
@@ -103,7 +103,7 @@ export default {
     created: 'Created {date}',
   },
   onboarding: {
-    welcome: 'Welcome to Claude Code Web',
+    welcome: 'Welcome to Viridian',
     setupSteps: "Let's get you set up in a few quick steps.",
     projectsDir: 'Projects directory',
     projectsDirDesc: 'Where your code projects live. You can change this later.',

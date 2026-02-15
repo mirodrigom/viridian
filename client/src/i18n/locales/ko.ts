@@ -55,7 +55,7 @@ export default {
   },
   settings: {
     title: '설정',
-    description: 'Claude Code Web 환경 설정',
+    description: 'Viridian 환경 설정',
     appearance: '외관',
     darkMode: '다크 모드',
     editorFontSize: '편집기 글꼴 크기',
@@ -78,7 +78,7 @@ export default {
   },
   mcp: {
     title: 'MCP 서버',
-    description: 'Claude Code용 모델 컨텍스트 프로토콜 서버 관리',
+    description: '모델 컨텍스트 프로토콜 서버 관리',
     noServers: '구성된 MCP 서버가 없습니다',
     addServer: '서버 추가',
     serverName: '이름',
@@ -103,7 +103,7 @@ export default {
     created: '{date}에 생성됨',
   },
   onboarding: {
-    welcome: 'Claude Code Web에 오신 것을 환영합니다',
+    welcome: 'Viridian에 오신 것을 환영합니다',
     setupSteps: '몇 가지 빠른 단계로 설정을 완료합시다.',
     projectsDir: '프로젝트 디렉터리',
     projectsDirDesc: '코드 프로젝트가 있는 곳입니다. 나중에 변경할 수 있습니다.',

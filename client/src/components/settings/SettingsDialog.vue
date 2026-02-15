@@ -72,7 +72,7 @@ async function saveGitConfig() {
     <DialogContent class="max-h-[85vh] max-w-md overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Settings</DialogTitle>
-        <DialogDescription>Configure your Claude Code Web preferences</DialogDescription>
+        <DialogDescription>Configure your Viridian preferences</DialogDescription>
       </DialogHeader>
 
       <div class="space-y-5 py-4">

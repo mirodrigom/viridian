@@ -55,7 +55,7 @@ export default {
   },
   settings: {
     title: '设置',
-    description: '配置 Claude Code Web 偏好设置',
+    description: '配置 Viridian 偏好设置',
     appearance: '外观',
     darkMode: '深色模式',
     editorFontSize: '编辑器字号',
@@ -78,7 +78,7 @@ export default {
   },
   mcp: {
     title: 'MCP 服务器',
-    description: '管理 Claude Code 的模型上下文协议服务器',
+    description: '管理模型上下文协议服务器',
     noServers: '未配置 MCP 服务器',
     addServer: '添加服务器',
     serverName: '名称',
@@ -103,7 +103,7 @@ export default {
     created: '创建于 {date}',
   },
   onboarding: {
-    welcome: '欢迎使用 Claude Code Web',
+    welcome: '欢迎使用 Viridian',
     setupSteps: '让我们快速完成几个设置步骤。',
     projectsDir: '项目目录',
     projectsDirDesc: '您的代码项目所在位置。稍后可以更改。',

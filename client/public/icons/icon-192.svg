@@ -1,4 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="32" fill="#0a0a0a"/>
-  <text x="96" y="120" font-family="sans-serif" font-size="100" font-weight="bold" fill="#d97706" text-anchor="middle">C</text>
+  <defs>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="32" fill="#0d1117"/>
+  <path d="M 54 48 L 96 144" stroke="url(#glow)" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <path d="M 138 48 L 96 144" stroke="url(#glow)" stroke-width="10" stroke-linecap="round" fill="none"/>
+  <path d="M 38 76 L 24 96 L 38 116" stroke="#34d399" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+  <path d="M 154 76 L 168 96 L 154 116" stroke="#34d399" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+  <circle cx="96" cy="144" r="6" fill="#34d399" opacity="0.9"/>
 </svg>

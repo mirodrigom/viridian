@@ -11,11 +11,11 @@ defineProps<{ class?: string; size?: number }>();
     xmlns="http://www.w3.org/2000/svg"
     :class="$props.class"
   >
-    <!-- Anthropic Claude sparkle/star logo approximation -->
-    <path
-      d="M12 2L14.5 8.5L21 6L16.5 11.5L22 14L14.5 14.5L12 22L9.5 14.5L2 14L7.5 11.5L3 6L9.5 8.5L12 2Z"
-      fill="currentColor"
-      opacity="0.9"
-    />
+    <!-- Viridian V logo -->
+    <path d="M5 4 L12 20" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" />
+    <path d="M19 4 L12 20" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" />
+    <path d="M3 9 L1 12 L3 15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5" />
+    <path d="M21 9 L23 12 L21 15" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5" />
+    <circle cx="12" cy="20" r="1.3" fill="currentColor" opacity="0.9" />
   </svg>
 </template>

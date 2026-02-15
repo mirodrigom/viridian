@@ -277,8 +277,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   }
 
   if (options.agents && Object.keys(options.agents).length > 0) {
-    debugLog(`[ClaudeSDK] Passing --agents with keys: [${Object.keys(options.agents).join(', ')}]`);
-    args.push('--agents', JSON.stringify(options.agents));
+    const agentsJson = JSON.stringify(options.agents);
+    debugLog(`[ClaudeSDK] Passing --agents with keys: [${Object.keys(options.agents).join(', ')}], JSON length: ${agentsJson.length}`);
+    args.push('--agents', agentsJson);
   }
 
   if (options.disableSlashCommands) {
@@ -510,6 +511,10 @@ function processEvent(state: BlockState, event: Record<string, unknown>): SDKMes
 
   if (event.type === 'system') {
     if (event.session_id) state.claudeSessionId = event.session_id as string;
+    // Log registered agents for debugging --agents flag
+    if (event.agents) {
+      debugLog(`[ClaudeSDK] Registered agents: [${(event.agents as string[]).join(', ')}]`);
+    }
     return [{ type: 'system', sessionId: event.session_id as string | undefined }];
   }
 
