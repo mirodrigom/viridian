@@ -42,7 +42,13 @@ export async function pull(cwd: string) {
 }
 
 export async function push(cwd: string) {
-  return getGit(cwd).push();
+  const git = getGit(cwd);
+  const status = await git.status();
+  const branch = status.current;
+  if (!branch || branch === 'HEAD') {
+    throw new Error('Cannot push: not on a branch (detached HEAD). Please checkout a branch first.');
+  }
+  return git.push(['-u', 'origin', branch]);
 }
 
 export async function fetch(cwd: string) {

@@ -73,6 +73,10 @@ export function useGraphRunner() {
       runner.onNodeSkipped(data as { nodeId: string; reason: string });
     });
 
+    runner.wsOn('node_phase', (data: unknown) => {
+      runner.onNodePhase(data as { nodeId: string; phase: string });
+    });
+
     runner.wsOn('delegation', (data: unknown) => {
       runner.onDelegation(data as {
         parentNodeId: string; childNodeId: string;

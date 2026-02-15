@@ -392,6 +392,14 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     addTimeline('node_skipped', data.nodeId, exec?.nodeLabel ?? data.nodeId, `Skipped: ${data.reason}`);
   }
 
+  function onNodePhase(data: { nodeId: string; phase: string }) {
+    if (!currentRun.value) return;
+    const exec = currentRun.value.executions[data.nodeId];
+    const label = exec?.nodeLabel ?? data.nodeId;
+    const phaseLabel = data.phase === 'planning' ? 'Planning (assigning subtasks)' : 'Synthesizing results';
+    addTimeline('node_phase', data.nodeId, label, phaseLabel);
+  }
+
   function onNodeDelta(data: { nodeId: string; text: string }) {
     if (!currentRun.value) return;
     const exec = currentRun.value.executions[data.nodeId];
@@ -606,7 +614,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     runStartMs, runEndMs, runDurationMs, playbackRatio,
     effectiveTimeline, effectiveEdgeFlows,
     // Actions
-    onRunStarted, onNodeStarted, onNodeDelegated, onNodeSkipped,
+    onRunStarted, onNodeStarted, onNodeDelegated, onNodeSkipped, onNodePhase,
     onNodeDelta, onNodeThinkingStart, onNodeThinkingDelta,
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,

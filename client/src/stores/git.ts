@@ -268,6 +268,8 @@ export const useGitStore = defineStore('git', () => {
         const data = await res.json();
         throw new Error(data.error || 'Push failed');
       }
+      await fetchStatus();
+      await fetchLog();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Push failed');
     } finally {

@@ -43,6 +43,7 @@ export type TimelineEntryType =
   | 'node_failed'
   | 'node_delegated'
   | 'node_skipped'
+  | 'node_phase'
   | 'delegation'
   | 'result_return'
   | 'tool_use'
@@ -166,6 +167,12 @@ export interface WsNodeSkipped {
   reason: string;
 }
 
+export interface WsNodePhase {
+  type: 'node_phase';
+  nodeId: string;
+  phase: 'planning' | 'synthesis';
+}
+
 export interface WsDelegation {
   type: 'delegation';
   parentNodeId: string;
@@ -211,6 +218,7 @@ export type WsServerMessage =
   | WsNodeFailed
   | WsNodeDelegated
   | WsNodeSkipped
+  | WsNodePhase
   | WsDelegation
   | WsResultReturn
   | WsRunCompleted
