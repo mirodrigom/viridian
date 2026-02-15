@@ -205,10 +205,15 @@ export const useGitStore = defineStore('git', () => {
       });
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
-      branches.value = Object.values(data.branches || {}).map((b: unknown) => {
-        const branch = b as { name: string; current: boolean };
-        return { name: branch.name, current: branch.current };
-      });
+      branches.value = Object.values(data.branches || {})
+        .filter((b: unknown) => {
+          const branch = b as { name: string };
+          return !branch.name.startsWith('remotes/');
+        })
+        .map((b: unknown) => {
+          const branch = b as { name: string; current: boolean };
+          return { name: branch.name, current: branch.current };
+        });
     } catch {
       toast.error('Failed to fetch branches');
     }
@@ -245,6 +250,29 @@ export const useGitStore = defineStore('git', () => {
       await fetchBranches();
     } catch {
       toast.error('Failed to create branch');
+    } finally {
+      operationLoading.value = false;
+    }
+  }
+
+  async function deleteBranch(branchName: string, force = false) {
+    if (!cwd()) return;
+    operationLoading.value = true;
+    try {
+      const res = await fetch('/api/git/branch', {
+        method: 'DELETE',
+        headers: authHeaders(),
+        body: JSON.stringify({ cwd: cwd(), branch: branchName, force }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error || 'Failed to delete branch');
+      }
+      await fetchBranches();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete branch';
+      toast.error(message);
+      throw err;
     } finally {
       operationLoading.value = false;
     }
@@ -445,7 +473,7 @@ export const useGitStore = defineStore('git', () => {
     operationLoading, selectedFiles,
     fetchStatus, fetchDiff, fetchFileDiff, stageFiles, unstageFiles, doCommit,
     discardFile, fetchLog, fetchBranches, checkoutBranch, createBranch,
-    doPull, doPush, doFetch, generateCommitMessage, showCommit,
+    deleteBranch, doPull, doPush, doFetch, generateCommitMessage, showCommit,
     toggleFileSelection, selectAllModified, clearSelection, stageSelected,
     openDiffInEditor, openFileInEditor,
   };

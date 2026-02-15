@@ -157,6 +157,19 @@ router.post('/create-branch', async (req, res) => {
   }
 });
 
+router.delete('/branch', async (req, res) => {
+  try {
+    const { cwd, branch, force } = req.body;
+    if (!cwd || !branch) { res.status(400).json({ error: 'cwd and branch are required' }); return; }
+    await gitService.deleteBranch(cwd, branch, !!force);
+    res.json({ success: true });
+  } catch (err) {
+    console.warn('[git/delete-branch]', err);
+    const msg = err instanceof Error ? err.message : 'Failed to delete branch';
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.post('/discard', async (req, res) => {
   try {
     const { cwd, file } = req.body;

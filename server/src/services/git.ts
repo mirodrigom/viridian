@@ -63,6 +63,10 @@ export async function createBranch(cwd: string, branchName: string) {
   return getGit(cwd).checkoutLocalBranch(branchName);
 }
 
+export async function deleteBranch(cwd: string, branchName: string, force = false) {
+  return getGit(cwd).branch([force ? '-D' : '-d', branchName]);
+}
+
 export async function getFileDiff(cwd: string, filePath: string, staged = false): Promise<string> {
   const git = getGit(cwd);
   return staged ? git.diff(['--cached', '--', filePath]) : git.diff(['--', filePath]);

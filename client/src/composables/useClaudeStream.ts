@@ -13,6 +13,9 @@ export function useClaudeStream() {
   const router = useRouter();
   const { connected, connect, send, on, disconnect } = useWebSocket('/ws/chat');
 
+  // Hoisted so cleanup() can clear it
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
   function init() {
     connect();
     chat.registerAbort(abort);
@@ -57,6 +60,26 @@ export function useClaudeStream() {
       }
     });
 
+    // Streaming activity watchdog — if no WS events arrive for 60s while
+    // streaming, proactively check session status in case stream_end was lost.
+    let lastStreamActivity = 0;
+    const STREAM_WATCHDOG_INTERVAL = 30_000; // check every 30s
+    const STREAM_INACTIVITY_THRESHOLD = 60_000; // consider stale after 60s
+
+    watchdogTimer = setInterval(() => {
+      if (chat.isStreaming && connected.value && activeSessionId) {
+        const elapsed = Date.now() - lastStreamActivity;
+        if (elapsed > STREAM_INACTIVITY_THRESHOLD) {
+          send({ type: 'check_session', sessionId: activeSessionId });
+        }
+      }
+    }, STREAM_WATCHDOG_INTERVAL);
+
+    /** Reset the streaming activity timer (called on every stream event). */
+    function touchStreamActivity() {
+      lastStreamActivity = Date.now();
+    }
+
     on('stream_start', (data: unknown) => {
       const d = data as { sessionId?: string };
       // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
@@ -64,6 +87,7 @@ export function useClaudeStream() {
         activeSessionId = d.sessionId;
       }
       chat.startStreaming();
+      touchStreamActivity();
       needsNewAssistantMsg = false;
       reconnectedMidStream = false;
       const msg: ChatMessage = {
@@ -78,6 +102,7 @@ export function useClaudeStream() {
 
     on('stream_delta', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      touchStreamActivity();
       const d = data as { text: string };
       if (needsNewAssistantMsg) {
         // Text arriving after a tool — create a new assistant message
@@ -161,6 +186,7 @@ export function useClaudeStream() {
 
     on('tool_use', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      touchStreamActivity();
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
 
       // Deduplicate: skip if a message with this requestId already exists
@@ -271,6 +297,7 @@ export function useClaudeStream() {
 
     on('thinking_delta', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      touchStreamActivity();
       const d = data as { text: string };
       chat.updateThinking(d.text);
     });
@@ -282,6 +309,7 @@ export function useClaudeStream() {
 
     on('tool_input_delta', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      touchStreamActivity();
       const d = data as { requestId: string; accumulatedJson: string };
       chat.appendToolInputDelta(d.requestId, d.accumulatedJson);
     });
@@ -314,9 +342,15 @@ export function useClaudeStream() {
           isStreaming: true,
         };
         chat.addMessage(msg);
-      } else if (d.sessionId && d.sessionId === chat.sessionId && chat.activeProjectDir) {
-        // Session finished while we were disconnected — fetch missed messages
-        fetchMissedMessages(d.sessionId, chat.activeProjectDir);
+      } else {
+        // Session finished while we were disconnected — stop streaming UI
+        // and fetch any messages we missed
+        if (chat.isStreaming) {
+          chat.finishStreaming();
+        }
+        if (d.sessionId && chat.activeProjectDir) {
+          fetchMissedMessages(d.sessionId, chat.activeProjectDir);
+        }
       }
     });
 
@@ -539,5 +573,10 @@ export function useClaudeStream() {
     }
   }
 
-  return { connected, init, sendMessage, respondToTool, abort, disconnect, checkSession };
+  function cleanup() {
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    disconnect();
+  }
+
+  return { connected, init, sendMessage, respondToTool, abort, disconnect: cleanup, checkSession };
 }

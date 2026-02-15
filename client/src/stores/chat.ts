@@ -209,8 +209,23 @@ export const useChatStore = defineStore('chat', () => {
       hasMoreMessages.value = meta.hasMore;
       oldestLoadedIndex.value = meta.oldestIndex;
     }
+    // Restore plan mode state from loaded messages
+    restorePlanModeFromMessages(msgs);
     // Signal MessageList to scroll to bottom
     scrollToBottomRequest.value++;
+  }
+
+  /** Scan messages for EnterPlanMode / ExitPlanMode tool calls to restore plan mode state. */
+  function restorePlanModeFromMessages(msgs: ChatMessage[]) {
+    let planMode = false;
+    for (const msg of msgs) {
+      if (msg.toolUse?.tool === 'EnterPlanMode') {
+        planMode = true;
+      } else if (msg.toolUse?.tool === 'ExitPlanMode') {
+        planMode = false;
+      }
+    }
+    inPlanMode.value = planMode;
   }
 
   function prependMessages(msgs: ChatMessage[], meta: { hasMore: boolean; oldestIndex: number }) {

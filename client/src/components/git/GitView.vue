@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useGitStore } from '@/stores/git';
+import { useConfirmDialog } from '@/composables/useConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -8,12 +9,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   GitBranch, RefreshCw, ChevronRight, ArrowDownToLine,
-  ArrowUpFromLine, Download, Sparkles, History, Loader2, Plus,
+  ArrowUpFromLine, Download, Sparkles, History, Loader2, Plus, Trash2,
 } from 'lucide-vue-next';
 import GitStatus from './GitStatus.vue';
 import DiffViewer from './DiffViewer.vue';
 
 const git = useGitStore();
+const { confirm } = useConfirmDialog();
 const showBranches = ref(false);
 const showHistory = ref(false);
 const newBranch = ref('');
@@ -45,6 +47,28 @@ async function handleCreateBranch() {
     newBranch.value = '';
   } finally {
     creatingBranch.value = false;
+  }
+}
+
+async function handleDeleteBranch(branchName: string) {
+  const ok = await confirm({
+    title: `Delete branch "${branchName}"?`,
+    description: 'This will delete the local branch. This cannot be undone.',
+  });
+  if (!ok) return;
+  try {
+    await git.deleteBranch(branchName);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('not fully merged')) {
+      const forceOk = await confirm({
+        title: `Force delete "${branchName}"?`,
+        description: 'This branch is not fully merged. Force deleting may cause you to lose commits.',
+      });
+      if (forceOk) {
+        await git.deleteBranch(branchName, true);
+      }
+    }
   }
 }
 
@@ -183,13 +207,23 @@ function formatDate(dateStr: string) {
               <div
                 v-for="b in git.branches"
                 :key="b.name"
-                class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/30"
+                class="group flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/30"
                 :class="{ 'bg-primary/10 text-primary font-medium': b.current }"
                 @click="!b.current && git.checkoutBranch(b.name)"
               >
                 <GitBranch class="h-3 w-3 shrink-0" />
                 <span class="truncate">{{ b.name }}</span>
                 <Badge v-if="b.current" variant="default" class="ml-auto text-[9px]">current</Badge>
+                <Button
+                  v-if="!b.current"
+                  variant="ghost"
+                  size="sm"
+                  class="ml-auto h-5 w-5 p-0 opacity-0 group-hover:opacity-100"
+                  title="Delete branch"
+                  @click.stop="handleDeleteBranch(b.name)"
+                >
+                  <Trash2 class="h-3 w-3 text-destructive" />
+                </Button>
               </div>
             </div>
           </CollapsibleContent>
