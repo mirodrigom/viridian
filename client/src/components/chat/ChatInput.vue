@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/select';
 import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
-  ArrowDownToLine, ArrowDownFromLine, Download,
+  ArrowDownToLine, ArrowDownFromLine, Download, Sparkles, Bug, Eye, Wrench,
+  FileCode, TestTube,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
 import { exportSession } from '@/composables/useKeyboardShortcuts';
@@ -31,6 +32,17 @@ const selectedFileIndex = ref(0);
 const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]);
 const isDragging = ref(false);
 let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Message history navigation
+const messageHistory = ref<string[]>([]);
+const historyIndex = ref(-1);
+const currentDraft = ref('');
+const isNavigatingHistory = ref(false);
+
+// Message templates
+const showTemplateMenu = ref(false);
+const selectedTemplateIndex = ref(0);
+const templateMenuRef = ref<HTMLElement | null>(null);
 
 // Draft persistence - save/restore typed text per session
 const DRAFT_KEY = 'chat-draft';
@@ -57,18 +69,300 @@ function loadDraft() {
   input.value = drafts[key] || '';
   nextTick(() => autoResize());
 }
+
+// Message history persistence
+const HISTORY_KEY = 'chat-message-history';
+const MAX_HISTORY = 50;
+
+function getMessageHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveMessageHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(messageHistory.value));
+}
+
+function addToHistory(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+
+  // Remove duplicate if it exists
+  const existing = messageHistory.value.indexOf(trimmed);
+  if (existing !== -1) {
+    messageHistory.value.splice(existing, 1);
+  }
+
+  // Add to the beginning
+  messageHistory.value.unshift(trimmed);
+
+  // Keep only the latest MAX_HISTORY entries
+  if (messageHistory.value.length > MAX_HISTORY) {
+    messageHistory.value = messageHistory.value.slice(0, MAX_HISTORY);
+  }
+
+  saveMessageHistory();
+}
+
+function loadMessageHistory() {
+  messageHistory.value = getMessageHistory();
+}
+
+function resetHistoryNavigation() {
+  historyIndex.value = -1;
+  currentDraft.value = '';
+  isNavigatingHistory.value = false;
+}
+
+function navigateHistory(direction: 'up' | 'down') {
+  if (direction === 'up') {
+    if (historyIndex.value === -1) {
+      // Starting navigation - save current input as draft
+      currentDraft.value = input.value;
+      if (messageHistory.value.length === 0) return;
+      historyIndex.value = 0;
+    } else if (historyIndex.value < messageHistory.value.length - 1) {
+      historyIndex.value++;
+    } else {
+      return; // Already at the oldest message
+    }
+
+    input.value = messageHistory.value[historyIndex.value] || '';
+    isNavigatingHistory.value = true;
+  } else if (direction === 'down') {
+    if (historyIndex.value === -1) return; // Not navigating
+
+    if (historyIndex.value > 0) {
+      historyIndex.value--;
+      input.value = messageHistory.value[historyIndex.value] || '';
+    } else {
+      // Return to draft
+      input.value = currentDraft.value;
+      resetHistoryNavigation();
+    }
+  }
+
+  nextTick(() => {
+    autoResize();
+    // Move cursor to end
+    const el = textarea.value;
+    if (el) {
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  });
+}
+
+// Message Templates System
+interface MessageTemplate {
+  id: string;
+  name: string;
+  text: string;
+  category: string;
+  icon: any;
+  shortcut?: string;
+}
+
+const DEFAULT_TEMPLATES: MessageTemplate[] = [
+  // Debug category
+  { id: 'debug-error', name: 'Debug Error', text: 'Help me debug this error:', category: 'Debug', icon: Bug, shortcut: 'Ctrl+1' },
+  { id: 'debug-explain', name: 'Explain Issue', text: 'Explain what\'s causing this issue and how to fix it:', category: 'Debug', icon: Bug },
+  { id: 'debug-trace', name: 'Trace Problem', text: 'Help me trace through this code to find the problem:', category: 'Debug', icon: Bug },
+
+  // Code Review category
+  { id: 'review-improvements', name: 'Review Code', text: 'Review this code for improvements and best practices:', category: 'Review', icon: Eye, shortcut: 'Ctrl+2' },
+  { id: 'review-security', name: 'Security Check', text: 'Check this code for security vulnerabilities:', category: 'Review', icon: Shield },
+  { id: 'review-performance', name: 'Performance Review', text: 'Analyze this code for performance issues:', category: 'Review', icon: Zap },
+
+  // Refactoring category
+  { id: 'refactor-clean', name: 'Clean Refactor', text: 'Refactor this code to be cleaner and more maintainable:', category: 'Refactor', icon: Wrench, shortcut: 'Ctrl+3' },
+  { id: 'refactor-optimize', name: 'Optimize Code', text: 'Optimize this code for better performance:', category: 'Refactor', icon: Zap },
+  { id: 'refactor-structure', name: 'Restructure', text: 'Help me restructure this code with better architecture:', category: 'Refactor', icon: Wrench },
+
+  // Documentation category
+  { id: 'docs-add', name: 'Add Docs', text: 'Add comprehensive documentation to this code:', category: 'Docs', icon: FileCode, shortcut: 'Ctrl+4' },
+  { id: 'docs-explain', name: 'Explain Code', text: 'Explain how this code works in detail:', category: 'Docs', icon: FileText },
+  { id: 'docs-comments', name: 'Add Comments', text: 'Add helpful comments to this code:', category: 'Docs', icon: FileCode },
+
+  // Testing category
+  { id: 'test-unit', name: 'Unit Tests', text: 'Write comprehensive unit tests for this code:', category: 'Testing', icon: TestTube, shortcut: 'Ctrl+5' },
+  { id: 'test-integration', name: 'Integration Tests', text: 'Help me write integration tests for this feature:', category: 'Testing', icon: TestTube },
+  { id: 'test-edge-cases', name: 'Edge Cases', text: 'What edge cases should I test for this code?', category: 'Testing', icon: TestTube },
+];
+
+const TEMPLATES_KEY = 'chat-message-templates';
+
+function getCustomTemplates(): MessageTemplate[] {
+  try {
+    const stored = localStorage.getItem(TEMPLATES_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomTemplates(templates: MessageTemplate[]) {
+  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
+}
+
+const allTemplates = computed(() => {
+  const custom = getCustomTemplates();
+  return [...DEFAULT_TEMPLATES, ...custom];
+});
+
+const templateCategories = computed(() => {
+  const categories: Record<string, MessageTemplate[]> = {};
+  allTemplates.value.forEach(template => {
+    if (!categories[template.category]) {
+      categories[template.category] = [];
+    }
+    categories[template.category].push(template);
+  });
+  return categories;
+});
+
+function insertTemplate(template: MessageTemplate) {
+  const textToInsert = template.text + (input.value ? ' ' : '');
+  const currentValue = input.value;
+  const el = textarea.value;
+
+  if (el) {
+    const start = el.selectionStart || 0;
+    const end = el.selectionEnd || 0;
+
+    // Insert template text at cursor position
+    const newValue = currentValue.slice(0, start) + textToInsert + currentValue.slice(end);
+    input.value = newValue;
+
+    // Set cursor position after inserted text
+    nextTick(() => {
+      const newCursorPos = start + textToInsert.length;
+      el.setSelectionRange(newCursorPos, newCursorPos);
+      el.focus();
+      autoResize();
+    });
+  } else {
+    // Fallback: append to input
+    input.value = currentValue + (currentValue ? ' ' : '') + textToInsert;
+    nextTick(() => {
+      autoResize();
+      textarea.value?.focus();
+    });
+  }
+
+  showTemplateMenu.value = false;
+  selectedTemplateIndex.value = 0;
+
+  // Reset history navigation if active
+  if (isNavigatingHistory.value) {
+    resetHistoryNavigation();
+  }
+}
+
+function handleTemplateKeydown(e: KeyboardEvent) {
+  if (!showTemplateMenu.value) return false;
+
+  const categories = Object.keys(templateCategories.value);
+  const allTemplatesFlat = Object.values(templateCategories.value).flat();
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    selectedTemplateIndex.value = Math.min(selectedTemplateIndex.value + 1, allTemplatesFlat.length - 1);
+    return true;
+  }
+
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    selectedTemplateIndex.value = Math.max(selectedTemplateIndex.value - 1, 0);
+    return true;
+  }
+
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    const template = allTemplatesFlat[selectedTemplateIndex.value];
+    if (template) {
+      insertTemplate(template);
+    }
+    return true;
+  }
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    showTemplateMenu.value = false;
+    selectedTemplateIndex.value = 0;
+    return true;
+  }
+
+  return false;
+}
+
+// Handle keyboard shortcuts for templates
+function handleTemplateShortcuts(e: KeyboardEvent): boolean {
+  if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+    const shortcuts: Record<string, string> = {
+      '1': 'debug-error',
+      '2': 'review-improvements',
+      '3': 'refactor-clean',
+      '4': 'docs-add',
+      '5': 'test-unit',
+    };
+
+    const templateId = shortcuts[e.key];
+    if (templateId) {
+      const template = allTemplates.value.find(t => t.id === templateId);
+      if (template) {
+        e.preventDefault();
+        insertTemplate(template);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Click outside handler for template menu
+function handleClickOutside(event: MouseEvent) {
+  if (showTemplateMenu.value && templateMenuRef.value && !templateMenuRef.value.contains(event.target as Node)) {
+    showTemplateMenu.value = false;
+    selectedTemplateIndex.value = 0;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 // Auto-save draft on input change (debounced via watch)
-watch(input, saveDraft);
+watch(input, () => {
+  // Reset history navigation when user types
+  if (isNavigatingHistory.value) {
+    resetHistoryNavigation();
+  }
+  // Close template menu when user types (if it's open)
+  if (showTemplateMenu.value) {
+    showTemplateMenu.value = false;
+    selectedTemplateIndex.value = 0;
+  }
+  saveDraft();
+});
 // Restore draft when session changes
 watch(() => chat.sessionId, loadDraft);
-onMounted(loadDraft);
+onMounted(() => {
+  loadDraft();
+  loadMessageHistory();
+});
 
 // Rate limit countdown — ticks every second to update remaining time display
 const rateLimitCountdown = ref('');
 let rateLimitInterval: ReturnType<typeof setInterval> | null = null;
 
 function updateRateLimitCountdown() {
-  if (!chat.isRateLimited) {
+  if (!(chat?.isRateLimited ?? false)) {
     rateLimitCountdown.value = '';
     if (rateLimitInterval) {
       clearInterval(rateLimitInterval);
@@ -76,7 +370,7 @@ function updateRateLimitCountdown() {
     }
     return;
   }
-  const remaining = chat.rateLimitRemainingMs;
+  const remaining = chat?.rateLimitRemainingMs ?? 0;
   const hours = Math.floor(remaining / 3600000);
   const minutes = Math.floor((remaining % 3600000) / 60000);
   const seconds = Math.floor((remaining % 60000) / 1000);
@@ -89,7 +383,7 @@ function updateRateLimitCountdown() {
   }
 }
 
-watch(() => chat.isRateLimited, (limited) => {
+watch(() => chat?.isRateLimited ?? false, (limited) => {
   if (limited) {
     updateRateLimitCountdown();
     rateLimitInterval = setInterval(updateRateLimitCountdown, 1000);
@@ -183,7 +477,14 @@ const filteredCommands = computed(() => {
 });
 
 watch(showCommandMenu, (show) => {
-  if (show) selectedCommandIndex.value = 0;
+  if (show) {
+    selectedCommandIndex.value = 0;
+    // Close template menu when command menu opens
+    if (showTemplateMenu.value) {
+      showTemplateMenu.value = false;
+      selectedTemplateIndex.value = 0;
+    }
+  }
 });
 
 // File mention system (@file autocomplete)
@@ -205,6 +506,14 @@ const mentionQuery = computed(() => {
 
 const showFileMenu = computed(() => {
   return mentionQuery.value !== null && mentionQuery.value.query.length >= 1 && fileSuggestions.value.length > 0;
+});
+
+// Close template menu when file menu opens
+watch(showFileMenu, (show) => {
+  if (show && showTemplateMenu.value) {
+    showTemplateMenu.value = false;
+    selectedTemplateIndex.value = 0;
+  }
 });
 
 watch(mentionQuery, (mq) => {
@@ -317,6 +626,10 @@ function executeCommand(cmd: SlashCommand) {
   const drafts = getDrafts();
   delete drafts[key];
   localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+
+  // Reset history navigation
+  resetHistoryNavigation();
+
   cmd.action();
   nextTick(() => autoResize());
 }
@@ -332,7 +645,16 @@ function handleSubmit() {
   }
 
   const trimmed = input.value.trim();
-  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited || chat.isPlanReviewActive) return;
+  if ((!trimmed && attachedImages.value.length === 0) || (chat?.isStreaming ?? false) || (chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)) return;
+
+  // Add to message history (only the user's original input, not including file mentions)
+  if (trimmed) {
+    addToHistory(trimmed);
+  }
+
+  // Reset history navigation
+  resetHistoryNavigation();
+
   // Prepend file mentions as context
   let message = trimmed;
   if (mentionedFiles.value.length > 0) {
@@ -348,6 +670,16 @@ function handleSubmit() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  // Handle template shortcuts first
+  if (handleTemplateShortcuts(e)) {
+    return;
+  }
+
+  // Handle template menu navigation
+  if (handleTemplateKeydown(e)) {
+    return;
+  }
+
   // Slash command menu navigation
   if (showCommandMenu.value && filteredCommands.value.length > 0) {
     if (e.key === 'ArrowDown') {
@@ -401,6 +733,33 @@ function handleKeydown(e: KeyboardEvent) {
     }
   }
 
+  // Message history navigation (only when no menus are active)
+  if (!showCommandMenu.value && !showFileMenu.value) {
+    const el = textarea.value;
+    const cursorAtStart = el && el.selectionStart === 0 && el.selectionEnd === 0;
+    const cursorAtEnd = el && el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+    const inputEmpty = input.value.trim() === '';
+
+    if (e.key === 'ArrowUp' && (inputEmpty || cursorAtStart || isNavigatingHistory.value)) {
+      e.preventDefault();
+      navigateHistory('up');
+      return;
+    }
+    if (e.key === 'ArrowDown' && (inputEmpty || cursorAtEnd || isNavigatingHistory.value)) {
+      e.preventDefault();
+      navigateHistory('down');
+      return;
+    }
+    if (e.key === 'Escape' && isNavigatingHistory.value) {
+      e.preventDefault();
+      // Return to draft
+      input.value = currentDraft.value;
+      resetHistoryNavigation();
+      nextTick(() => autoResize());
+      return;
+    }
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     handleSubmit();
@@ -442,7 +801,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
 <template>
   <div
     class="border-t px-2 py-2 md:px-4 md:py-3 transition-colors duration-500"
-    :class="chat.isRateLimited
+    :class="(chat?.isRateLimited ?? false)
       ? 'border-red-500/50 bg-red-950/30'
       : 'border-border bg-background'"
   >
@@ -608,6 +967,45 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     </div>
     </Transition>
 
+    <!-- Template menu -->
+    <Transition name="scale-fade">
+    <div
+      v-if="showTemplateMenu"
+      ref="templateMenuRef"
+      class="mb-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+      @click.stop
+    >
+      <div v-for="(templates, category) in templateCategories" :key="category" class="border-b border-border last:border-b-0">
+        <div class="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+          {{ category }}
+        </div>
+        <button
+          v-for="(template, idx) in templates"
+          :key="template.id"
+          class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors"
+          :class="Object.values(templateCategories).flat().indexOf(template) === selectedTemplateIndex
+            ? 'bg-accent text-foreground'
+            : 'text-muted-foreground hover:bg-accent/50'"
+          @mouseenter="selectedTemplateIndex = Object.values(templateCategories).flat().indexOf(template)"
+          @click="insertTemplate(template)"
+        >
+          <component :is="template.icon" class="h-4 w-4 shrink-0 text-primary" />
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium text-xs">{{ template.name }}</span>
+              <span v-if="template.shortcut" class="ml-auto font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                {{ template.shortcut }}
+              </span>
+            </div>
+            <div class="text-xs text-muted-foreground truncate mt-0.5">
+              {{ template.text }}
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
+    </Transition>
+
     <!-- Mentioned files badges -->
     <TransitionGroup
       v-if="mentionedFiles.length > 0"
@@ -647,7 +1045,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     <!-- Text input -->
     <div
       class="relative rounded-xl border shadow-sm transition-colors"
-      :class="chat.isRateLimited
+      :class="(chat?.isRateLimited ?? false)
         ? 'border-red-500/40 bg-red-950/20'
         : isDragging
           ? 'border-primary/50 ring-2 ring-primary/30 bg-card'
@@ -662,18 +1060,22 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       <textarea
         ref="textarea"
         v-model="input"
-        :placeholder="chat.isPlanReviewActive
+        :placeholder="(chat?.isPlanReviewActive ?? false)
           ? 'Review the plan in the sidebar to continue...'
-          : chat.isRateLimited
+          : (chat?.isRateLimited ?? false)
             ? `Rate limited — resets in ${rateLimitCountdown}`
-            : 'Ask Claude to help with your code... (/ for commands)'"
-        :disabled="chat.isRateLimited || chat.isPlanReviewActive"
-        class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-28 text-sm focus:outline-none"
-        :class="chat.isPlanReviewActive
+            : isNavigatingHistory
+              ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
+              : 'Ask Claude to help with your code... (/ for commands)'"
+        :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
+        class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-36 text-sm focus:outline-none"
+        :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
-          : chat.isRateLimited
+          : (chat?.isRateLimited ?? false)
             ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
-            : 'text-foreground placeholder:text-muted-foreground'"
+            : isNavigatingHistory
+              ? 'text-foreground placeholder:text-blue-500/70'
+              : 'text-foreground placeholder:text-muted-foreground'"
         rows="1"
         style="min-height: 44px; max-height: 120px"
         @keydown="handleKeydown"
@@ -682,9 +1084,20 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-2 flex items-center gap-1">
-        <MicButton v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" @transcript="handleVoiceTranscript" />
         <Button
-          v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive && attachedImages.length < MAX_IMAGES"
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
+          variant="ghost"
+          size="sm"
+          class="h-8 w-8 rounded-lg p-0 transition-colors"
+          :class="showTemplateMenu ? 'bg-primary/15 text-primary hover:bg-primary/25' : 'text-muted-foreground hover:text-foreground'"
+          title="Quick templates (Ctrl+1-5 for shortcuts)"
+          @click.stop="showTemplateMenu = !showTemplateMenu; selectedTemplateIndex = 0;"
+        >
+          <Sparkles class="h-4 w-4" />
+        </Button>
+        <Button
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedImages.length < MAX_IMAGES"
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
@@ -694,10 +1107,10 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           <ImagePlus class="h-4 w-4" />
         </Button>
         <Button
-          v-if="!chat.isStreaming"
+          v-if="!(chat?.isStreaming ?? false)"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="chat.isRateLimited || chat.isPlanReviewActive || (!input.trim() && attachedImages.length === 0)"
+          :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />
@@ -715,20 +1128,20 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     </div>
     <p
       class="mt-1 text-center text-[10px] md:mt-1.5 md:text-[11px] transition-colors duration-500"
-      :class="chat.isPlanReviewActive
+      :class="(chat?.isPlanReviewActive ?? false)
         ? 'text-primary font-medium'
-        : chat.isRateLimited
+        : (chat?.isRateLimited ?? false)
           ? 'text-red-400/70 font-medium'
           : 'text-muted-foreground'"
     >
-      <template v-if="chat.isPlanReviewActive">
+      <template v-if="chat?.isPlanReviewActive ?? false">
         Review the plan in the sidebar before continuing
       </template>
-      <template v-else-if="chat.isRateLimited">
+      <template v-else-if="chat?.isRateLimited ?? false">
         Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
       </template>
       <template v-else>
-        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files
+        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files <span class="hidden lg:inline">&middot; ↑/↓ for history &middot; ✨ for templates</span>
       </template>
     </p>
   </div>

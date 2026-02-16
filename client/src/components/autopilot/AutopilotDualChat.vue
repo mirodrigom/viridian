@@ -11,7 +11,7 @@ import { useAutopilotStore } from '@/stores/autopilot';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 import ToolView from '@/components/chat/tools/ToolView.vue';
 import type { ToolUseInfo } from '@/stores/chat';
-import type { AutopilotToolCall } from '@/types/autopilot';
+import type { AutopilotToolCall, AutopilotContentBlock } from '@/types/autopilot';
 
 const store = useAutopilotStore();
 const agentARef = ref<HTMLElement | null>(null);
@@ -127,21 +127,35 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
                   <span>Thinking...</span>
                 </div>
 
-                <!-- Response (rendered markdown) -->
-                <div
-                  v-if="cycle.agentA.response"
-                  :class="proseClasses"
-                  v-html="rendered(cycle.agentA.response)"
-                />
-
-                <!-- Tool calls -->
-                <div v-if="cycle.agentA.toolCalls.length > 0" class="space-y-1.5">
-                  <ToolView
-                    v-for="tc in cycle.agentA.toolCalls"
-                    :key="tc.requestId"
-                    :tool-use="toToolUseInfo(tc)"
+                <!-- Interleaved content blocks (text + tools in order) -->
+                <template v-if="cycle.agentA.contentBlocks.length > 0">
+                  <template v-for="(block, bIdx) in cycle.agentA.contentBlocks" :key="bIdx">
+                    <div
+                      v-if="block.type === 'text' && block.text"
+                      :class="proseClasses"
+                      v-html="rendered(block.text)"
+                    />
+                    <ToolView
+                      v-else-if="block.type === 'tool'"
+                      :tool-use="toToolUseInfo(block.toolCall)"
+                    />
+                  </template>
+                </template>
+                <!-- Fallback for loaded historical data (no contentBlocks) -->
+                <template v-else>
+                  <div
+                    v-if="cycle.agentA.response"
+                    :class="proseClasses"
+                    v-html="rendered(cycle.agentA.response)"
                   />
-                </div>
+                  <div v-if="cycle.agentA.toolCalls.length > 0" class="space-y-1.5">
+                    <ToolView
+                      v-for="tc in cycle.agentA.toolCalls"
+                      :key="tc.requestId"
+                      :tool-use="toToolUseInfo(tc)"
+                    />
+                  </div>
+                </template>
               </template>
             </div>
           </div>
@@ -195,21 +209,35 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
                   <span>Thinking...</span>
                 </div>
 
-                <!-- Response (rendered markdown) -->
-                <div
-                  v-if="cycle.agentB.response"
-                  :class="proseClasses"
-                  v-html="rendered(cycle.agentB.response)"
-                />
-
-                <!-- Tool calls -->
-                <div v-if="cycle.agentB.toolCalls.length > 0" class="space-y-1.5">
-                  <ToolView
-                    v-for="tc in cycle.agentB.toolCalls"
-                    :key="tc.requestId"
-                    :tool-use="toToolUseInfo(tc)"
+                <!-- Interleaved content blocks (text + tools in order) -->
+                <template v-if="cycle.agentB.contentBlocks.length > 0">
+                  <template v-for="(block, bIdx) in cycle.agentB.contentBlocks" :key="bIdx">
+                    <div
+                      v-if="block.type === 'text' && block.text"
+                      :class="proseClasses"
+                      v-html="rendered(block.text)"
+                    />
+                    <ToolView
+                      v-else-if="block.type === 'tool'"
+                      :tool-use="toToolUseInfo(block.toolCall)"
+                    />
+                  </template>
+                </template>
+                <!-- Fallback for loaded historical data (no contentBlocks) -->
+                <template v-else>
+                  <div
+                    v-if="cycle.agentB.response"
+                    :class="proseClasses"
+                    v-html="rendered(cycle.agentB.response)"
                   />
-                </div>
+                  <div v-if="cycle.agentB.toolCalls.length > 0" class="space-y-1.5">
+                    <ToolView
+                      v-for="tc in cycle.agentB.toolCalls"
+                      :key="tc.requestId"
+                      :tool-use="toToolUseInfo(tc)"
+                    />
+                  </div>
+                </template>
 
                 <!-- Commit badge -->
                 <div

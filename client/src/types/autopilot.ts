@@ -102,6 +102,11 @@ export interface AutopilotToolCall {
   requestId: string;
 }
 
+// ─── Interleaved content block (text or tool) for rendering ───────────
+export type AutopilotContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; toolCall: AutopilotToolCall };
+
 // ─── Cycle ─────────────────────────────────────────────────────────────
 export type CycleStatus =
   | 'pending'
@@ -125,6 +130,7 @@ export interface AutopilotAgentState {
   thinking: string;
   isThinking: boolean;
   toolCalls: AutopilotToolCall[];
+  contentBlocks: AutopilotContentBlock[];
   tokens: TokenUsage;
 }
 
