@@ -362,7 +362,7 @@ const rateLimitCountdown = ref('');
 let rateLimitInterval: ReturnType<typeof setInterval> | null = null;
 
 function updateRateLimitCountdown() {
-  if (!chat.isRateLimited) {
+  if (!(chat?.isRateLimited ?? false)) {
     rateLimitCountdown.value = '';
     if (rateLimitInterval) {
       clearInterval(rateLimitInterval);
@@ -370,7 +370,7 @@ function updateRateLimitCountdown() {
     }
     return;
   }
-  const remaining = chat.rateLimitRemainingMs;
+  const remaining = chat?.rateLimitRemainingMs ?? 0;
   const hours = Math.floor(remaining / 3600000);
   const minutes = Math.floor((remaining % 3600000) / 60000);
   const seconds = Math.floor((remaining % 60000) / 1000);
@@ -383,7 +383,7 @@ function updateRateLimitCountdown() {
   }
 }
 
-watch(() => chat.isRateLimited, (limited) => {
+watch(() => chat?.isRateLimited ?? false, (limited) => {
   if (limited) {
     updateRateLimitCountdown();
     rateLimitInterval = setInterval(updateRateLimitCountdown, 1000);
@@ -487,14 +487,6 @@ watch(showCommandMenu, (show) => {
   }
 });
 
-// Close template menu when file menu opens
-watch(showFileMenu, (show) => {
-  if (show && showTemplateMenu.value) {
-    showTemplateMenu.value = false;
-    selectedTemplateIndex.value = 0;
-  }
-});
-
 // File mention system (@file autocomplete)
 const mentionQuery = computed(() => {
   if (showCommandMenu.value) return null;
@@ -514,6 +506,14 @@ const mentionQuery = computed(() => {
 
 const showFileMenu = computed(() => {
   return mentionQuery.value !== null && mentionQuery.value.query.length >= 1 && fileSuggestions.value.length > 0;
+});
+
+// Close template menu when file menu opens
+watch(showFileMenu, (show) => {
+  if (show && showTemplateMenu.value) {
+    showTemplateMenu.value = false;
+    selectedTemplateIndex.value = 0;
+  }
 });
 
 watch(mentionQuery, (mq) => {
@@ -645,7 +645,7 @@ function handleSubmit() {
   }
 
   const trimmed = input.value.trim();
-  if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited || chat.isPlanReviewActive) return;
+  if ((!trimmed && attachedImages.value.length === 0) || (chat?.isStreaming ?? false) || (chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)) return;
 
   // Add to message history (only the user's original input, not including file mentions)
   if (trimmed) {
@@ -801,7 +801,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
 <template>
   <div
     class="border-t px-2 py-2 md:px-4 md:py-3 transition-colors duration-500"
-    :class="chat.isRateLimited
+    :class="(chat?.isRateLimited ?? false)
       ? 'border-red-500/50 bg-red-950/30'
       : 'border-border bg-background'"
   >
@@ -1044,7 +1044,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     <!-- Text input -->
     <div
       class="relative rounded-xl border shadow-sm transition-colors"
-      :class="chat.isRateLimited
+      :class="(chat?.isRateLimited ?? false)
         ? 'border-red-500/40 bg-red-950/20'
         : isDragging
           ? 'border-primary/50 ring-2 ring-primary/30 bg-card'
@@ -1059,18 +1059,18 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       <textarea
         ref="textarea"
         v-model="input"
-        :placeholder="chat.isPlanReviewActive
+        :placeholder="(chat?.isPlanReviewActive ?? false)
           ? 'Review the plan in the sidebar to continue...'
-          : chat.isRateLimited
+          : (chat?.isRateLimited ?? false)
             ? `Rate limited — resets in ${rateLimitCountdown}`
             : isNavigatingHistory
               ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
               : 'Ask Claude to help with your code... (/ for commands)'"
-        :disabled="chat.isRateLimited || chat.isPlanReviewActive"
+        :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
         class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-28 text-sm focus:outline-none"
-        :class="chat.isPlanReviewActive
+        :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
-          : chat.isRateLimited
+          : (chat?.isRateLimited ?? false)
             ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
             : isNavigatingHistory
               ? 'text-foreground placeholder:text-blue-500/70'
@@ -1083,9 +1083,9 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-2 flex items-center gap-1">
-        <MicButton v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" @transcript="handleVoiceTranscript" />
         <Button
-          v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive"
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 transition-colors"
@@ -1096,7 +1096,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           <Sparkles class="h-4 w-4" />
         </Button>
         <Button
-          v-if="!chat.isStreaming && !chat.isRateLimited && !chat.isPlanReviewActive && attachedImages.length < MAX_IMAGES"
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedImages.length < MAX_IMAGES"
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
@@ -1106,10 +1106,10 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           <ImagePlus class="h-4 w-4" />
         </Button>
         <Button
-          v-if="!chat.isStreaming"
+          v-if="!(chat?.isStreaming ?? false)"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="chat.isRateLimited || chat.isPlanReviewActive || (!input.trim() && attachedImages.length === 0)"
+          :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />
@@ -1127,16 +1127,16 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     </div>
     <p
       class="mt-1 text-center text-[10px] md:mt-1.5 md:text-[11px] transition-colors duration-500"
-      :class="chat.isPlanReviewActive
+      :class="(chat?.isPlanReviewActive ?? false)
         ? 'text-primary font-medium'
-        : chat.isRateLimited
+        : (chat?.isRateLimited ?? false)
           ? 'text-red-400/70 font-medium'
           : 'text-muted-foreground'"
     >
-      <template v-if="chat.isPlanReviewActive">
+      <template v-if="chat?.isPlanReviewActive ?? false">
         Review the plan in the sidebar before continuing
       </template>
-      <template v-else-if="chat.isRateLimited">
+      <template v-else-if="chat?.isRateLimited ?? false">
         Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
       </template>
       <template v-else>
