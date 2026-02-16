@@ -39,6 +39,7 @@ const agentBModel = ref('claude-sonnet-4-20250514');
 const maxIterations = ref(20);
 const scopePath = ref('');
 const allowedPaths = ref<string[]>([]);
+const runTestVerification = ref(true);
 const cwdOverride = ref('');
 const showDirPicker = ref(false);
 
@@ -149,6 +150,7 @@ function startRun() {
     cwd,
     allowedPaths: allowedPaths.value,
     maxIterations: maxIterations.value,
+    runTestVerification: runTestVerification.value,
   });
 
   showConfig.value = false;
@@ -380,6 +382,21 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
             />
             <p class="text-xs text-muted-foreground">
               Maximum number of A→B cycles before stopping automatically.
+            </p>
+          </div>
+
+          <div class="space-y-2 border-t border-border pt-4">
+            <div class="flex items-center gap-3">
+              <input
+                type="checkbox"
+                v-model="runTestVerification"
+                class="h-4 w-4 rounded border-border"
+              />
+              <Label>Run Test Verification (Cycle N+1)</Label>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              After all iterations complete, run an additional cycle that finds existing tests
+              for changed files, runs them, and creates new tests for uncovered code.
             </p>
           </div>
         </TabsContent>

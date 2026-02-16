@@ -50,10 +50,11 @@ watch(() => chat.isStreaming, (streaming, wasStreaming) => {
   }
 });
 
-async function fetchSessions() {
+async function fetchSessions(bustCache = false) {
   try {
     const params = new URLSearchParams();
     if (chat.projectPath) params.set('project', chat.projectPath);
+    if (bustCache) params.set('_t', String(Date.now()));
     const res = await fetch(`/api/sessions?${params}`, {
       headers: { Authorization: `Bearer ${auth.token}` },
     });
@@ -67,7 +68,7 @@ async function fetchSessions() {
 
 async function refreshSessions() {
   isRefreshing.value = true;
-  await fetchSessions();
+  await fetchSessions(true);
   isRefreshing.value = false;
 }
 

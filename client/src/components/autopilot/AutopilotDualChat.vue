@@ -6,7 +6,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Brain, Wrench, Bot } from 'lucide-vue-next';
+import { Loader2, Brain, Wrench, Bot, FlaskConical } from 'lucide-vue-next';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 import ToolView from '@/components/chat/tools/ToolView.vue';
@@ -116,7 +116,12 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
             <div ref="agentARef" class="flex-1 overflow-y-auto p-3 space-y-3">
               <template v-for="cycle in store.currentRun.cycles" :key="cycle.cycleNumber">
                 <div v-if="cycle.cycleNumber > 0" class="flex items-center gap-2 py-1">
-                  <div class="flex-1 h-px bg-border" /><span class="text-[10px] text-muted-foreground">Cycle {{ cycle.cycleNumber + 1 }}</span><div class="flex-1 h-px bg-border" />
+                  <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
+                  <span class="text-[10px] flex items-center gap-1" :class="cycle.isTestVerification ? 'text-amber-400' : 'text-muted-foreground'">
+                    <FlaskConical v-if="cycle.isTestVerification" class="h-3 w-3" />
+                    {{ cycle.isTestVerification ? 'Test Verification' : `Cycle ${cycle.cycleNumber + 1}` }}
+                  </span>
+                  <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
                 </div>
                 <div v-if="store.isRunning && cycle.agentA.isThinking && cycle.cycleNumber === store.currentRun!.currentCycleNumber" class="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 class="h-3 w-3 animate-spin" /><span>Thinking...</span>
@@ -159,7 +164,12 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
             <div ref="agentBRef" class="flex-1 overflow-y-auto p-3 space-y-3">
               <template v-for="cycle in store.currentRun.cycles" :key="cycle.cycleNumber">
                 <div v-if="cycle.cycleNumber > 0" class="flex items-center gap-2 py-1">
-                  <div class="flex-1 h-px bg-border" /><span class="text-[10px] text-muted-foreground">Cycle {{ cycle.cycleNumber + 1 }}</span><div class="flex-1 h-px bg-border" />
+                  <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
+                  <span class="text-[10px] flex items-center gap-1" :class="cycle.isTestVerification ? 'text-amber-400' : 'text-muted-foreground'">
+                    <FlaskConical v-if="cycle.isTestVerification" class="h-3 w-3" />
+                    {{ cycle.isTestVerification ? 'Test Verification' : `Cycle ${cycle.cycleNumber + 1}` }}
+                  </span>
+                  <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
                 </div>
                 <div v-if="store.isRunning && cycle.agentB.isThinking && cycle.cycleNumber === store.currentRun!.currentCycleNumber" class="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 class="h-3 w-3 animate-spin" /><span>Thinking...</span>
@@ -224,7 +234,12 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
         <div v-if="mobileAgent === 'a'" ref="agentARef" class="flex-1 overflow-y-auto p-3 space-y-3 border-l-2 border-l-blue-500/60">
           <template v-for="cycle in store.currentRun.cycles" :key="cycle.cycleNumber">
             <div v-if="cycle.cycleNumber > 0" class="flex items-center gap-2 py-1">
-              <div class="flex-1 h-px bg-border" /><span class="text-[10px] text-muted-foreground">Cycle {{ cycle.cycleNumber + 1 }}</span><div class="flex-1 h-px bg-border" />
+              <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
+              <span class="text-[10px] flex items-center gap-1" :class="cycle.isTestVerification ? 'text-amber-400' : 'text-muted-foreground'">
+                <FlaskConical v-if="cycle.isTestVerification" class="h-3 w-3" />
+                {{ cycle.isTestVerification ? 'Test Verification' : `Cycle ${cycle.cycleNumber + 1}` }}
+              </span>
+              <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
             </div>
             <div v-if="store.isRunning && cycle.agentA.isThinking && cycle.cycleNumber === store.currentRun!.currentCycleNumber" class="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 class="h-3 w-3 animate-spin" /><span>Thinking...</span>
@@ -248,7 +263,12 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
         <div v-else ref="agentBRef" class="flex-1 overflow-y-auto p-3 space-y-3 border-l-2 border-l-emerald-500/60">
           <template v-for="cycle in store.currentRun.cycles" :key="cycle.cycleNumber">
             <div v-if="cycle.cycleNumber > 0" class="flex items-center gap-2 py-1">
-              <div class="flex-1 h-px bg-border" /><span class="text-[10px] text-muted-foreground">Cycle {{ cycle.cycleNumber + 1 }}</span><div class="flex-1 h-px bg-border" />
+              <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
+              <span class="text-[10px] flex items-center gap-1" :class="cycle.isTestVerification ? 'text-amber-400' : 'text-muted-foreground'">
+                <FlaskConical v-if="cycle.isTestVerification" class="h-3 w-3" />
+                {{ cycle.isTestVerification ? 'Test Verification' : `Cycle ${cycle.cycleNumber + 1}` }}
+              </span>
+              <div class="flex-1 h-px" :class="cycle.isTestVerification ? 'bg-amber-500/30' : 'bg-border'" />
             </div>
             <div v-if="store.isRunning && cycle.agentB.isThinking && cycle.cycleNumber === store.currentRun!.currentCycleNumber" class="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 class="h-3 w-3 animate-spin" /><span>Thinking...</span>

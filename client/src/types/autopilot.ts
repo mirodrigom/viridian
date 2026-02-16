@@ -85,6 +85,7 @@ export interface AutopilotConfig {
   scheduleDays: number[];             // 0=Sun, 1=Mon, ...
   scheduleTimezone: string;
   goalPrompt: string;
+  runTestVerification: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -143,6 +144,7 @@ export interface AutopilotCycle {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  isTestVerification: boolean;
 }
 
 // ─── Run ───────────────────────────────────────────────────────────────
@@ -208,7 +210,10 @@ export type AutopilotTimelineType =
   | 'run_completed'
   | 'schedule_timeout'
   | 'run_failed'
-  | 'pr_created';
+  | 'pr_created'
+  | 'test_verification_started'
+  | 'test_verification_completed'
+  | 'test_verification_failed';
 
 export interface AutopilotTimelineEntry {
   timestamp: number;
@@ -235,6 +240,7 @@ export interface WsStartAdhoc {
   cwd: string;
   allowedPaths: string[];
   maxIterations: number;
+  runTestVerification?: boolean;
 }
 
 export interface WsPauseRun {
@@ -285,7 +291,8 @@ export interface WsApCycleStarted {
   type: 'cycle_started';
   runId: string;
   cycleNumber: number;
-  phase: 'agent_a';
+  phase: 'agent_a' | 'agent_b';
+  isTestVerification?: boolean;
 }
 
 export interface WsApCyclePhaseChange {

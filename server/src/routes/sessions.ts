@@ -244,6 +244,7 @@ router.get('/', async (req, res) => {
     // Sort by most recent first
     sessions.sort((a, b) => b.lastActive - a.lastActive);
 
+    res.set('Cache-Control', 'no-cache');
     res.json({ sessions });
   } catch (err) {
     console.error('[sessions] Error:', err);
