@@ -434,6 +434,9 @@ const effectivePermissionLabel = computed(() =>
 const effectivePermissionIcon = computed(() =>
   chat.inPlanMode ? ClipboardList : (permissionIcons[settings.permissionMode] || Shield)
 );
+
+// All modes use --primary which is overridden per mode via chat-mode-* CSS classes
+const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
 </script>
 
 <template>
@@ -463,12 +466,10 @@ const effectivePermissionIcon = computed(() =>
         </Select>
 
         <!-- Permission mode -->
-        <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); }">
+        <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); if (v !== 'plan') chat.inPlanMode = false; }">
           <SelectTrigger
             class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors shrink-0"
-            :class="chat.inPlanMode || settings.permissionMode === 'plan' || settings.permissionMode === 'bypassPermissions'
-              ? 'bg-primary/15 text-primary hover:bg-primary/25'
-              : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
+            :class="permissionColorClass"
             :title="effectivePermissionLabel"
           >
             <component :is="effectivePermissionIcon" class="h-3 w-3" />

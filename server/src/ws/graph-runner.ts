@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
-import { runGraph, type RunContext } from '../services/graph-runner.js';
+import { runGraph, previewGraph, type RunContext } from '../services/graph-runner.js';
 import { getDb } from '../db/database.js';
 
 export function setupGraphRunnerWs(server: Server) {
@@ -88,6 +88,21 @@ export function setupGraphRunnerWs(server: Server) {
           const cleanupDb = wireRunPersistence(ctx, graphId || null, userId, prompt, cwd);
 
           cleanupEvents = () => { cleanupWs(); cleanupDb(); };
+        }
+
+        if (data.type === 'preview_graph') {
+          const { graphData } = data;
+          if (!graphData) {
+            safeSend(ws, { type: 'preview_error', error: 'Missing graphData' });
+            return;
+          }
+          try {
+            const preview = previewGraph(graphData);
+            safeSend(ws, { type: 'preview_result', preview });
+          } catch (err) {
+            const error = err instanceof Error ? err.message : 'Preview failed';
+            safeSend(ws, { type: 'preview_error', error });
+          }
         }
 
         if (data.type === 'abort_run') {

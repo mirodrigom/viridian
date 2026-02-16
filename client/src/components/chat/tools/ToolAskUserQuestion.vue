@@ -130,7 +130,7 @@ function submitAll() {
   const result: Record<string, string> = {};
   for (let i = 0; i < questions.value.length; i++) {
     const q = questions.value[i]!;
-    const key = q.header || q.question;
+    const key = q.question;
     if (useCustom.value[i]) {
       result[key] = customInputs.value[i] || '';
     } else {

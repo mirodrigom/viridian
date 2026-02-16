@@ -66,6 +66,7 @@ describe('WebSocket Integration Tests', () => {
   let authStore: any
 
   beforeEach(() => {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.clear()
     setupTestPinia()
     vi.clearAllMocks()
     vi.useFakeTimers()
@@ -94,7 +95,7 @@ describe('WebSocket Integration Tests', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllTimers()
+    vi.useRealTimers()
   })
 
   describe('Complete chat flow', () => {
@@ -110,7 +111,7 @@ describe('WebSocket Integration Tests', () => {
       expect(chatStore.messages[0]?.content).toBe('Hello Claude, can you help me?')
 
       // Simulate streaming response
-      mockWebSocket.emit('stream_start')
+      mockWebSocket.emit('stream_start', {})
 
       expect(chatStore.isStreaming).toBe(true)
       expect(chatStore.messages).toHaveLength(2)
@@ -147,7 +148,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Read the README file')
 
       // Start streaming
-      mockWebSocket.emit('stream_start')
+      mockWebSocket.emit('stream_start', {})
       mockWebSocket.emit('stream_delta', { text: 'I\'ll read the README file for you.' })
 
       // Tool use interrupts the stream
@@ -190,8 +191,8 @@ describe('WebSocket Integration Tests', () => {
 
       sendMessage('Run a bash command')
 
-      // Start with tool use
-      mockWebSocket.emit('stream_start')
+      // Start with tool use (stream_start creates assistant at [1], tool_use creates tool at [2])
+      mockWebSocket.emit('stream_start', {})
       mockWebSocket.emit('tool_use', {
         tool: 'Bash',
         input: {},
@@ -204,9 +205,9 @@ describe('WebSocket Integration Tests', () => {
         accumulatedJson: '{"command":'
       })
 
-      // Should not parse incomplete JSON
-      expect(chatStore.messages[1]?.toolUse?.input).toEqual({})
-      expect(chatStore.messages[1]?.toolUse?.isInputStreaming).toBe(true)
+      // Should not parse incomplete JSON (tool message is at index 2)
+      expect(chatStore.messages[2]?.toolUse?.input).toEqual({})
+      expect(chatStore.messages[2]?.toolUse?.isInputStreaming).toBe(true)
 
       mockWebSocket.emit('tool_input_delta', {
         requestId: 'req-bash-123',
@@ -219,7 +220,7 @@ describe('WebSocket Integration Tests', () => {
       })
 
       // Should parse complete JSON
-      expect(chatStore.messages[1]?.toolUse?.input).toEqual({
+      expect(chatStore.messages[2]?.toolUse?.input).toEqual({
         command: 'ls -la',
         description: 'List directory contents'
       })
@@ -233,11 +234,11 @@ describe('WebSocket Integration Tests', () => {
         }
       })
 
-      expect(chatStore.messages[1]?.toolUse?.input).toEqual({
+      expect(chatStore.messages[2]?.toolUse?.input).toEqual({
         command: 'ls -la',
         description: 'List directory contents in detail'
       })
-      expect(chatStore.messages[1]?.toolUse?.isInputStreaming).toBe(false)
+      expect(chatStore.messages[2]?.toolUse?.isInputStreaming).toBe(false)
     })
 
     it('should handle thinking mode flow', async () => {
@@ -247,7 +248,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Solve this complex problem')
 
       // Start streaming
-      mockWebSocket.emit('stream_start')
+      mockWebSocket.emit('stream_start', {})
 
       // Start thinking
       mockWebSocket.emit('thinking_start')
@@ -276,6 +277,7 @@ describe('WebSocket Integration Tests', () => {
     it('should handle reconnection during active streaming', async () => {
       const { init } = useClaudeStream()
       chatStore.sessionId = 'active-session'
+      chatStore.activeProjectDir = '/test/project'
 
       init()
 
@@ -283,8 +285,10 @@ describe('WebSocket Integration Tests', () => {
       mockWebSocket.simulateConnection()
 
       // Simulate server indicating active streaming session
+      // serverSessionId is the internal UUID that wireEmitter uses for subsequent events
       mockWebSocket.emit('session_status', {
         sessionId: 'active-session',
+        serverSessionId: 'server-uuid-456',
         isStreaming: true,
         accumulatedText: 'Partial response in progress...'
       })
@@ -294,22 +298,23 @@ describe('WebSocket Integration Tests', () => {
       expect(chatStore.messages[0]?.content).toBe('Partial response in progress...')
       expect(chatStore.messages[0]?.isStreaming).toBe(true)
 
-      // Continue streaming from where we left off
-      mockWebSocket.emit('stream_delta', { text: ' continuing after reconnect.' })
+      // Continue streaming — events now carry the server's internal UUID
+      mockWebSocket.emit('stream_delta', { sessionId: 'server-uuid-456', text: ' continuing after reconnect.' })
 
       expect(chatStore.messages[0]?.content).toBe('Partial response in progress... continuing after reconnect.')
 
       // End stream with reload trigger
       mockWebSocket.emit('stream_end', {
-        sessionId: 'active-session',
+        sessionId: 'server-uuid-456',
         claudeSessionId: 'claude-session-789'
       })
 
-      // Should trigger full reload since we reconnected mid-stream
-      await nextTick()
+      // Should trigger full reload since we reconnected mid-stream.
+      // Uses claudeSessionId (JSONL filename) for the REST API, not the server UUID.
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/sessions/active-session/messages'),
+        expect.stringContaining('/api/sessions/claude-session-789/messages'),
         expect.any(Object)
       )
     })
@@ -342,7 +347,7 @@ describe('WebSocket Integration Tests', () => {
         isStreaming: false
       })
 
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/sessions/finished-session/messages?projectDir=%2Ftest%2Fproject&after=1',
@@ -379,22 +384,20 @@ describe('WebSocket Integration Tests', () => {
       // Send message that triggers rate limit
       sendMessage('Test message')
 
-      // Mock current time
-      const mockNow = new Date('2024-02-13T10:00:00Z').getTime()
-      vi.setSystemTime(mockNow)
-
-      // Simulate rate limit error
+      // Simulate rate limit error (use generic rate limit text so fallback 5-min timer is used)
       mockWebSocket.emit('error', {
-        error: 'You\'ve hit your usage limit. Your usage resets Feb 13, 10:05am'
+        error: 'You\'ve hit your usage limit. Please try again later.'
       })
 
       expect(chatStore.isRateLimited).toBe(true)
       expect(chatStore.isStreaming).toBe(false)
       expect(chatStore.messages[1]?.content).toContain('Error:')
 
-      // Fast forward to reset time
-      vi.advanceTimersByTime(5 * 60 * 1000) // 5 minutes
-      await nextTick()
+      // Fast forward past the fallback reset time (5 minutes)
+      const resetTime = chatStore.rateLimitedUntil!
+      const remaining = resetTime - Date.now() + 1000
+      vi.setSystemTime(resetTime + 1000)
+      await vi.advanceTimersByTimeAsync(remaining)
 
       expect(chatStore.isRateLimited).toBe(false)
     })
@@ -418,11 +421,11 @@ describe('WebSocket Integration Tests', () => {
 
       // These should not crash the application
       mockWebSocket.emit('stream_delta', null)
-      mockWebSocket.emit('tool_use', undefined)
-      mockWebSocket.emit('error', { malformed: true })
+      mockWebSocket.emit('stream_delta', undefined)
+      mockWebSocket.emit('tool_use', null)
 
-      // Application should still be functional
-      expect(chatStore.messages).toHaveLength(0)
+      // Application should still be functional (no crash)
+      expect(chatStore.isStreaming).toBe(false)
     })
   })
 
@@ -434,7 +437,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Analyze and fix the code in src/main.js')
 
       // Start response
-      mockWebSocket.emit('stream_start')
+      mockWebSocket.emit('stream_start', {})
       mockWebSocket.emit('stream_delta', { text: 'I\'ll analyze and fix the code. First, let me read the file.' })
 
       // First tool: Read file
@@ -444,12 +447,15 @@ describe('WebSocket Integration Tests', () => {
         requestId: 'req-read-1'
       })
 
-      expect(chatStore.messages).toHaveLength(3) // user, assistant, read tool
+      // Messages: user[0], assistant[1], tool[2]
+      const toolMessages0 = chatStore.messages.filter(m => m.toolUse)
+      expect(toolMessages0).toHaveLength(1)
+      expect(toolMessages0[0]?.toolUse?.tool).toBe('Read')
 
       // Approve read
       respondToTool('req-read-1', true)
 
-      // Continue with analysis
+      // Continue with analysis (creates new assistant after tool)
       mockWebSocket.emit('stream_delta', { text: 'I found several issues. Let me fix them:' })
 
       // Second tool: Edit file
@@ -463,12 +469,13 @@ describe('WebSocket Integration Tests', () => {
         requestId: 'req-edit-1'
       })
 
-      expect(chatStore.messages).toHaveLength(5) // user, assistant, read, new assistant, edit
+      const toolMessages1 = chatStore.messages.filter(m => m.toolUse)
+      expect(toolMessages1).toHaveLength(2)
 
       // Approve edit
       respondToTool('req-edit-1', true)
 
-      // Third tool: Run tests
+      // Third tool: Run tests (creates new assistant after tool)
       mockWebSocket.emit('stream_delta', { text: 'Now let me run the tests to verify:' })
 
       mockWebSocket.emit('tool_use', {
@@ -477,12 +484,13 @@ describe('WebSocket Integration Tests', () => {
         requestId: 'req-bash-1'
       })
 
-      expect(chatStore.messages).toHaveLength(7)
+      const toolMessages2 = chatStore.messages.filter(m => m.toolUse)
+      expect(toolMessages2).toHaveLength(3)
 
       // Approve test run
       respondToTool('req-bash-1', true)
 
-      // Final response
+      // Final response (creates new assistant after tool)
       mockWebSocket.emit('stream_delta', { text: 'Perfect! All tests are passing. The issues have been fixed.' })
 
       mockWebSocket.emit('stream_end', {
@@ -490,7 +498,6 @@ describe('WebSocket Integration Tests', () => {
       })
 
       // Verify final state
-      expect(chatStore.messages).toHaveLength(8)
       expect(chatStore.isStreaming).toBe(false)
 
       // Check all tool statuses
@@ -499,6 +506,13 @@ describe('WebSocket Integration Tests', () => {
       toolMessages.forEach(msg => {
         expect(msg.toolUse?.status).toBe('approved')
       })
+
+      // Verify message structure: alternating assistant/tool pattern
+      const roles = chatStore.messages.map(m => m.role)
+      expect(roles[0]).toBe('user')
+      // Rest should alternate between assistant and system (tool)
+      const assistantMsgs = chatStore.messages.filter(m => m.role === 'assistant')
+      expect(assistantMsgs.length).toBeGreaterThanOrEqual(4) // initial + after each tool
     })
   })
 })

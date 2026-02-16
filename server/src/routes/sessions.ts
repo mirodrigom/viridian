@@ -304,6 +304,7 @@ router.get('/:id/messages', async (req, res) => {
         requestId: string;
         status: 'approved';
       };
+      isContextSummary?: boolean;
     }
 
     const allMessages: ParsedMessage[] = [];
@@ -350,12 +351,15 @@ router.get('/:id/messages', async (req, res) => {
             }
 
             if (content || images?.length) {
+              // Detect context window resize summary messages
+              const isContextSummary = content.startsWith('This session is being continued from a previous conversation');
               allMessages.push({
                 id: entry.uuid || `user-${allMessages.length}`,
-                role: 'user',
+                role: isContextSummary ? 'system' : 'user',
                 content: content || '(image)',
                 timestamp: entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now(),
-                images,
+                images: isContextSummary ? undefined : images,
+                isContextSummary: isContextSummary || undefined,
               });
             }
           }
@@ -498,7 +502,11 @@ router.get('/:id/messages', async (req, res) => {
     const messages = allMessages.slice(startIndex, endIndex);
     const hasMore = startIndex > 0;
 
-    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData });
+    // Check if this session is currently streaming on the server
+    const streamingIds = getStreamingClaudeSessionIds();
+    const isStreaming = streamingIds.has(sessionId);
+
+    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming });
   } catch (err) {
     console.error('[sessions] Error loading messages:', err);
     res.status(500).json({ error: 'Failed to load session messages' });

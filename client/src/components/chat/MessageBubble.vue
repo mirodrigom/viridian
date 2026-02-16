@@ -11,7 +11,7 @@ import {
   ChevronRight, Check, X, AlertCircle, Brain,
   FileText, FileOutput, Pencil, TerminalSquare,
   FolderSearch, Search, ListTodo, Globe,
-  Wrench, Bot, MessageCircleQuestion,
+  Wrench, Bot, MessageCircleQuestion, Minimize2,
 } from 'lucide-vue-next';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 
@@ -34,6 +34,7 @@ const emit = defineEmits<{
 }>();
 
 const thinkingOpen = ref(false);
+const contextSummaryOpen = ref(false);
 
 const TOOL_ICONS: Record<string, Component> = {
   Read: FileText,
@@ -227,6 +228,28 @@ function formatTime(ts: number) {
         </Button>
       </div>
     </div>
+  </div>
+
+  <!-- Context window resize summary -->
+  <div v-else-if="message.isContextSummary" class="py-0.5 px-2 sm:pl-[3.25rem] sm:pr-4">
+    <Collapsible v-model:open="contextSummaryOpen" class="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+      <CollapsibleTrigger class="flex w-full items-center gap-2 sm:gap-2.5 bg-muted/30 px-2.5 sm:px-3.5 py-2.5 hover:bg-muted/50 transition-colors">
+        <div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-orange-500">
+          <Minimize2 class="h-3 w-3" />
+        </div>
+        <span class="text-sm font-medium text-foreground">Context Resized</span>
+        <ChevronRight
+          class="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200"
+          :class="{ 'rotate-90': contextSummaryOpen }"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div
+          class="max-h-80 overflow-auto border-t border-border px-3.5 py-3 prose prose-sm prose-neutral max-w-none dark:prose-invert prose-p:leading-relaxed prose-headings:text-foreground"
+          v-html="renderedContent"
+        />
+      </CollapsibleContent>
+    </Collapsible>
   </div>
 
   <!-- System message (errors, info) -->

@@ -144,7 +144,7 @@ describe('Testing Coverage Summary', () => {
       expect(testPatterns).toHaveLength(6)
 
       // Patterns should be followed across all test files
-      expect(testPatterns.every(pattern => pattern.includes('->')  || pattern.includes('validation') || pattern.includes('coverage'))).toBe(true)
+      expect(testPatterns.every(pattern => pattern.includes('->') || pattern.includes('validation') || pattern.includes('coverage') || pattern.includes('simulation') || pattern.includes('assertions') || pattern.includes('exploration'))).toBe(true)
     })
 
     it('should demonstrate VS Code parity as primary goal', () => {

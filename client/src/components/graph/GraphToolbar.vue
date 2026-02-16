@@ -5,9 +5,11 @@ import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from 'vue-sonner';
+import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
-  FilePlus, Save, FolderOpen, LayoutTemplate, LayoutGrid, Maximize2,
-  Trash2, Circle, Play, Square, PanelRight,
+  FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload,
+  LayoutGrid, Maximize2, Trash2, Circle, Play, Square, PanelRight, Rocket,
 } from 'lucide-vue-next';
 
 const emit = defineEmits<{
@@ -15,8 +17,10 @@ const emit = defineEmits<{
   save: [];
   load: [];
   templates: [];
+  import: [];
   run: [];
   abort: [];
+  quickRun: [];
 }>();
 
 const graph = useGraphStore();
@@ -26,6 +30,68 @@ const router = useRouter();
 function onNewGraph() {
   graph.newGraph();
   router.replace({ name: 'graph' });
+}
+
+function flattenNodeData(data: NodeData): Omit<ExportedNode, 'type' | 'label' | 'description'> {
+  const out: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(data)) {
+    // Skip internal fields and empty values
+    if (key === 'nodeType' || key === 'label' || key === 'description') continue;
+    if (val === '' || val === undefined || val === null) continue;
+    if (Array.isArray(val) && val.length === 0) continue;
+    if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val as object).length === 0) continue;
+    out[key] = val;
+  }
+  return out;
+}
+
+function onExport() {
+  if (graph.nodeCount === 0) {
+    toast.error('Nothing to export — graph is empty');
+    return;
+  }
+
+  const serialized = graph.serialize();
+
+  // Build id→label map for connections
+  const idToLabel = new Map<string, string>();
+  for (const n of serialized.nodes) {
+    idToLabel.set(n.id, n.data.label);
+  }
+
+  const exportData: GraphExportData = {
+    formatVersion: 1,
+    name: graph.currentGraphName,
+    exportedAt: new Date().toISOString(),
+    nodes: serialized.nodes.map(n => ({
+      type: n.data.nodeType,
+      label: n.data.label,
+      ...(n.data.description ? { description: n.data.description } : {}),
+      ...flattenNodeData(n.data),
+    })),
+    connections: serialized.edges.map(e => ({
+      from: idToLabel.get(e.source) || e.source,
+      to: idToLabel.get(e.target) || e.target,
+      type: e.data.edgeType as EdgeType,
+    })),
+  };
+
+  const json = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const safeName = graph.currentGraphName
+    .replace(/[<>:"/\\|?*]/g, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase() || 'graph';
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeName}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  toast.success('Graph exported');
 }
 </script>
 
@@ -84,6 +150,24 @@ function onNewGraph() {
         <TooltipContent>Templates</TooltipContent>
       </Tooltip>
 
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExport()">
+            <Download class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Export as JSON</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('import')">
+            <Upload class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Import from JSON</TooltipContent>
+      </Tooltip>
+
       <div class="mx-1 h-4 w-px bg-border" />
 
       <Tooltip>
@@ -122,6 +206,22 @@ function onNewGraph() {
       </Tooltip>
 
       <div class="mx-1 h-4 w-px bg-border" />
+
+      <!-- Quick Run -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0 text-primary hover:text-primary/80"
+            :disabled="runner.isRunning"
+            @click="emit('quickRun')"
+          >
+            <Rocket class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Quick Run (from template)</TooltipContent>
+      </Tooltip>
 
       <!-- Run / Stop -->
       <Tooltip v-if="!runner.isRunning">

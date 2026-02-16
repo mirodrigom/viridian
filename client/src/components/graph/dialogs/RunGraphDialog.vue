@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useGraphStore } from '@/stores/graph';
+import { useGraphRunnerStore } from '@/stores/graphRunner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -8,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Play, Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck } from 'lucide-vue-next';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import ExecutionPreviewTree from '@/components/graph/ExecutionPreviewTree.vue';
+import { Play, Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, Eye, ChevronDown, Loader2 } from 'lucide-vue-next';
 import { GOAL_PRESETS } from '@/data/goalPresets';
 
 const open = defineModel<boolean>('open', { default: false });
@@ -17,7 +20,25 @@ const emit = defineEmits<{
 }>();
 
 const graph = useGraphStore();
+const runner = useGraphRunnerStore();
 const prompt = ref('');
+const showPreview = ref(false);
+
+// Request preview when expanding the collapsible
+watch(showPreview, (v) => {
+  if (v && !runner.currentPreview && !runner.previewLoading) {
+    const graphData = graph.serialize();
+    runner.requestPreview(graphData);
+  }
+});
+
+// Clear preview when dialog closes
+watch(open, (v) => {
+  if (!v) {
+    showPreview.value = false;
+    runner.clearPreview();
+  }
+});
 
 // Detect root agent node (agent with no incoming delegation edges)
 const rootNode = computed(() => {
@@ -128,6 +149,31 @@ const typeIcons: Record<string, typeof Bot> = {
             {{ count }} {{ type }}{{ count > 1 ? 's' : '' }}
           </Badge>
         </div>
+
+        <!-- Execution Preview (collapsible) -->
+        <Collapsible v-model:open="showPreview">
+          <CollapsibleTrigger as-child>
+            <Button variant="ghost" size="sm" class="w-full justify-between gap-2 text-xs text-muted-foreground">
+              <span class="flex items-center gap-1.5">
+                <Eye class="h-3.5 w-3.5" />
+                Execution Preview
+              </span>
+              <ChevronDown class="h-3.5 w-3.5 transition-transform" :class="showPreview ? 'rotate-180' : ''" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div class="mt-2 rounded border border-border/60 bg-muted/20 p-3">
+              <div v-if="runner.previewLoading" class="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                <Loader2 class="h-4 w-4 animate-spin" />
+                Resolving...
+              </div>
+              <ExecutionPreviewTree v-else-if="runner.currentPreview" :preview="runner.currentPreview" />
+              <div v-else class="py-2 text-center text-xs text-muted-foreground">
+                Failed to generate preview
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         <!-- Prompt -->
         <div class="space-y-1.5">

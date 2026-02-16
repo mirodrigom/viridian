@@ -80,6 +80,7 @@ function startNewSession() {
 async function resumeSession(session: SessionItem) {
   // Abort current stream before switching sessions
   if (chat.isStreaming) chat.abortStream();
+  chat.isLoadingSession = true;
   chat.clearMessages();
   chat.sessionId = session.id;
   chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
@@ -96,7 +97,7 @@ async function resumeSession(session: SessionItem) {
       `/api/sessions/${session.id}/messages?projectDir=${encodeURIComponent(session.projectDir)}&limit=50`,
       { headers: { Authorization: `Bearer ${auth.token}` } },
     );
-    if (!res.ok) return;
+    if (!res.ok) { chat.isLoadingSession = false; return; }
     const data = await res.json();
     if (data.messages?.length) {
       chat.loadMessages(data.messages, {
@@ -104,6 +105,8 @@ async function resumeSession(session: SessionItem) {
         hasMore: data.hasMore,
         oldestIndex: data.oldestIndex,
       });
+    } else {
+      chat.isLoadingSession = false;
     }
     // Restore context usage from session history
     if (data.usage) {
@@ -112,7 +115,12 @@ async function resumeSession(session: SessionItem) {
         outputTokens: data.usage.outputTokens || 0,
       });
     }
+    // If this session is currently streaming on the server, activate streaming UI
+    if (data.isStreaming) {
+      chat.startStreaming();
+    }
   } catch (err) {
+    chat.isLoadingSession = false;
     console.error('Failed to load session messages:', err);
   }
 }

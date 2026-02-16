@@ -7,7 +7,7 @@ import { createStoreWebSocket } from '@/lib/storeWebSocket';
 import type {
   GraphRun, GraphRunSummary, NodeExecution,
   TimelineEntry, TimelineEntryMeta, EdgeFlowState,
-  NodeExecStatus, RunStatus,
+  NodeExecStatus, RunStatus, ExecutionPreview,
 } from '@/types/graph-runner';
 
 export const useGraphRunnerStore = defineStore('graphRunner', () => {
@@ -26,6 +26,10 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   // ─── Run History State ───────────────────────────────────────────────
   const runHistory = ref<GraphRunSummary[]>([]);
   const loadingHistory = ref(false);
+
+  // ─── Preview State ──────────────────────────────────────────────────
+  const currentPreview = ref<ExecutionPreview | null>(null);
+  const previewLoading = ref(false);
 
   // ─── WebSocket (lives in store so it persists across tab switches) ─
   const { connected: wsConnected, connect: wsConnect, disconnect: wsDisconnect, send: wsSend, on: wsOn } = createStoreWebSocket('/ws/graph-runner');
@@ -588,6 +592,24 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     showRunnerPanel.value = !showRunnerPanel.value;
   }
 
+  // ─── Preview Actions ─────────────────────────────────────────────────
+
+  function requestPreview(graphData: { nodes: unknown[]; edges: unknown[] }) {
+    previewLoading.value = true;
+    currentPreview.value = null;
+    wsSend({ type: 'preview_graph', graphData });
+  }
+
+  function setPreview(preview: ExecutionPreview | null) {
+    currentPreview.value = preview;
+    previewLoading.value = false;
+  }
+
+  function clearPreview() {
+    currentPreview.value = null;
+    previewLoading.value = false;
+  }
+
   function reset() {
     currentRun.value = null;
     selectedNodeId.value = null;
@@ -607,6 +629,8 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     playbackMode, playbackTimeMs, playbackPlaying, playbackSpeed,
     // Run history state
     runHistory, loadingHistory,
+    // Preview state
+    currentPreview, previewLoading,
     // Computed
     isRunning, activeNodeIds, completedNodeIds, failedNodeIds, delegatedNodeIds,
     timeline, selectedExecution,
@@ -618,6 +642,8 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     onNodeThinkingEnd, onNodeToolUse, onNodeCompleted, onNodeFailed,
     onDelegation, onResultReturn, onRunCompleted, onRunFailed, onRunAborted,
     selectExecution, togglePanel, reset, nodeExecStatus,
+    // Preview actions
+    requestPreview, setPreview, clearPreview,
     // Run history actions
     fetchRunHistory, loadRun, deleteRun,
     // Playback actions

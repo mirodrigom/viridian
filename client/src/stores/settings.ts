@@ -119,8 +119,14 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function toggleDarkMode() {
+    document.documentElement.classList.add('no-transitions');
     darkMode.value = !darkMode.value;
     save();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove('no-transitions');
+      });
+    });
   }
 
   function addAllowedTool(tool: string) {

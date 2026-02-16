@@ -115,6 +115,53 @@ export interface SerializedEdge {
   data: GraphEdgeData;
 }
 
+/** Portable graph export format for JSON files.
+ * Human-readable: no UUIDs, no positions, no handles.
+ * Connections reference nodes by label. */
+export interface ExportedNode {
+  type: GraphNodeType;
+  label: string;
+  description?: string;
+  // Agent / Subagent / Expert fields
+  model?: string;
+  systemPrompt?: string;
+  permissionMode?: string;
+  maxTokens?: number;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  taskDescription?: string;
+  specialty?: string;
+  // Skill fields
+  command?: string;
+  promptTemplate?: string;
+  // MCP fields
+  serverType?: 'stdio' | 'sse' | 'http';
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  tools?: string[];
+  // Rule fields
+  ruleType?: 'allow' | 'deny' | 'guideline' | 'constraint';
+  ruleText?: string;
+  scope?: 'global' | 'project';
+}
+
+export interface ExportedConnection {
+  from: string;
+  to: string;
+  type: EdgeType;
+}
+
+export interface GraphExportData {
+  formatVersion: 1;
+  name: string;
+  description?: string;
+  exportedAt: string;
+  nodes: ExportedNode[];
+  connections: ExportedConnection[];
+}
+
 // ─── Edge styling config ────────────────────────────────────────────────
 export const EDGE_STYLES: Record<EdgeType, { color: string; animated: boolean; strokeWidth: number }> = {
   'delegation':      { color: 'var(--primary)',     animated: true,  strokeWidth: 2.5 },

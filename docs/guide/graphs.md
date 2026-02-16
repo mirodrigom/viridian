@@ -9,11 +9,39 @@ At its core, the Graph feature lets you:
 - **Design** agent hierarchies on a drag-and-drop canvas powered by Vue Flow.
 - **Configure** each node's model, system prompt, permissions, and capabilities through a properties panel.
 - **Connect** nodes with typed edges that define relationships: delegation, skill usage, tool access, rule constraints, and data flow.
-- **Run** the graph against a user prompt, with the root agent automatically delegating to its children using Claude CLI's native `--agents` flag and the Task tool.
+- **Quick Run** a pre-built template without touching the editor -- pick a template, enter a prompt, preview the execution plan, and run.
+- **Run** custom graphs from the editor with an optional execution preview before spending tokens.
 - **Monitor** execution in real time through a timeline panel, with node status overlays on the canvas.
 - **Replay** completed runs with a scrubber that lets you step through execution events.
 
 The editor is accessible from the **Graphs** tab in the main navigation.
+
+## Quick Run (Recommended for Getting Started)
+
+The fastest way to run a multi-agent workflow is the **Quick Run Wizard**. It lets you pick a pre-built template, describe your task, preview the execution plan, and run -- all without touching the graph editor.
+
+### How to Use
+
+1. Click the **Rocket icon** in the graph toolbar (or open the Graphs tab if you haven't built a graph yet).
+2. **Step 1 -- Choose a Template:** Select from the available templates. Each card shows the template name, category, description, and a breakdown of node types (e.g., "2 agents, 3 experts, 1 skill").
+3. **Step 2 -- Define Your Task:** Enter a prompt describing what you want the agent team to do. You can click a **Goal Preset** badge (e.g., "Code Review", "Refactor", "Security Audit") to pre-fill the prompt, then customize it.
+4. **Step 3 -- Execution Preview:** Review which agents, skills, MCP servers, and rules will execute. The preview shows the full execution tree with depth indentation, model badges, and warnings for nodes missing system prompts. This is a **dry run** -- no tokens are consumed.
+5. Click **Run** to start execution. The Runner Panel opens automatically to show live progress.
+
+::: tip
+The execution preview is free -- it resolves the graph structure without spawning any Claude CLI processes. Use it to verify the plan looks correct before spending tokens.
+:::
+
+### Goal Presets
+
+Goal presets are quick-fill prompts that cover common use cases. Clicking a preset fills the prompt textarea, which you can then edit:
+
+| Preset | Description |
+|--------|-------------|
+| Code Review | Review the codebase for issues and improvements |
+| Refactor | Refactor code for better maintainability |
+| Security Audit | Audit the codebase for security vulnerabilities |
+| Add Feature | Implement a new feature |
 
 ## The Graph Editor
 
@@ -56,7 +84,7 @@ There are six node types, divided into two categories: **executable nodes** (whi
 
 ### Executable Nodes
 
-These nodes represent AI agents that actually process prompts and produce output.
+These nodes represent AI agents that actually process prompts and produce output. Each executable node gets its **own Claude CLI process** -- there is no shared process.
 
 #### Agent
 
@@ -67,11 +95,11 @@ The top-level orchestrator. An Agent node is typically the root of a graph -- th
 | **Model** | Claude model to use (Opus 4.6, Sonnet 4.5, Haiku 4.5) |
 | **System Prompt** | Instructions that define the agent's behavior and role |
 | **Permission Mode** | Tool permission level: Default, Accept Edits, Plan Mode, or Full Auto |
-| **Max Tokens** | Maximum token budget for this agent |
+| **Max Tokens** | Maximum token budget for the entire graph run |
 | **Allowed Tools** | Whitelist of tools this agent can use |
 | **Disallowed Tools** | Blacklist of tools this agent cannot use |
 
-When an Agent has delegation edges to child nodes, it is automatically configured as an **orchestrator**: its tools are restricted to `Task` and `TodoWrite`, and delegation instructions are injected into its system prompt so it coordinates work rather than performing it directly.
+When an Agent has delegation edges to child nodes, it acts as an **orchestrator** using a two-phase execution model (see [Execution Model](#execution-model-two-phase-recursive)).
 
 #### Subagent
 
@@ -124,7 +152,7 @@ An external tool server that extends an agent's capabilities. MCP nodes are writ
 
 #### Rule
 
-A behavioral constraint or policy that is injected into the agent's context. Rules connected to any executable node in the graph are collected and written to a `CLAUDE.md` file in a temporary directory, which Claude CLI auto-discovers as project-level instructions.
+A behavioral constraint or policy that is injected into the agent's context. Rules connected to an executable node are written to a `CLAUDE.md` file in a per-node temporary directory, which Claude CLI auto-discovers as project-level instructions.
 
 | Property | Description |
 |----------|-------------|
@@ -222,6 +250,8 @@ The Templates dialog (accessible from the toolbar's template icon) provides pre-
 
 When you load a template, all node IDs are regenerated to ensure uniqueness, the graph name is set to the template name, and the canvas auto-fits to show all nodes.
 
+Templates are also available through the **Quick Run Wizard** (Rocket icon), which lets you run a template directly without loading it into the editor first.
+
 ## Saving and Loading Graphs
 
 ### Saving
@@ -253,169 +283,229 @@ Nodes within each row are evenly spaced horizontally (280px gap) and rows are se
 
 ## Running a Graph
 
-### Starting a Run
+There are two ways to run a graph:
 
-Click the **Play** button in the toolbar to open the Run dialog. Enter a prompt describing the task you want the graph to perform. The prompt is sent to the root node, which begins execution.
+### Quick Run (from a Template)
+
+Click the **Rocket icon** in the toolbar to open the Quick Run Wizard. This is the fastest path -- pick a template, enter a prompt, preview the execution plan, and run. See [Quick Run](#quick-run-recommended-for-getting-started) above for details.
+
+### Run from the Editor
+
+Click the **Play button** in the toolbar to open the Run dialog. This runs the graph you've built or loaded in the editor.
+
+The Run dialog shows:
+
+1. **Root node info** -- Which agent will receive your prompt (auto-detected as the executable node with no incoming delegation edges).
+2. **Empty prompt warnings** -- Nodes that are missing system prompts (highlighted in yellow).
+3. **Graph summary** -- Badge counts of each node type.
+4. **Execution Preview** -- A collapsible section that shows the same preview tree as the Quick Run Wizard. Expand it to verify which agents, skills, MCP servers, and rules will execute before running.
+5. **Task Prompt** -- A textarea with goal preset badges for quick-fill.
 
 ::: info
 The **root node** is determined automatically: it is the executable node (Agent, Subagent, or Expert) with no incoming delegation edges. If multiple candidates exist, Agent-type nodes are preferred.
 :::
 
-### Execution Flow
+## Execution Preview (Dry Run)
 
-When a graph runs, the following sequence occurs:
+Both the Quick Run Wizard and the Run dialog include an **Execution Preview** feature. This resolves the graph structure and shows you exactly what will happen when you click Run -- without spawning any Claude processes or consuming tokens.
 
-1. **Graph resolution** -- The server walks all nodes and edges to build a `ResolvedNode` map. Each executable node gets a list of its connected skills, MCPs, rules, and delegates.
+The preview shows:
 
-2. **Environment preparation** -- If the graph contains Rule or MCP nodes, a temporary directory is created with a `CLAUDE.md` file (containing all rules) and a `.mcp.json` file (containing all MCP server configs). This directory becomes the effective working directory so Claude CLI auto-discovers these files.
+- **Summary bar** -- Total agent count and token budget.
+- **Node tree** -- Each executable node displayed with depth indentation, showing:
+  - An icon for the node type (Bot for agent, GitBranch for subagent, Sparkles for expert)
+  - The node label and model badge
+  - A **leaf** or **orchestrator** badge (leaf = no children, orchestrator = has delegates)
+  - Attached skills (Zap icon), MCP servers (Server icon), and rules (ShieldCheck icon) as small tags
+  - A yellow warning triangle if the node is missing a system prompt
+- **Delegate chain** -- Each node shows which other nodes it delegates to.
 
-3. **Agents config** -- All delegate nodes reachable from the root are flattened into a single agents config object. Each delegate becomes a named agent with a sanitized PascalCase key (e.g., "SubagentFrontend", "ExpertDatabase"). Intermediate orchestrators (delegates that have their own delegates) get:
-   - Delegation instructions appended to their prompt
-   - Tools restricted to `Task` and `TodoWrite` to force delegation
+::: warning
+Nodes without system prompts will show a yellow warning in the preview and will block the Run button in the Run dialog. Make sure all executable nodes have a system prompt before running.
+:::
 
-4. **Root execution** -- The root node's system prompt is composed from its own prompt, skill instructions, and (if not using a tmpdir) rule text. It is invoked with `claudeQuery()` using the `--agents` flag.
+## Execution Model: Two-Phase Recursive
 
-5. **Delegation** -- When the root agent calls the `Task` tool with a `subagent_type`, the server maps that to a graph node via the agent key-to-nodeId mapping. The child node enters a "delegated" state (pending activation). When the child produces its first output (text, tool use, or thinking), it transitions to "running".
+When you click Run, the graph executes using a **two-phase recursive model**. Each executable node gets its own Claude CLI process -- there is no shared process or flat agent pool.
 
-6. **Cascading** -- For deeply nested graphs, downstream nodes are activated with staggered delays (300ms between starts, 200ms between completions) to create a visible progression in the timeline.
+### How It Works
 
-7. **Completion** -- When a subagent returns its result, downstream nodes complete in bottom-up order (skills first, then delegates), followed by the subagent itself. A `result_return` event triggers a reverse edge flow animation.
+```
+Root Agent (Orchestrator)
+│
+├── Phase 1: PLANNING (noTools)
+│   "Here are your team members: [ExpertSecurity, ExpertPerformance, ExpertStyle]"
+│   "Here is the task: [user prompt]"
+│   "Assign subtasks as JSON."
+│   → Output: [{"agent": "ExpertSecurity", "task": "..."}, ...]
+│
+├── Execute children (sequentially):
+│   ├── Expert Security → single-pass execution → result
+│   ├── Expert Performance → single-pass execution → result
+│   └── Expert Style → single-pass execution → result
+│
+└── Phase 2: SYNTHESIS (--resume planning session)
+    "Your team has completed their tasks. Here are their results: [...]"
+    "Synthesize into a final response."
+    → Output: final cohesive answer
+```
 
-8. **Cleanup** -- The temporary directory is removed and graph runner session IDs are cleaned up so they don't appear in the chat sidebar.
+### Phase-by-Phase Breakdown
+
+**1. Graph Resolution**
+
+The server walks all nodes and edges to build a `ResolvedNode` map. Each executable node gets a list of its directly connected skills, MCPs, rules, and delegates.
+
+**2. Root Detection**
+
+The root node is found automatically: it's the executable node with no incoming delegation edges. If multiple candidates exist, Agent-type nodes take priority.
+
+**3. Sandbox Creation**
+
+A run-level sandbox directory is created at `/tmp/graph-run-<id>/` with a symlink to the real project directory. All node tmpdirs nest inside this sandbox. See [Sandbox Isolation](#sandbox-isolation) for details.
+
+**4. Recursive Execution**
+
+Starting from the root, each node is executed recursively:
+
+- **Leaf nodes** (no delegates): A single Claude CLI process runs with the task prompt and produces output directly.
+- **Orchestrator nodes** (has delegates): Two-phase execution:
+  1. **Planning phase** -- The orchestrator's CLI is spawned with `noTools: true` (no tool access). It receives a structured prompt listing its children with their descriptions and the user's task, and must output a JSON array of assignments: `[{"agent": "ChildName", "task": "detailed task..."}]`.
+  2. **Child execution** -- Each assigned child is executed recursively (depth-first, sequential). Children can themselves be orchestrators with their own children, creating arbitrarily deep hierarchies.
+  3. **Synthesis phase** -- The orchestrator's CLI is resumed (`--resume` with the planning session ID) and receives all children's results. It produces a final synthesized answer.
+
+**5. Per-Node Environment**
+
+Each node that has Rule or MCP connections gets its own temporary directory with:
+- `CLAUDE.md` -- containing only that node's rules
+- `.mcp.json` -- containing only that node's MCP server configs
+
+The Claude CLI runs from this tmpdir so it auto-discovers these files. An explicit project path instruction is injected into the system prompt so agents work on the real project files despite running from a tmpdir.
+
+**6. Completion**
+
+When the root node's synthesis phase completes, the run is done. The final output is the root's synthesized response.
+
+### Agent Name Matching
+
+During the planning phase, the orchestrator outputs agent names that may not exactly match the child node labels. The runner handles this with a multi-level matching strategy:
+
+1. **Exact match** -- agent name matches child key exactly
+2. **Case-insensitive match** -- `expertsecurity` matches `ExpertSecurity`
+3. **Fuzzy match** -- normalized comparison ignoring hyphens, underscores, and spaces
+4. **Partial match** -- agent name contains or is contained in a child key
+
+If planning returns no valid assignments, the node falls back to leaf execution (single-pass with full tool access).
+
+### Token Budget Management
+
+The root agent's `maxTokens` property controls the token budget for the entire graph run (default: 500,000 tokens if not specified). Token usage is tracked centrally across all nodes:
+
+- At **80%** usage, a `budget_warning` event is emitted.
+- At **100%** usage, the entire run is aborted.
+
+::: warning
+Choose your token budget carefully. Complex graphs with many agents (especially those using Opus models) can consume tokens quickly. The default templates use 800,000 tokens, which is sufficient for most workflows. Monitor the timeline during execution to see per-node token consumption.
+:::
 
 ### Timeout Protection
 
-Each node execution has a **10-minute inactivity timeout**. If a node stops producing any events (text, tool calls, thinking) for 10 minutes, the runner automatically aborts the entire run and emits an error. This prevents graph runs from hanging indefinitely due to network issues, rate limits, or other problems.
+Each node execution has a **10-minute inactivity timeout**. If a node stops producing any events (text, tool calls, thinking) for 10 minutes, the runner automatically aborts the entire run and emits an error.
 
 The timeout resets every time the node produces any output, so long-running tasks that are actively working will not be interrupted.
 
+## Sandbox Isolation
+
+Graph execution runs in an isolated sandbox to keep node configurations separate from your project files and from each other.
+
+### How It Works
+
+When a graph run starts, the server creates:
+
+```
+/tmp/graph-run-<run-id>/
+├── project/              ← symlink to your real project directory
+├── graph-node-<id-1>/    ← tmpdir for node 1 (if it has rules/MCP)
+│   ├── CLAUDE.md         ← this node's rules only
+│   └── .mcp.json         ← this node's MCP servers only
+├── graph-node-<id-2>/    ← tmpdir for node 2
+│   ├── CLAUDE.md
+│   └── .mcp.json
+└── ...
+```
+
+Key points:
+
+- **Project access via symlink** -- The `project/` symlink points to your real project. Agents read and write your actual project files through this symlink, so changes are real.
+- **Per-node isolation** -- Each node's `CLAUDE.md` and `.mcp.json` only contain that node's directly connected rules and MCP servers. One node's rules don't leak into another node's context.
+- **Nodes without rules/MCP** -- Nodes that have no Rule or MCP connections don't get a tmpdir -- they run directly from the project symlink path.
+- **Automatic cleanup** -- The entire sandbox directory is removed when the run completes (or fails/aborts).
+
+::: info
+The symlink approach means agents still read and write the real project files. This provides structural isolation (each node gets its own CLAUDE.md and .mcp.json) without the overhead of copying the entire project.
+:::
+
 ## How It Works Under the Hood
 
-This section explains the internal architecture of the Graph Runner engine -- what happens between clicking "Run" and seeing results. Understanding this helps you design better graphs and debug issues when execution doesn't go as expected.
+This section explains the internal architecture of the Graph Runner engine in more detail.
 
-### The Temporary Directory Trick
+### The Per-Node Tmpdir Trick
 
 Claude CLI auto-discovers configuration files from its current working directory:
 - **`CLAUDE.md`** -- Project-level instructions and rules
 - **`.mcp.json`** -- MCP server configuration
 
-The Graph Runner exploits this by creating a **temporary directory** (e.g., `/tmp/graph-run-abc123/`) and writing these files based on your Rule and MCP nodes. The Claude CLI process runs from this tmpdir, so it automatically picks up your rules and MCP servers without any special flags.
+The Graph Runner exploits this by creating a **per-node temporary directory** inside the run sandbox. Each node's Claude CLI process runs from its own tmpdir, so it picks up only the rules and MCP servers connected to that specific node.
 
-```
-/tmp/graph-run-abc123/
-├── CLAUDE.md          ← Generated from all Rule nodes in the graph
-└── .mcp.json          ← Generated from all MCP nodes in the graph
-```
+Since the CLI runs from a tmpdir instead of your project, every agent gets an explicit instruction in its system prompt:
 
-Since the CLI runs from the tmpdir instead of your project, every agent (root and sub-agents) gets an explicit instruction in its system prompt:
-
-> *"IMPORTANT: The project you are working on is located at: /path/to/your/project. You MUST use absolute paths..."*
+> *"IMPORTANT: The project you are working on is located at: /path/to/project. You MUST use absolute paths..."*
 
 This ensures agents read, write, and search files in your actual project directory.
 
-::: warning
-If no Rule or MCP nodes are connected, no tmpdir is created and the CLI runs directly from your project directory. This is the simplest and fastest path.
-:::
-
-### Agent Flattening: From Tree to Flat Pool
-
-Claude CLI's `--agents` flag accepts a **flat** pool of agents -- it doesn't support nested hierarchies. But your graph might have a tree structure like:
-
-```
-Agent (Orchestrator)
-├── Subagent Frontend
-│   ├── Expert UI
-│   └── Expert A11y
-└── Subagent Backend
-    └── Expert Database
-```
-
-The Graph Runner solves this with a **two-pass flattening** algorithm:
-
-**Pass 1 (BFS):** Walk the delegation tree from the root. Every reachable delegate is registered in the flat pool with a unique PascalCase key derived from its label:
-
-```json
-{
-  "SubagentFrontend": { "description": "...", "prompt": "...", "tools": [...] },
-  "ExpertUi": { "description": "...", "prompt": "...", "tools": [...] },
-  "ExpertA11y": { "description": "...", "prompt": "...", "tools": [...] },
-  "SubagentBackend": { "description": "...", "prompt": "...", "tools": [...] },
-  "ExpertDatabase": { "description": "...", "prompt": "...", "tools": [...] }
-}
-```
-
-**Pass 2 (Orchestrator detection):** Any delegate that has its own delegates is an **intermediate orchestrator**. These get:
-- Delegation instructions injected into their prompt (telling them which sub-agents to use)
-- Tools restricted to `[Task, TodoWrite]` (so they delegate instead of doing work directly)
-
-In the example above, `SubagentFrontend` would become an intermediate orchestrator because it has `ExpertUi` and `ExpertA11y` as delegates. The root agent is also an orchestrator.
-
-### The Delegation Detection Pipeline
-
-When the root agent calls the `Task` tool to delegate work, the Graph Runner intercepts the event and maps it to the corresponding graph node. Here's how:
-
-1. **Tool call detected** -- The CLI emits a `tool_use` event with `tool: "Task"` and `input.subagent_type: "SubagentFrontend"`.
-
-2. **Key lookup** -- The server looks up `"SubagentFrontend"` in the `agentKeyToNodeId` map to find the graph node ID.
-
-3. **Fuzzy fallback** -- If the exact key isn't found (Claude sometimes uses different names, e.g., `"general-purpose"` or its own labels), the server tries:
-   - Case-insensitive match against delegate labels
-   - Partial string matching (contains/contained-in)
-   - If there's only one delegate, it unambiguously routes there
-
-4. **Event mapping** -- The Task tool's `requestId` is mapped to the child node ID. All subsequent events from this sub-agent (text deltas, tool calls, thinking) are routed to the correct node in the timeline.
-
-5. **Lazy activation** -- The child node starts in a "delegated" state (blue dashed border on the canvas). It only transitions to "running" (yellow pulse) when it produces its first real output. This prevents nodes from appearing active before they've actually started working.
-
 ### Leaf vs Orchestrator Behavior
 
-| Behavior | Leaf Agent | Orchestrator |
+| Behavior | Leaf Node | Orchestrator |
 |----------|-----------|--------------|
-| **System prompt** | Appended to Claude's defaults | Appended to Claude's defaults + delegation instructions |
-| **Available tools** | All tools (Bash, Read, Write, etc.) | Only Task + TodoWrite |
-| **User prompt** | Passed directly | Wrapped with "you MUST delegate" instruction |
-| **Slash commands** | Enabled | Disabled (prevents interference) |
+| **CLI processes** | 1 process (single pass) | 2 processes (planning + synthesis) |
+| **Planning phase** | None | `noTools: true`, outputs JSON assignments |
+| **Tool access** | Full tool access (Bash, Read, Write, etc.) | Planning: no tools. Synthesis: full tools |
+| **Children** | None | Executes children recursively between phases |
+| **Session continuity** | Single session | Planning session is resumed for synthesis via `--resume` |
 | **Permission mode** | Configurable per node | Defaults to bypassPermissions |
 
-### Event Routing for Multi-Level Graphs
+### Event Routing
 
-In a multi-level graph, events from different agents are interleaved in a single stream. The Graph Runner uses `parentToolUseId` to route events to the correct node:
+Each node gets its own Claude CLI process, so events are naturally scoped to the correct node. The runner emits events with the `nodeId` attached:
 
-```
-Event: text_delta { parentToolUseId: null }
-  → Root node (parentToolUseId is null = root agent)
-
-Event: text_delta { parentToolUseId: "tu_abc123" }
-  → Look up "tu_abc123" in taskToolUseToNodeId map
-  → Route to the node that was delegated via that Task call
-```
-
-This is how the timeline shows per-node output even though there's only one Claude CLI process running.
-
-### Cascade Timing
-
-When a sub-agent starts or completes, the Graph Runner cascades activation/completion to its downstream nodes (delegates and skills) with staggered delays:
-
-- **Start cascade:** 300ms between each node activation
-- **Completion cascade:** 200ms between each node completion (bottom-up: skills first, then delegates)
-
-This creates a visual "wave" effect in the timeline and on the canvas, making it clear which nodes are being activated as part of which delegation.
+- `node_started` -- A node began execution (with its input prompt)
+- `node_phase` -- An orchestrator entered planning or synthesis phase
+- `node_delta` -- Streaming text output from a node
+- `node_thinking_start/delta/end` -- Extended thinking events
+- `node_tool_use` -- A node invoked a tool
+- `node_completed` -- A node finished with output and usage stats
+- `node_failed` -- A node encountered an error
+- `delegation` -- A parent delegated a task to a child (with the assigned task text)
+- `result_return` -- A child returned results to its parent
 
 ### What Happens When Things Go Wrong
 
 | Scenario | What the Runner Does |
 |----------|---------------------|
-| **Claude picks a wrong agent name** | Fuzzy matching tries to find the intended delegate; falls back to the only delegate if unambiguous |
-| **Node produces no output** | Node is marked as "skipped" (completed without content) |
-| **Node fails** | `node_failed` event emitted, error shown in timeline and node detail |
-| **Run fails** | All nodes stop, `run_failed` event emitted, timeline shows the error |
-| **Node hangs for 10+ minutes** | Inactivity timeout triggers, entire run is aborted with a timeout error |
+| **Planning returns invalid JSON** | Falls back to assigning the full task to the first child |
+| **Planning returns 0 assignments** | Falls back to leaf execution (single-pass with full tools) |
+| **Agent name doesn't match** | Multi-level fuzzy matching (case-insensitive, partial, normalized) |
+| **Node produces no output** | Node is marked as completed with empty output |
+| **Node fails** | `node_failed` event emitted, error shown in timeline |
+| **Run fails** | All nodes stop, `run_failed` event emitted |
+| **Token budget exceeded** | Warning at 80%, abort at 100% |
+| **Node hangs for 10+ minutes** | Inactivity timeout triggers, entire run is aborted |
 | **WebSocket disconnects** | Client auto-reconnects; the run continues server-side |
-| **User aborts** | `abort_run` message sent, Claude CLI process is killed with SIGTERM |
+| **User aborts** | `abort_run` message sent, Claude CLI processes are killed with SIGTERM |
 
 ### Aborting a Run
 
-Click the **Stop** button (red square, replaces Play during execution) to abort the current run. This sends an `abort_run` message over the WebSocket, which triggers the abort controller on the server side.
+Click the **Stop** button (red square, replaces Play during execution) to abort the current run. This sends an `abort_run` message over the WebSocket, which triggers the abort controller on the server side, killing all active Claude CLI processes.
 
 ## The Runner Panel
 
@@ -428,6 +518,7 @@ A chronological feed of all execution events. Each entry shows:
 - An **icon** indicating the event type (play for start, checkmark for complete, X for failed, arrow for delegation, wrench for tool use)
 - The **node label** and **timestamp**
 - A **detail line** describing what happened
+- **Phase indicators** when orchestrator nodes enter planning or synthesis phases
 
 Color coding:
 - Yellow -- node started / running
@@ -509,7 +600,7 @@ While a graph is running (or during playback), nodes on the canvas show visual e
 | **Auxiliary active** | Faint yellow pulse on Skill/MCP/Rule nodes when their parent is running |
 
 Edges also animate during execution:
-- **Forward flow** (delegation): animated pulse from parent to child when a Task call is made
+- **Forward flow** (delegation): animated pulse from parent to child when a delegation event occurs
 - **Reverse flow** (result return): animated pulse from child back to parent when results are returned
 
 Edge flow animations last 1.5 seconds and are also visible during scrubber playback within the same time window.
@@ -522,6 +613,7 @@ The graph runner communicates over a dedicated WebSocket at `/ws/graph-runner`. 
 
 | Message | Description |
 |---------|-------------|
+| `preview_graph` | Request an execution preview (dry run) for a graph. Returns the full execution tree without spawning CLI processes. |
 | `run_graph` | Start execution with graph data, prompt, and working directory |
 | `abort_run` | Cancel the current run |
 
@@ -529,8 +621,11 @@ The graph runner communicates over a dedicated WebSocket at `/ws/graph-runner`. 
 
 | Message | Description |
 |---------|-------------|
+| `preview_result` | Execution preview response with the full node tree, token budget, and agent count |
+| `preview_error` | Preview request failed with an error message |
 | `run_started` | Run initialized with run ID and root node |
 | `node_started` | A node began execution |
+| `node_phase` | An orchestrator node entered planning or synthesis phase |
 | `node_delta` | Streaming text output from a node |
 | `node_thinking_start/delta/end` | Extended thinking events |
 | `node_tool_use` | A node invoked a tool |
@@ -538,8 +633,91 @@ The graph runner communicates over a dedicated WebSocket at `/ws/graph-runner`. 
 | `node_failed` | A node encountered an error |
 | `node_delegated` | A node was delegated to but has not yet started producing output |
 | `node_skipped` | A delegated node completed without producing content |
-| `delegation` | A parent delegated a task to a child |
+| `delegation` | A parent delegated a task to a child (includes the assigned task text) |
 | `result_return` | A child returned results to its parent |
 | `run_completed` | The entire run finished with final output |
 | `run_failed` | The run failed with an error |
 | `run_aborted` | The run was cancelled by the user |
+
+## Example: Code Review Pipeline
+
+Here's a walkthrough of what happens when you run the **Code Review Pipeline** template:
+
+### The Graph Structure
+
+```
+Root Agent (Orchestrator, Sonnet)
+└── Subagent Review (Orchestrator, Sonnet)
+    ├── Expert Security (Leaf, Sonnet)
+    │   └── Skill: Security Scanner
+    ├── Expert Performance (Leaf, Sonnet)
+    │   └── Skill: Lint Check
+    └── Expert Code Style (Leaf, Sonnet)
+        └── Skill: Test Runner
+```
+
+### Execution Flow
+
+1. **Sandbox created** -- `/tmp/graph-run-abc123/` with `project/` symlink.
+
+2. **Root Agent starts (Planning)** -- Receives your prompt. Sees one child: `SubagentReview`. Outputs `[{"agent": "SubagentReview", "task": "Review the codebase..."}]`.
+
+3. **Subagent Review starts (Planning)** -- Receives the delegated task. Sees three children: `ExpertSecurity`, `ExpertPerformance`, `ExpertCodeStyle`. Assigns each a specific review focus.
+
+4. **Expert Security executes (Leaf)** -- Single-pass execution. Reviews security aspects of the code. Has access to the Security Scanner skill. Produces findings.
+
+5. **Expert Performance executes (Leaf)** -- Reviews performance aspects. Has access to the Lint Check skill.
+
+6. **Expert Code Style executes (Leaf)** -- Reviews code style. Has access to the Test Runner skill.
+
+7. **Subagent Review synthesizes** -- Resumes its planning session with all three experts' results. Produces a combined review.
+
+8. **Root Agent synthesizes** -- Resumes its planning session with Subagent Review's result. Produces the final cohesive review.
+
+9. **Cleanup** -- Sandbox directory removed, run marked as completed.
+
+### What You See in the Timeline
+
+```
+00:00  ▶ Root Agent started (planning phase)
+00:05  ▶ Root Agent → planning complete
+00:05  → Delegated to Subagent Review
+00:06  ▶ Subagent Review started (planning phase)
+00:12  ▶ Subagent Review → planning complete
+00:12  → Delegated to Expert Security
+00:13  ▶ Expert Security started
+01:45  ✓ Expert Security completed (87k tokens)
+01:45  ← Result returned to Subagent Review
+01:45  → Delegated to Expert Performance
+01:46  ▶ Expert Performance started
+03:10  ✓ Expert Performance completed (72k tokens)
+03:10  ← Result returned to Subagent Review
+03:10  → Delegated to Expert Code Style
+03:11  ▶ Expert Code Style started
+04:20  ✓ Expert Code Style completed (65k tokens)
+04:20  ← Result returned to Subagent Review
+04:20  ▶ Subagent Review → synthesis phase
+04:50  ✓ Subagent Review completed
+04:50  ← Result returned to Root Agent
+04:50  ▶ Root Agent → synthesis phase
+05:30  ✓ Root Agent completed
+05:30  ✓ Run completed (288k total tokens)
+```
+
+## Toolbar Reference
+
+| Button | Icon | Action |
+|--------|------|--------|
+| Graph name | Text input | Edit the graph's display name |
+| Dirty indicator | Filled circle | Appears when the graph has unsaved changes |
+| New Graph | FilePlus | Create a new empty graph |
+| Save | Save | Save the current graph to the database |
+| Load | FolderOpen | Load a saved graph |
+| Templates | LayoutTemplate | Open the templates dialog |
+| Auto Layout | LayoutGrid | Arrange nodes in a hierarchical layout |
+| Fit View | Maximize2 | Zoom to fit all nodes in the viewport |
+| Delete | Trash2 | Delete the selected node |
+| Quick Run | Rocket | Open the Quick Run Wizard (template → prompt → preview → run) |
+| Run / Stop | Play / Square | Start or abort a graph run |
+| Toggle Panel | PanelRight | Switch between Properties and Runner panels |
+| Stats | -- | Shows node and edge counts |

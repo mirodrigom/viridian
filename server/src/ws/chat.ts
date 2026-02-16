@@ -87,6 +87,10 @@ export function setupChatWs(server: Server) {
       safeSend(ws, { type: 'control_request', ...(d as Record<string, unknown>), sessionId });
     });
 
+    addHandler('tool_approved', (d: unknown) => {
+      safeSend(ws, { type: 'tool_approved', ...(d as Record<string, unknown>), sessionId });
+    });
+
     addHandler('error', (d: unknown) => {
       safeSend(ws, { type: 'error', ...(d as Record<string, unknown>), sessionId });
     });
@@ -183,25 +187,33 @@ export function setupChatWs(server: Server) {
           const { sessionId } = data;
           if (sessionId) {
             const session = getSession(sessionId);
-            const streaming = session ? isSessionStreaming(sessionId) : false;
-            const accumulatedText = streaming ? getSessionAccumulatedText(sessionId) : undefined;
-            safeSend(ws, { type: 'session_status', sessionId, isStreaming: streaming, accumulatedText });
+            const streaming = session?.isStreaming ?? false;
+            const accumulatedText = streaming ? (session?.accumulatedText ?? '') : undefined;
+            // Reply with the client's sessionId so it can match the response,
+            // plus the server's internal UUID so the client can match subsequent events
+            safeSend(ws, { type: 'session_status', sessionId, serverSessionId: session?.id, isStreaming: streaming, accumulatedText });
             // If still streaming, re-wire so remaining events reach this new WS
             if (session && streaming) {
-              currentSessionId = sessionId;
+              // Use session.id (server UUID) for internal tracking (tool_response, abort, etc.)
+              currentSessionId = session.id;
               if (cleanupListeners) cleanupListeners();
-              cleanupListeners = wireEmitter(ws, session.emitter, sessionId);
+              cleanupListeners = wireEmitter(ws, session.emitter, session.id);
             }
           }
         }
 
         if (data.type === 'tool_response' && currentSessionId) {
-          const { requestId, approved } = data;
-          respondToPermission(currentSessionId, requestId, approved);
+          const { requestId, approved, answers, questions } = data;
+          respondToPermission(currentSessionId, requestId, approved, answers, questions);
         }
 
-        if (data.type === 'abort' && currentSessionId) {
-          abortSession(currentSessionId);
+        if (data.type === 'abort') {
+          // Use currentSessionId (set by 'chat' or 'check_session'), or fall back
+          // to a sessionId sent by the client (in case WS reconnected and currentSessionId is null)
+          const targetId = currentSessionId || (data.sessionId ? getSession(data.sessionId)?.id : null);
+          if (targetId) {
+            abortSession(targetId);
+          }
         }
       } catch (err) {
         safeSend(ws, { type: 'error', error: 'Invalid message format' });

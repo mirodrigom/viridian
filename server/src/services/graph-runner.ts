@@ -12,7 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
@@ -84,6 +84,13 @@ const BUDGET_WARNING_THRESHOLD = 0.8;
 /** Maximum time (ms) a single node execution can run before being considered stuck */
 const NODE_EXECUTION_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
+/** Run-level sandbox directory in /tmp */
+interface RunSandbox {
+  sandboxDir: string;
+  projectMirrorDir: string;
+  cleanup: () => void;
+}
+
 /** Child assignment from planning phase */
 interface ChildAssignment {
   childNodeId: string;
@@ -101,6 +108,7 @@ interface ExecutionContext {
   outputTexts: Map<string, string>;  // nodeId → accumulated output
   usages: Map<string, { inputTokens: number; outputTokens: number }>;
   nodeEnvs: Map<string, NodeEnvironment>; // nodeId → per-node tmpdir
+  sandbox: RunSandbox | null;        // run-level /tmp sandbox
   // Token budget tracking
   tokenBudget: number;
   totalTokensUsed: number;
@@ -117,22 +125,25 @@ interface ExecutionContext {
 function prepareNodeEnvironment(
   resolved: ResolvedNode,
   originalCwd: string,
+  sandbox: RunSandbox | null,
 ): NodeEnvironment {
   const nodeRules = resolved.rules;
   const nodeMcps = resolved.mcps;
+  const projectPath = sandbox ? sandbox.projectMirrorDir : originalCwd;
 
-  // No rules or MCPs → no tmpdir needed, use original cwd
+  // No rules or MCPs → no tmpdir needed, use project path
   if (nodeRules.length === 0 && nodeMcps.length === 0) {
     return {
       tmpDir: null,
-      effectiveCwd: originalCwd,
-      realProjectPath: originalCwd,
+      effectiveCwd: projectPath,
+      realProjectPath: projectPath,
       cleanup: () => {},
     };
   }
 
   const nodeLabel = (resolved.node.data.label as string) || resolved.node.id;
-  const tmpDir = mkdtempSync(join(tmpdir(), `graph-node-${resolved.node.id.slice(0, 8)}-`));
+  const parentDir = sandbox ? sandbox.sandboxDir : tmpdir();
+  const tmpDir = mkdtempSync(join(parentDir, `graph-node-${resolved.node.id.slice(0, 8)}-`));
   debugLog(`[GraphRunner] Created node tmpdir: ${tmpDir} for "${nodeLabel}" (rules=${nodeRules.length}, mcps=${nodeMcps.length})`);
 
   // Write CLAUDE.md with this node's rules
@@ -180,7 +191,7 @@ function prepareNodeEnvironment(
   return {
     tmpDir,
     effectiveCwd: tmpDir,
-    realProjectPath: originalCwd,
+    realProjectPath: projectPath,
     cleanup: () => {
       try {
         rmSync(tmpDir, { recursive: true, force: true });
@@ -546,7 +557,7 @@ async function executeSinglePass(
   // Get or create per-node environment
   let env = ctx.nodeEnvs.get(nodeId);
   if (!env) {
-    env = prepareNodeEnvironment(resolved, ctx.cwd);
+    env = prepareNodeEnvironment(resolved, ctx.cwd, ctx.sandbox);
     ctx.nodeEnvs.set(nodeId, env);
   }
 
@@ -794,6 +805,129 @@ async function executeNode(
   return result;
 }
 
+// ─── Execution Preview (Dry Run) ────────────────────────────────────────
+
+export interface PreviewNode {
+  nodeId: string;
+  label: string;
+  type: string;
+  model: string;
+  hasSystemPrompt: boolean;
+  skills: { id: string; label: string; command: string }[];
+  mcps: { id: string; label: string; serverType: string }[];
+  rules: { id: string; label: string; ruleType: string }[];
+  delegates: { id: string; label: string; type: string }[];
+  isLeaf: boolean;
+  depth: number;
+}
+
+export interface ExecutionPreview {
+  rootNodeId: string;
+  nodes: PreviewNode[];
+  executionOrder: string[];
+  tokenBudget: number;
+  estimatedNodes: number;
+}
+
+/**
+ * Resolve a graph into an execution preview without spawning any Claude CLI.
+ * Returns the full execution tree with skills/MCP/rules per node.
+ */
+export function previewGraph(graphData: GraphData): ExecutionPreview {
+  const resolved = resolveExecutionGraph(graphData);
+  const rootNode = findRootNode(graphData, resolved);
+
+  if (!rootNode) {
+    throw new Error('No root agent node found in graph');
+  }
+
+  const previewNodes: PreviewNode[] = [];
+  const executionOrder: string[] = [];
+
+  function walkNode(nodeId: string, depth: number) {
+    const res = resolved.get(nodeId);
+    if (!res) return;
+
+    const node = res.node;
+    previewNodes.push({
+      nodeId: node.id,
+      label: (node.data.label as string) || node.id,
+      type: node.type,
+      model: (node.data.model as string) || 'default',
+      hasSystemPrompt: !!((node.data.systemPrompt as string) || '').trim(),
+      skills: res.skills.map(s => ({
+        id: s.id,
+        label: (s.data.label as string) || s.id,
+        command: (s.data.command as string) || '',
+      })),
+      mcps: res.mcps.map(m => ({
+        id: m.id,
+        label: (m.data.label as string) || m.id,
+        serverType: (m.data.serverType as string) || 'stdio',
+      })),
+      rules: res.rules.map(r => ({
+        id: r.id,
+        label: (r.data.label as string) || r.id,
+        ruleType: (r.data.ruleType as string) || 'guideline',
+      })),
+      delegates: res.delegates.map(d => ({
+        id: d.id,
+        label: (d.data.label as string) || d.id,
+        type: d.type,
+      })),
+      isLeaf: res.delegates.length === 0,
+      depth,
+    });
+
+    executionOrder.push(nodeId);
+
+    for (const delegate of res.delegates) {
+      walkNode(delegate.id, depth + 1);
+    }
+  }
+
+  walkNode(rootNode.id, 0);
+
+  const rootMaxTokens = rootNode.data.maxTokens as number | undefined;
+  const tokenBudget = rootMaxTokens && rootMaxTokens > 0 ? rootMaxTokens : DEFAULT_TOKEN_BUDGET;
+
+  return {
+    rootNodeId: rootNode.id,
+    nodes: previewNodes,
+    executionOrder,
+    tokenBudget,
+    estimatedNodes: previewNodes.length,
+  };
+}
+
+// ─── Run Sandbox ────────────────────────────────────────────────────────
+
+/**
+ * Create a run-level sandbox directory in /tmp.
+ * Symlinks the real project into the sandbox so node environments
+ * (CLAUDE.md, .mcp.json) are isolated while agents still access project files.
+ */
+function prepareRunSandbox(runId: string, projectCwd: string): RunSandbox {
+  const sandboxDir = mkdtempSync(join(tmpdir(), `graph-run-${runId.slice(0, 8)}-`));
+  const projectMirrorDir = join(sandboxDir, 'project');
+
+  symlinkSync(projectCwd, projectMirrorDir);
+  debugLog(`[GraphRunner] Created run sandbox: ${sandboxDir} → ${projectCwd}`);
+
+  return {
+    sandboxDir,
+    projectMirrorDir,
+    cleanup: () => {
+      try {
+        rmSync(sandboxDir, { recursive: true, force: true });
+        debugLog(`[GraphRunner] Cleaned up sandbox: ${sandboxDir}`);
+      } catch (err) {
+        console.warn('[GraphRunner] sandbox cleanup failed:', err);
+      }
+    },
+  };
+}
+
 // ─── Public API ─────────────────────────────────────────────────────────
 
 export interface RunContext {
@@ -825,6 +959,9 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     return { runId, emitter, abortController };
   }
 
+  // Create run-level sandbox in /tmp
+  const sandbox = prepareRunSandbox(runId, cwd);
+
   // Extract token budget from root node's maxTokens (or use default)
   const rootMaxTokens = rootNode.data.maxTokens as number | undefined;
   const tokenBudget = rootMaxTokens && rootMaxTokens > 0 ? rootMaxTokens : DEFAULT_TOKEN_BUDGET;
@@ -832,7 +969,7 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
 
   const ctx: ExecutionContext = {
     runId,
-    cwd,
+    cwd: sandbox.projectMirrorDir,
     emitter,
     abortController,
     resolvedNodes: resolved,
@@ -840,6 +977,7 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
     outputTexts: new Map(),
     usages: new Map(),
     nodeEnvs: new Map(),
+    sandbox,
     tokenBudget,
     totalTokensUsed: 0,
     budgetWarningEmitted: false,
@@ -871,6 +1009,8 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
       for (const env of ctx.nodeEnvs.values()) {
         env.cleanup();
       }
+      // Clean up run sandbox
+      sandbox.cleanup();
     }
   })();
 

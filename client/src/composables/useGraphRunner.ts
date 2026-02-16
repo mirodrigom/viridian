@@ -1,6 +1,8 @@
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphStore } from '@/stores/graph';
+import { useChatStore } from '@/stores/chat';
 import { toast } from 'vue-sonner';
+import type { ExecutionPreview } from '@/types/graph-runner';
 
 let initialized = false;
 
@@ -120,6 +122,18 @@ export function useGraphRunner() {
       console.error('[GraphRunner WS]', d.error);
       toast.error(`Graph error: ${d.error.slice(0, 200)}`, { duration: 6000 });
     });
+
+    // Preview events
+    runner.wsOn('preview_result', (data: unknown) => {
+      const d = data as { preview: ExecutionPreview };
+      runner.setPreview(d.preview);
+    });
+
+    runner.wsOn('preview_error', (data: unknown) => {
+      const d = data as { error: string };
+      toast.error(`Preview failed: ${d.error.slice(0, 200)}`, { duration: 6000 });
+      runner.setPreview(null);
+    });
   }
 
   function runGraph(prompt: string, cwd: string) {
@@ -138,9 +152,27 @@ export function useGraphRunner() {
     }
   }
 
+  /** Run a graph directly from template data (no graph editor needed) */
+  function quickRun(graphData: { nodes: unknown[]; edges: unknown[] }, prompt: string) {
+    runner.reset();
+    const chat = useChatStore();
+    const cwd = chat.projectPath || '/home';
+    const sent = runner.wsSend({
+      type: 'run_graph',
+      graphData,
+      prompt,
+      cwd,
+      graphId: null,
+    });
+    if (!sent) {
+      toast.error('Graph runner not connected. Reconnecting...', { duration: 4000 });
+      runner.wsConnect();
+    }
+  }
+
   function abort() {
     runner.wsSend({ type: 'abort_run' });
   }
 
-  return { connected: runner.wsConnected, init, runGraph, abort };
+  return { connected: runner.wsConnected, init, runGraph, quickRun, abort };
 }

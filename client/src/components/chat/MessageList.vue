@@ -103,10 +103,15 @@ onUnmounted(() => document.removeEventListener('keydown', handleGlobalKeydown));
 const showResponseComplete = ref(false);
 const responseCompleteTime = ref('');
 let hadStreaming = false;
-let streamEndedWithPendingQuestion = false;
+let streamEndedWithPendingInput = false;
 
 const hasPendingQuestion = computed(() =>
   chat.messages.some(m => m.toolUse?.tool === 'AskUserQuestion' && m.toolUse.status === 'pending')
+);
+
+// Suppress completion when Claude is waiting for user input (question or plan review)
+const isAwaitingUserInput = computed(() =>
+  hasPendingQuestion.value || chat.isPlanReviewActive
 );
 
 function showCompletion() {
@@ -123,23 +128,46 @@ function showCompletion() {
 watch(() => chat.isStreaming, (streaming) => {
   if (streaming) {
     hadStreaming = true;
-    streamEndedWithPendingQuestion = false;
+    streamEndedWithPendingInput = false;
     showResponseComplete.value = false;
   } else if (hadStreaming) {
     hadStreaming = false;
-    if (hasPendingQuestion.value) {
-      streamEndedWithPendingQuestion = true;
+    if (isAwaitingUserInput.value) {
+      streamEndedWithPendingInput = true;
     } else {
       showCompletion();
     }
   }
 });
 
-watch(hasPendingQuestion, (pending) => {
-  if (!pending && streamEndedWithPendingQuestion) {
-    streamEndedWithPendingQuestion = false;
-    showCompletion();
+watch(isAwaitingUserInput, (awaiting) => {
+  if (!awaiting && streamEndedWithPendingInput) {
+    streamEndedWithPendingInput = false;
+    // Delay slightly: if the user approved a plan or answered a question,
+    // a new stream_start may arrive shortly after — avoid a spurious chime.
+    setTimeout(() => {
+      if (!chat.isStreaming) {
+        showCompletion();
+      }
+    }, 500);
   }
+});
+
+// Historical sessions: show a static "Response complete" divider for sessions loaded from disk
+const showHistoricalComplete = computed(() =>
+  chat.sessionLoadedIdle && !chat.isStreaming && !isAwaitingUserInput.value && !showResponseComplete.value
+);
+
+const historicalCompleteTime = computed(() => {
+  if (!chat.sessionLoadedIdle) return '';
+  const lastAssistant = [...chat.messages].reverse().find(m => m.role === 'assistant');
+  if (!lastAssistant) return '';
+  return new Date(lastAssistant.timestamp).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
 });
 
 // Timeline grouping: consecutive Claude-side messages (assistant, tool, system) share one header
@@ -394,7 +422,7 @@ onUnmounted(() => {
 
     <ScrollArea ref="scrollContainer" class="h-full">
       <!-- Empty state -->
-      <div v-if="chat.messages.length === 0" class="flex h-full items-center justify-center p-8">
+      <div v-if="chat.messages.length === 0 && !chat.isLoadingSession" class="flex h-full items-center justify-center p-8">
         <div class="text-center">
           <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
             <ClaudeLogo :size="32" class="text-primary" />
@@ -429,16 +457,6 @@ onUnmounted(() => {
           v-for="(msg, idx) in chat.messages"
           :key="msg.id"
           :id="`msg-${msg.id}`"
-          v-memo="[
-            msg.content,
-            msg.isStreaming,
-            msg.thinking,
-            msg.isThinking,
-            msg.toolUse?.status,
-            msg.toolUse?.isInputStreaming,
-            matchingIds.has(msg.id),
-            searchResults[searchResultIndex] === idx
-          ]"
         >
           <MessageBubble
             :message="msg"
@@ -466,13 +484,13 @@ onUnmounted(() => {
           leave-from-class="opacity-100"
           leave-to-class="opacity-0"
         >
-          <div v-if="showResponseComplete && !chat.isStreaming && !hasPendingQuestion" class="response-complete-divider mx-4 my-3">
+          <div v-if="(showResponseComplete || showHistoricalComplete) && !chat.isStreaming && !hasPendingQuestion" class="response-complete-divider mx-4 my-3">
             <div class="flex items-center gap-2">
               <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
               <div class="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1">
                 <CheckCircle2 class="h-3 w-3 text-primary" />
                 <span class="text-[11px] font-medium text-primary/80">Response complete</span>
-                <span class="text-[10px] text-muted-foreground">{{ responseCompleteTime }}</span>
+                <span class="text-[10px] text-muted-foreground">{{ showResponseComplete ? responseCompleteTime : historicalCompleteTime }}</span>
               </div>
               <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
             </div>

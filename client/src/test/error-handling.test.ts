@@ -14,7 +14,7 @@ describe('Error Handling and Rate Limiting', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllTimers()
+    vi.useRealTimers()
   })
 
   describe('Rate Limiting Logic', () => {
@@ -44,8 +44,7 @@ describe('Error Handling and Rate Limiting', () => {
       expect(chatStore.isRateLimited).toBe(true)
 
       // Fast-forward time
-      vi.advanceTimersByTime(100)
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(100)
 
       expect(chatStore.isRateLimited).toBe(false)
       expect(chatStore.rateLimitedUntil).toBeNull()
@@ -436,6 +435,8 @@ describe('Error Handling and Rate Limiting', () => {
     })
 
     it('should handle connection errors without breaking conversation context', () => {
+      chatStore.sessionId = 'test-session'
+
       // Establish conversation context
       chatStore.addMessage({
         id: 'user-1',

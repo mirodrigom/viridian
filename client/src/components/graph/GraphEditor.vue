@@ -21,6 +21,8 @@ import SaveGraphDialog from './dialogs/SaveGraphDialog.vue';
 import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
 import RunGraphDialog from './dialogs/RunGraphDialog.vue';
 import TemplatesDialog from './dialogs/TemplatesDialog.vue';
+import QuickRunWizard from './dialogs/QuickRunWizard.vue';
+import ImportGraphDialog from './dialogs/ImportGraphDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
 import SubagentNode from './nodes/SubagentNode.vue';
@@ -43,6 +45,8 @@ const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showRunDialog = ref(false);
 const showTemplatesDialog = ref(false);
+const showQuickRunDialog = ref(false);
+const showImportDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
 const {
@@ -200,8 +204,10 @@ function isValidConnection(connection: Connection): boolean {
       @save="graph.savedViewport = getViewport(); showSaveDialog = true"
       @load="showLoadDialog = true"
       @templates="showTemplatesDialog = true"
+      @import="showImportDialog = true"
       @run="showRunDialog = true"
       @abort="abortRun()"
+      @quick-run="showQuickRunDialog = true"
     />
 
     <GraphTimelineScrubber v-if="runner.currentRun" />
@@ -278,6 +284,8 @@ function isValidConnection(connection: Connection): boolean {
     <LoadGraphDialog v-model:open="showLoadDialog" />
     <RunGraphDialog v-model:open="showRunDialog" @run="onRunGraph" />
     <TemplatesDialog v-model:open="showTemplatesDialog" />
+    <QuickRunWizard v-model:open="showQuickRunDialog" />
+    <ImportGraphDialog v-model:open="showImportDialog" />
   </div>
 </template>
 

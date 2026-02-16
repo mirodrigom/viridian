@@ -69,7 +69,7 @@ describe('useClaudeStream', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllTimers()
+    vi.useRealTimers()
   })
 
   describe('initialization', () => {
@@ -177,6 +177,11 @@ describe('useClaudeStream', () => {
 
       chatStore.projectPath = '/test/project'
 
+      // stream_start sets activeSessionId so stream_end passes isForCurrentSession
+      const streamStartHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'stream_start')?.[1] as Function
+      streamStartHandler({ sessionId: 'server-session-123' })
+
       const streamEndHandler = vi.mocked(mockWebSocket.on).mock.calls
         .find(call => call[0] === 'stream_end')?.[1] as Function
 
@@ -234,7 +239,7 @@ describe('useClaudeStream', () => {
       expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
     })
 
-    it('should never auto-approve AskUserQuestion tool', () => {
+    it('should auto-approve all tools in bypassPermissions mode (including AskUserQuestion)', () => {
       settingsStore.permissionMode = 'bypassPermissions'
       const { init } = useClaudeStream()
       init()
@@ -248,7 +253,61 @@ describe('useClaudeStream', () => {
         requestId: 'req-123',
       })
 
+      // In bypassPermissions mode, ALL tools are pre-marked approved on the client
+      expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
+    })
+
+    it('should not auto-approve file tools in acceptEdits mode (server handles it)', () => {
+      settingsStore.permissionMode = 'acceptEdits'
+      const { init } = useClaudeStream()
+      init()
+
+      const toolUseHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'tool_use')?.[1] as Function
+
+      toolUseHandler({
+        tool: 'Edit',
+        input: { file_path: '/test/file.txt', old_string: 'a', new_string: 'b' },
+        requestId: 'req-123',
+      })
+
+      // Client starts tools as 'pending' in non-bypass modes; server auto-approves
+      // via tool_approved event for acceptEdits-eligible tools
       expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
+    })
+
+    it('should not auto-approve Bash in acceptEdits mode', () => {
+      settingsStore.permissionMode = 'acceptEdits'
+      const { init } = useClaudeStream()
+      init()
+
+      const toolUseHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'tool_use')?.[1] as Function
+
+      toolUseHandler({
+        tool: 'Bash',
+        input: { command: 'echo hello' },
+        requestId: 'req-123',
+      })
+
+      expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
+    })
+
+    it('should auto-approve internal tools regardless of permission mode', () => {
+      settingsStore.permissionMode = 'default'
+      const { init } = useClaudeStream()
+      init()
+
+      const toolUseHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'tool_use')?.[1] as Function
+
+      toolUseHandler({
+        tool: 'EnterPlanMode',
+        input: {},
+        requestId: 'req-123',
+      })
+
+      expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
     })
 
     it('should track plan mode transitions', () => {
@@ -400,6 +459,7 @@ describe('useClaudeStream', () => {
 
   describe('session management', () => {
     it('should handle session_status when streaming', () => {
+      chatStore.sessionId = 'test-session'
       const { init } = useClaudeStream()
       init()
 
@@ -408,6 +468,7 @@ describe('useClaudeStream', () => {
 
       sessionStatusHandler({
         sessionId: 'test-session',
+        serverSessionId: 'server-uuid-123',
         isStreaming: true,
         accumulatedText: 'Partial response...',
       })
@@ -416,6 +477,13 @@ describe('useClaudeStream', () => {
       expect(chatStore.messages).toHaveLength(1)
       expect(chatStore.messages[0]?.content).toBe('Partial response...')
       expect(chatStore.messages[0]?.isStreaming).toBe(true)
+
+      // Subsequent events should use serverSessionId and still be accepted
+      const streamDeltaHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'stream_delta')?.[1] as Function
+      streamDeltaHandler({ sessionId: 'server-uuid-123', text: ' More text' })
+      // Should NOT be rejected — activeSessionId was updated to server UUID
+      expect(chatStore.messages[0]?.content).toBe('Partial response... More text')
     })
 
     it('should handle session_status when not streaming', async () => {
@@ -442,7 +510,7 @@ describe('useClaudeStream', () => {
         isStreaming: false,
       })
 
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/sessions/test-session/messages?projectDir=%2Ftest%2Fproject&after=0',
@@ -557,6 +625,7 @@ describe('useClaudeStream', () => {
         requestId: 'req-123',
         approved: true,
         answers: { answer: 'Yes' },
+        questions: undefined,
       })
 
       expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
@@ -586,6 +655,7 @@ describe('useClaudeStream', () => {
         requestId: 'req-456',
         approved: false,
         answers: undefined,
+        questions: undefined,
       })
 
       expect(chatStore.messages[0]?.toolUse?.status).toBe('rejected')

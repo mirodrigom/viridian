@@ -45,7 +45,7 @@ export function createMockToolMessage(tool: string, input: Record<string, unknow
     toolUse: {
       tool,
       input,
-      requestId: `req-${Date.now()}`,
+      requestId: `req-${Date.now()}-${Math.random()}`,
       status,
     },
   })

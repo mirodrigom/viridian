@@ -42,6 +42,14 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ─── Disable all transitions during theme switch so every element updates instantly ─── */
+html.no-transitions,
+html.no-transitions *,
+html.no-transitions *::before,
+html.no-transitions *::after {
+  transition-duration: 0s !important;
+}
+
 /* ─── Light Mode: Green-tinted ─── */
 :root {
   --radius: 0.625rem;
@@ -125,12 +133,32 @@ html.dark .chat-mode-plan {
   --ring: oklch(0.723 0.191 250);
 }
 
-/* Full Auto Mode: Orange/amber accent */
+/* Full Auto Mode: Viridian green accent (matches theme primary) */
 .chat-mode-fullauto {
+  --primary: oklch(0.637 0.194 160);
+  --ring: oklch(0.637 0.194 160);
+}
+html.dark .chat-mode-fullauto {
+  --primary: oklch(0.723 0.191 163);
+  --ring: oklch(0.723 0.191 163);
+}
+
+/* Accept Edits Mode: Purple accent */
+.chat-mode-acceptEdits {
+  --primary: oklch(0.637 0.194 300);
+  --ring: oklch(0.637 0.194 300);
+}
+html.dark .chat-mode-acceptEdits {
+  --primary: oklch(0.723 0.191 300);
+  --ring: oklch(0.723 0.191 300);
+}
+
+/* Ask Every Time Mode: Amber/orange accent */
+.chat-mode-default {
   --primary: oklch(0.637 0.194 70);
   --ring: oklch(0.637 0.194 70);
 }
-html.dark .chat-mode-fullauto {
+html.dark .chat-mode-default {
   --primary: oklch(0.75 0.18 70);
   --ring: oklch(0.75 0.18 70);
 }

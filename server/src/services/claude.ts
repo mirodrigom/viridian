@@ -20,6 +20,8 @@ interface ClaudeSession {
   pendingQuestionBuffer: { event: string; data: unknown }[] | null;
   /** Last activity timestamp for idle session cleanup. */
   lastActivity: number;
+  /** User's requested permission mode (used for server-side auto-approval of control_requests). */
+  userPermissionMode?: string;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
@@ -54,7 +56,14 @@ export function createSession(cwd: string, claudeSessionId?: string): ClaudeSess
 }
 
 export function getSession(id: string): ClaudeSession | undefined {
-  return activeSessions.get(id);
+  // First try direct lookup by server UUID
+  const direct = activeSessions.get(id);
+  if (direct) return direct;
+  // Fall back to lookup by claudeSessionId (for clients that only know the JSONL filename)
+  for (const session of activeSessions.values()) {
+    if (session.claudeSessionId === id) return session;
+  }
+  return undefined;
 }
 
 export interface SendMessageOptions {
@@ -78,15 +87,21 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   session.accumulatedText = '';
   session.emitter.emit('stream_start');
 
+  // Store user's permission mode for server-side auto-approval of control_requests.
+  // We always pass 'default' to the CLI so it sends control_request for every tool
+  // (including AskUserQuestion), which ensures the CLI blocks until we respond.
+  // The server auto-approves tools based on the user's mode, except AskUserQuestion
+  // which always requires user input.
+  session.userPermissionMode = options?.permissionMode || 'bypassPermissions';
+
   // Run the SDK generator in the background
   (async () => {
     try {
-      const permMode = options?.permissionMode || 'bypassPermissions';
       const stream = claudeQuery({
         prompt,
         cwd: session.cwd,
         model: options?.model,
-        permissionMode: permMode,
+        permissionMode: 'default',
         maxOutputTokens: options?.maxOutputTokens,
         allowedTools: options?.allowedTools,
         disallowedTools: options?.disallowedTools,
@@ -179,11 +194,48 @@ function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: strin
   }
 }
 
-/** Map SDK messages → EventEmitter events, with buffering for AskUserQuestion. */
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch'];
+const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite'];
+
+/**
+ * Check whether a tool should be auto-approved server-side based on the user's permission mode.
+ * Returns true if the tool should be auto-approved (send control_response immediately),
+ * false if it needs user approval (forward control_request to client).
+ * In bypassPermissions (Full Auto) mode, ALL tools are auto-approved including AskUserQuestion.
+ * In other modes, AskUserQuestion always requires user input.
+ */
+function shouldAutoApprove(session: ClaudeSession, toolName: string): boolean {
+  const mode = session.userPermissionMode || 'default';
+  if (mode === 'bypassPermissions') return true;
+  if (toolName === 'AskUserQuestion') return false;
+  if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true;
+  if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true;
+  return false;
+}
+
+/** Send an auto-approval control_response to the CLI via stdin and notify the client. */
+function autoApproveControlRequest(session: ClaudeSession, requestId: string, toolUseId?: string) {
+  if (!session.stdinWrite) return;
+  const response = {
+    type: 'control_response',
+    response: {
+      subtype: 'success',
+      request_id: requestId,
+      response: { behavior: 'allow' },
+    },
+  };
+  session.stdinWrite(JSON.stringify(response));
+  // Notify client so it can update the tool status from 'pending' to 'approved'
+  if (toolUseId) {
+    session.emitter.emit('tool_approved', { toolUseId });
+  }
+}
+
+/** Map SDK messages → EventEmitter events, with buffering while awaiting tool approval. */
 function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
-  // When buffering (waiting for AskUserQuestion answer), queue events instead of emitting.
-  // Allow through: control_request (so client shows the modal) and tool_input events
-  // for the AskUserQuestion tool itself (so input streams to the client).
+  // When buffering (waiting for user to Allow/Deny a tool), queue events instead of emitting.
+  // Allow through: control_request (so client shows Allow/Deny buttons) and tool_input events
+  // for the pending tool itself (so input streams to the client).
   if (session.pendingQuestionBuffer !== null) {
     if (msg.type === 'result') {
       // NEVER buffer stream_end — flush the buffer first, then emit stream_end
@@ -193,7 +245,16 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
         session.emitter.emit(evt.event, evt.data);
       }
       // Fall through to emit the result/stream_end normally
-    } else if (msg.type === 'control_request' || msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
+    } else if (msg.type === 'control_request') {
+      // Auto-approve server-side if the user's permission mode allows it.
+      // Otherwise pass through to the client for user approval.
+      if (shouldAutoApprove(session, msg.toolName)) {
+        autoApproveControlRequest(session, msg.requestId, msg.toolUseId);
+        // Don't start a second buffer layer or emit to client — just approve and continue
+        return;
+      }
+      // Falls through to emit control_request to client
+    } else if (msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
       // These pass through to the client
     } else {
       const evt = buildEmitEvent(session, msg);
@@ -205,35 +266,69 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
   const evt = buildEmitEvent(session, msg);
   if (!evt) return;
 
-  // Start buffering as soon as we see the AskUserQuestion tool_use event
-  // (not on control_request which arrives later, after text has already streamed)
-  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion') {
+  // Handle control_request: auto-approve server-side or start buffering for user approval.
+  // Since we always pass --permission-mode default to the CLI, it sends control_request
+  // for every tool. We auto-approve based on the user's selected permission mode.
+  if (msg.type === 'control_request') {
+    if (shouldAutoApprove(session, msg.toolName)) {
+      autoApproveControlRequest(session, msg.requestId, msg.toolUseId);
+      return; // Don't emit to client or start buffering
+    }
+    // Tool needs user approval — start buffering subsequent events
+    if (session.pendingQuestionBuffer === null) {
+      session.pendingQuestionBuffer = [];
+    }
+  }
+
+  // Start buffering as soon as we see AskUserQuestion tool_use since text can
+  // stream between tool_use and control_request.
+  // Skip in bypassPermissions mode — AskUserQuestion is auto-approved there.
+  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion' && session.userPermissionMode !== 'bypassPermissions') {
     session.pendingQuestionBuffer = [];
   }
 
   session.emitter.emit(evt.event, evt.data);
 }
 
-export function respondToPermission(sessionId: string, requestId: string, approved: boolean) {
+export function respondToPermission(
+  sessionId: string,
+  requestId: string,
+  approved: boolean,
+  answers?: Record<string, string>,
+  questions?: unknown[],
+) {
   const session = activeSessions.get(sessionId);
   if (!session) return;
 
   // Send control_response to CLI if stdin is still open
   if (session.stdinWrite) {
-    const response = approved
-      ? {
-          type: 'control_response',
-          response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow' } },
-        }
-      : {
-          type: 'control_response',
-          response: { subtype: 'success', request_id: requestId, response: { behavior: 'deny', message: 'User denied the tool request' } },
-        };
+    let response;
+    if (approved) {
+      // For AskUserQuestion: include updatedInput with questions + answers
+      const updatedInput = answers ? { questions: questions || [], answers } : undefined;
+      response = {
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: requestId,
+          response: { behavior: 'allow', updatedInput },
+        },
+      };
+    } else {
+      response = {
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: requestId,
+          response: { behavior: 'deny', message: 'User denied the tool request' },
+        },
+      };
+    }
 
     session.stdinWrite(JSON.stringify(response));
   }
 
-  // Flush buffered events (from AskUserQuestion pause)
+  // Flush buffered events (held back while waiting for tool approval)
   if (session.pendingQuestionBuffer) {
     const buffered = session.pendingQuestionBuffer;
     session.pendingQuestionBuffer = null;
@@ -246,6 +341,7 @@ export function respondToPermission(sessionId: string, requestId: string, approv
 export function abortSession(sessionId: string) {
   const session = activeSessions.get(sessionId);
   if (!session) return;
+  const wasStreaming = session.isStreaming;
   session.pendingQuestionBuffer = null;
   if (session.abortController) {
     session.abortController.abort();
@@ -253,17 +349,44 @@ export function abortSession(sessionId: string) {
   }
   if (session.process) {
     session.process.kill('SIGTERM');
-    session.process = null;
+    // Don't null out session.process — let proc.on('close') handle cleanup
+    // and emit the result/stream_end naturally through the generator.
+    // Set a safety timeout in case the process doesn't exit cleanly.
+    const proc = session.process;
+    setTimeout(() => {
+      // If still alive after 3s, force-kill and emit stream_end
+      try { proc.kill('SIGKILL'); } catch { /* already dead */ }
+      if (session.isStreaming) {
+        session.isStreaming = false;
+        session.process = null;
+        session.stdinWrite = undefined;
+        session.lastActivity = Date.now();
+        session.emitter.emit('stream_end', {
+          sessionId: session.id,
+          claudeSessionId: session.claudeSessionId,
+          usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
+        });
+      }
+    }, 3000);
+  } else if (wasStreaming) {
+    // No process but was streaming — force stream_end so client isn't stuck
+    session.isStreaming = false;
+    session.lastActivity = Date.now();
+    session.emitter.emit('stream_end', {
+      sessionId: session.id,
+      claudeSessionId: session.claudeSessionId,
+      usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
+    });
   }
 }
 
 export function isSessionStreaming(sessionId: string): boolean {
-  const session = activeSessions.get(sessionId);
+  const session = getSession(sessionId);
   return session?.isStreaming ?? false;
 }
 
 export function getSessionAccumulatedText(sessionId: string): string {
-  const session = activeSessions.get(sessionId);
+  const session = getSession(sessionId);
   return session?.accumulatedText ?? '';
 }
 

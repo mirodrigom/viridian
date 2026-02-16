@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'events'
 
 /**
- * Test the core logic of claude.ts — specifically buildEmitEvent and emitSDKMessage
- * which implement the AskUserQuestion buffering mechanism.
+ * Test the core logic of claude.ts — specifically buildEmitEvent, emitSDKMessage,
+ * and server-side auto-approval of control_requests.
  *
  * We re-implement these functions to test them without requiring the full
  * claude-sdk module (which spawns real processes).
@@ -41,6 +41,7 @@ interface Session {
   stdinWrite?: (data: string) => void
   pendingQuestionBuffer: { event: string; data: unknown }[] | null
   lastActivity: number
+  userPermissionMode?: string
 }
 
 function createTestSession(overrides: Partial<Session> = {}): Session {
@@ -52,11 +53,40 @@ function createTestSession(overrides: Partial<Session> = {}): Session {
     accumulatedText: '',
     pendingQuestionBuffer: null,
     lastActivity: Date.now(),
+    userPermissionMode: 'default',
     ...overrides,
   }
 }
 
 // ─── Re-implemented logic from claude.ts ────────────────────────────────
+
+const FILE_TOOLS = ['Read', 'Write', 'Edit', 'NotebookEdit', 'MultiEdit', 'Glob', 'Grep', 'TodoWrite', 'WebFetch', 'WebSearch']
+const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoWrite']
+
+function shouldAutoApprove(session: Session, toolName: string): boolean {
+  const mode = session.userPermissionMode || 'default'
+  if (mode === 'bypassPermissions') return true
+  if (toolName === 'AskUserQuestion') return false
+  if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true
+  if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true
+  return false
+}
+
+function autoApproveControlRequest(session: Session, requestId: string, toolUseId?: string) {
+  if (!session.stdinWrite) return
+  const response = {
+    type: 'control_response',
+    response: {
+      subtype: 'success',
+      request_id: requestId,
+      response: { behavior: 'allow' },
+    },
+  }
+  session.stdinWrite(JSON.stringify(response))
+  if (toolUseId) {
+    session.emitter.emit('tool_approved', { toolUseId })
+  }
+}
 
 function buildEmitEvent(session: Session, msg: SDKMessage): { event: string; data: unknown } | null {
   switch (msg.type) {
@@ -105,7 +135,20 @@ function buildEmitEvent(session: Session, msg: SDKMessage): { event: string; dat
 
 function emitSDKMessage(session: Session, msg: SDKMessage) {
   if (session.pendingQuestionBuffer !== null) {
-    if (msg.type === 'control_request' || msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
+    if (msg.type === 'result') {
+      const buffered = session.pendingQuestionBuffer
+      session.pendingQuestionBuffer = null
+      for (const evt of buffered) {
+        session.emitter.emit(evt.event, evt.data)
+      }
+      // Fall through to emit the result/stream_end normally
+    } else if (msg.type === 'control_request') {
+      if (shouldAutoApprove(session, msg.toolName!)) {
+        autoApproveControlRequest(session, msg.requestId!, msg.toolUseId)
+        return
+      }
+      // Falls through to emit control_request to client
+    } else if (msg.type === 'tool_input_delta' || msg.type === 'tool_input_complete') {
       // pass through
     } else {
       const evt = buildEmitEvent(session, msg)
@@ -117,7 +160,17 @@ function emitSDKMessage(session: Session, msg: SDKMessage) {
   const evt = buildEmitEvent(session, msg)
   if (!evt) return
 
-  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion') {
+  if (msg.type === 'control_request') {
+    if (shouldAutoApprove(session, msg.toolName!)) {
+      autoApproveControlRequest(session, msg.requestId!, msg.toolUseId)
+      return
+    }
+    if (session.pendingQuestionBuffer === null) {
+      session.pendingQuestionBuffer = []
+    }
+  }
+
+  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion' && session.userPermissionMode !== 'bypassPermissions') {
     session.pendingQuestionBuffer = []
   }
 
@@ -209,6 +262,148 @@ describe('buildEmitEvent', () => {
   })
 })
 
+describe('shouldAutoApprove', () => {
+  it('bypassPermissions auto-approves ALL tools including AskUserQuestion', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    expect(shouldAutoApprove(session, 'AskUserQuestion')).toBe(true)
+    expect(shouldAutoApprove(session, 'Read')).toBe(true)
+    expect(shouldAutoApprove(session, 'Bash')).toBe(true)
+    expect(shouldAutoApprove(session, 'Write')).toBe(true)
+  })
+
+  it('non-bypassPermissions modes never auto-approve AskUserQuestion', () => {
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'acceptEdits' }), 'AskUserQuestion')).toBe(false)
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'plan' }), 'AskUserQuestion')).toBe(false)
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'default' }), 'AskUserQuestion')).toBe(false)
+  })
+
+  it('acceptEdits auto-approves file tools only', () => {
+    const session = createTestSession({ userPermissionMode: 'acceptEdits' })
+    expect(shouldAutoApprove(session, 'Read')).toBe(true)
+    expect(shouldAutoApprove(session, 'Write')).toBe(true)
+    expect(shouldAutoApprove(session, 'Edit')).toBe(true)
+    expect(shouldAutoApprove(session, 'Bash')).toBe(false)
+    expect(shouldAutoApprove(session, 'Task')).toBe(false)
+  })
+
+  it('plan auto-approves read-only tools only', () => {
+    const session = createTestSession({ userPermissionMode: 'plan' })
+    expect(shouldAutoApprove(session, 'Read')).toBe(true)
+    expect(shouldAutoApprove(session, 'Grep')).toBe(true)
+    expect(shouldAutoApprove(session, 'Write')).toBe(false)
+    expect(shouldAutoApprove(session, 'Edit')).toBe(false)
+    expect(shouldAutoApprove(session, 'Bash')).toBe(false)
+  })
+
+  it('default mode never auto-approves', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    expect(shouldAutoApprove(session, 'Read')).toBe(false)
+    expect(shouldAutoApprove(session, 'Write')).toBe(false)
+    expect(shouldAutoApprove(session, 'Bash')).toBe(false)
+  })
+})
+
+describe('server-side auto-approval', () => {
+  it('auto-approves Read control_request in bypassPermissions mode', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    session.stdinWrite = vi.fn()
+    const controlHandler = vi.fn()
+    const approvedHandler = vi.fn()
+    session.emitter.on('control_request', controlHandler)
+    session.emitter.on('tool_approved', approvedHandler)
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Read', input: { file_path: '/test' }, requestId: 'r-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Read', toolInput: {}, toolUseId: 'r-1' })
+
+    // control_request should NOT be forwarded to client
+    expect(controlHandler).not.toHaveBeenCalled()
+    // stdinWrite should have been called with auto-approval
+    expect(session.stdinWrite).toHaveBeenCalledOnce()
+    const sent = JSON.parse((session.stdinWrite as ReturnType<typeof vi.fn>).mock.calls[0][0])
+    expect(sent.response.response.behavior).toBe('allow')
+    // tool_approved event should be emitted
+    expect(approvedHandler).toHaveBeenCalledWith({ toolUseId: 'r-1' })
+    // No buffering should be started
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+
+  it('auto-approves AskUserQuestion in bypassPermissions mode', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    session.stdinWrite = vi.fn()
+    const controlHandler = vi.fn()
+    const approvedHandler = vi.fn()
+    session.emitter.on('control_request', controlHandler)
+    session.emitter.on('tool_approved', approvedHandler)
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'AskUserQuestion', input: {}, requestId: 'ask-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'AskUserQuestion', toolInput: {}, toolUseId: 'ask-1' })
+
+    // control_request should NOT be forwarded (auto-approved in Full Auto)
+    expect(controlHandler).not.toHaveBeenCalled()
+    // stdinWrite should have been called with auto-approval
+    expect(session.stdinWrite).toHaveBeenCalledOnce()
+    expect(approvedHandler).toHaveBeenCalledWith({ toolUseId: 'ask-1' })
+    // No buffering in bypassPermissions mode for AskUserQuestion
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+
+  it('does NOT auto-approve AskUserQuestion in acceptEdits mode', () => {
+    const session = createTestSession({ userPermissionMode: 'acceptEdits' })
+    session.stdinWrite = vi.fn()
+    const controlHandler = vi.fn()
+    session.emitter.on('control_request', controlHandler)
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'AskUserQuestion', input: {}, requestId: 'ask-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'AskUserQuestion', toolInput: {}, toolUseId: 'ask-1' })
+
+    // control_request SHOULD be forwarded (needs user input)
+    expect(controlHandler).toHaveBeenCalled()
+    expect(session.stdinWrite).not.toHaveBeenCalled()
+  })
+
+  it('auto-approves file tools in acceptEdits mode but not Bash', () => {
+    const session = createTestSession({ userPermissionMode: 'acceptEdits' })
+    session.stdinWrite = vi.fn()
+    const controlHandler = vi.fn()
+    const approvedHandler = vi.fn()
+    session.emitter.on('control_request', controlHandler)
+    session.emitter.on('tool_approved', approvedHandler)
+
+    // Write — should auto-approve
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Write', input: {}, requestId: 'w-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Write', toolInput: {}, toolUseId: 'w-1' })
+    expect(controlHandler).not.toHaveBeenCalled()
+    expect(approvedHandler).toHaveBeenCalledWith({ toolUseId: 'w-1' })
+
+    approvedHandler.mockClear()
+
+    // Bash — should NOT auto-approve
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Bash', input: {}, requestId: 'b-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-2', toolName: 'Bash', toolInput: {}, toolUseId: 'b-1' })
+    expect(controlHandler).toHaveBeenCalled()
+    expect(approvedHandler).not.toHaveBeenCalled()
+  })
+
+  it('auto-approves control_request during buffering without adding a second buffer', () => {
+    // Use acceptEdits mode so AskUserQuestion triggers buffering
+    // (bypassPermissions auto-approves AskUserQuestion, skipping buffering entirely)
+    const session = createTestSession({ userPermissionMode: 'acceptEdits' })
+    session.stdinWrite = vi.fn()
+
+    // Start buffering with AskUserQuestion
+    emitSDKMessage(session, { type: 'tool_use', tool: 'AskUserQuestion', input: {}, requestId: 'ask-1' })
+    expect(session.pendingQuestionBuffer).toEqual([])
+
+    // control_request for a Read tool arrives during buffering — auto-approve it
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Read', toolInput: {}, toolUseId: 'r-1' })
+
+    // Should have auto-approved via stdinWrite (Read is auto-approved in acceptEdits)
+    expect(session.stdinWrite).toHaveBeenCalledOnce()
+    // Buffer should still be active (not flushed)
+    expect(session.pendingQuestionBuffer).toEqual([])
+  })
+})
+
 describe('emitSDKMessage — AskUserQuestion buffering', () => {
   it('normal messages emit directly', () => {
     const session = createTestSession()
@@ -254,7 +449,7 @@ describe('emitSDKMessage — AskUserQuestion buffering', () => {
     expect(session.pendingQuestionBuffer).toHaveLength(2)
   })
 
-  it('control_request passes through during buffering (so modal shows)', () => {
+  it('control_request for AskUserQuestion passes through during buffering', () => {
     const session = createTestSession()
     const controlHandler = vi.fn()
     session.emitter.on('control_request', controlHandler)
@@ -262,7 +457,7 @@ describe('emitSDKMessage — AskUserQuestion buffering', () => {
     // Start buffering
     emitSDKMessage(session, { type: 'tool_use', tool: 'AskUserQuestion', input: {}, requestId: 'ask-1' })
 
-    // control_request should pass through
+    // control_request for AskUserQuestion should pass through (never auto-approved)
     emitSDKMessage(session, {
       type: 'control_request',
       requestId: 'ctrl-1',
@@ -391,9 +586,80 @@ describe('respondToPermission — flush buffered events', () => {
   })
 })
 
+describe('control_request buffering for regular tools', () => {
+  it('control_request starts buffering for non-auto-approved tools', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    const controlHandler = vi.fn()
+    session.emitter.on('control_request', controlHandler)
+
+    // tool_use alone does NOT start buffering
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Read', input: { file_path: '/test' }, requestId: 'r-1' })
+    expect(session.pendingQuestionBuffer).toBeNull()
+
+    // control_request starts buffering (in default mode, Read needs approval)
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Read', toolInput: { file_path: '/test' }, toolUseId: 'r-1' })
+    expect(controlHandler).toHaveBeenCalled()
+    expect(session.pendingQuestionBuffer).toEqual([])
+  })
+
+  it('buffers text_delta after control_request for regular tools', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    const deltaHandler = vi.fn()
+    session.emitter.on('stream_delta', deltaHandler)
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Bash', input: { command: 'ls' }, requestId: 'b-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Bash', toolInput: { command: 'ls' }, toolUseId: 'b-1' })
+
+    // Text after control_request should be buffered
+    emitSDKMessage(session, { type: 'text_delta', text: 'should not show yet' })
+    expect(deltaHandler).not.toHaveBeenCalled()
+    expect(session.pendingQuestionBuffer).toHaveLength(1)
+  })
+
+  it('flushes buffer when user approves regular tool', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    session.stdinWrite = vi.fn()
+    const deltaHandler = vi.fn()
+    session.emitter.on('stream_delta', deltaHandler)
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Bash', input: { command: 'ls' }, requestId: 'b-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Bash', toolInput: {}, toolUseId: 'b-1' })
+    emitSDKMessage(session, { type: 'text_delta', text: 'buffered text' })
+
+    expect(deltaHandler).not.toHaveBeenCalled()
+
+    respondToPermission(session, 'ctrl-1', true)
+
+    expect(deltaHandler).toHaveBeenCalledWith({ text: 'buffered text' })
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+
+  it('result during buffering flushes buffer then emits stream_end', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    const events: { event: string; data: unknown }[] = []
+    session.emitter.on('stream_delta', (d) => events.push({ event: 'stream_delta', data: d }))
+    session.emitter.on('stream_end', (d) => events.push({ event: 'stream_end', data: d }))
+
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Bash', input: {}, requestId: 'b-1' })
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Bash', toolInput: {}, toolUseId: 'b-1' })
+    emitSDKMessage(session, { type: 'text_delta', text: 'buffered' })
+
+    expect(events).toHaveLength(0)
+
+    // result forces flush + stream_end
+    emitSDKMessage(session, { type: 'result', sessionId: 'ses-1', exitCode: 0 })
+
+    expect(events).toHaveLength(2)
+    expect(events[0]!.event).toBe('stream_delta')
+    expect(events[1]!.event).toBe('stream_end')
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+})
+
 describe('full AskUserQuestion lifecycle', () => {
-  it('buffers text, allows control_request through, flushes on response', () => {
-    const session = createTestSession()
+  it('buffers text, allows control_request through, flushes on response (non-bypass mode)', () => {
+    // Use acceptEdits — AskUserQuestion requires user input in non-bypass modes
+    const session = createTestSession({ userPermissionMode: 'acceptEdits' })
     session.stdinWrite = vi.fn()
 
     const events: { event: string; data: unknown }[] = []
@@ -414,8 +680,8 @@ describe('full AskUserQuestion lifecycle', () => {
     emitSDKMessage(session, { type: 'tool_input_complete', requestId: 'ask-1', input: { questions: [{ question: 'Pick one?' }] } })
     expect(events).toHaveLength(3)
 
-    // 4. control_request — passes through (triggers approval flow)
-    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'AskUserQuestion', toolInput: {} })
+    // 4. control_request for AskUserQuestion — passes through (needs user input)
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'AskUserQuestion', toolInput: {}, toolUseId: 'ask-1' })
     expect(events).toHaveLength(4)
 
     // 5. Text arrives WHILE waiting for user — gets buffered
@@ -427,6 +693,71 @@ describe('full AskUserQuestion lifecycle', () => {
     respondToPermission(session, 'ctrl-1', true)
     expect(events).toHaveLength(5) // Buffered text now emitted
     expect(events[4]).toEqual({ event: 'stream_delta', data: { text: 'I will proceed with...' } })
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+
+  it('auto-approves AskUserQuestion in bypassPermissions (Full Auto) mode — no buffering', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    session.stdinWrite = vi.fn()
+
+    const events: { event: string; data: unknown }[] = []
+    session.emitter.on('tool_use', (d) => events.push({ event: 'tool_use', data: d }))
+    session.emitter.on('stream_delta', (d) => events.push({ event: 'stream_delta', data: d }))
+    session.emitter.on('control_request', (d) => events.push({ event: 'control_request', data: d }))
+    session.emitter.on('tool_approved', (d) => events.push({ event: 'tool_approved', data: d }))
+
+    // 1. AskUserQuestion tool_use — emits, no buffering in bypass mode
+    emitSDKMessage(session, { type: 'tool_use', tool: 'AskUserQuestion', input: {}, requestId: 'ask-1' })
+    expect(events).toHaveLength(1)
+    expect(session.pendingQuestionBuffer).toBeNull() // No buffering!
+
+    // 2. control_request — auto-approved, not forwarded
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'AskUserQuestion', toolInput: {}, toolUseId: 'ask-1' })
+    expect(session.stdinWrite).toHaveBeenCalledOnce()
+    // tool_approved event emitted instead of control_request
+    expect(events).toHaveLength(2)
+    expect(events[1]).toEqual({ event: 'tool_approved', data: { toolUseId: 'ask-1' } })
+
+    // 3. Text flows through immediately — no buffering
+    emitSDKMessage(session, { type: 'text_delta', text: 'Continuing...' })
+    expect(events).toHaveLength(3)
+    expect(events[2]).toEqual({ event: 'stream_delta', data: { text: 'Continuing...' } })
+  })
+})
+
+describe('full regular tool permission lifecycle', () => {
+  it('text before tool emits, text after control_request buffers, flush on approval', () => {
+    const session = createTestSession({ userPermissionMode: 'default' })
+    session.stdinWrite = vi.fn()
+
+    const events: { event: string; data: unknown }[] = []
+    session.emitter.on('tool_use', (d) => events.push({ event: 'tool_use', data: d }))
+    session.emitter.on('stream_delta', (d) => events.push({ event: 'stream_delta', data: d }))
+    session.emitter.on('control_request', (d) => events.push({ event: 'control_request', data: d }))
+
+    // 1. Text before tool — emits immediately
+    emitSDKMessage(session, { type: 'text_delta', text: 'Let me read the file.' })
+    expect(events).toHaveLength(1)
+
+    // 2. tool_use — emits (no buffering yet for non-AskUserQuestion)
+    emitSDKMessage(session, { type: 'tool_use', tool: 'Read', input: { file_path: '/test' }, requestId: 'r-1' })
+    expect(events).toHaveLength(2)
+    expect(session.pendingQuestionBuffer).toBeNull()
+
+    // 3. control_request — emits AND starts buffering (in default mode, Read needs approval)
+    emitSDKMessage(session, { type: 'control_request', requestId: 'ctrl-1', toolName: 'Read', toolInput: { file_path: '/test' }, toolUseId: 'r-1' })
+    expect(events).toHaveLength(3)
+    expect(session.pendingQuestionBuffer).toEqual([])
+
+    // 4. Text arrives WHILE waiting for Allow/Deny — gets buffered
+    emitSDKMessage(session, { type: 'text_delta', text: 'The file contains...' })
+    expect(events).toHaveLength(3) // Still 3! Text was buffered
+    expect(session.pendingQuestionBuffer).toHaveLength(1)
+
+    // 5. User clicks Allow — flush
+    respondToPermission(session, 'ctrl-1', true)
+    expect(events).toHaveLength(4) // Buffered text now emitted
+    expect(events[3]).toEqual({ event: 'stream_delta', data: { text: 'The file contains...' } })
     expect(session.pendingQuestionBuffer).toBeNull()
   })
 })

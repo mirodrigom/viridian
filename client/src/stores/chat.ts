@@ -21,6 +21,7 @@ export interface ChatMessage {
   thinking?: string;
   isThinking?: boolean;
   images?: { name: string; dataUrl: string }[];
+  isContextSummary?: boolean;
 }
 
 export interface TokenUsage {
@@ -32,6 +33,7 @@ export interface TokenUsage {
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<ChatMessage[]>([]);
   const isStreaming = ref(false);
+  const isLoadingSession = ref(false);
   const sessionId = ref<string | null>(sessionStorage.getItem('chat-sessionId'));
   const claudeSessionId = ref<string | null>(sessionStorage.getItem('chat-claudeSessionId'));
   const projectPath = ref<string | null>(sessionStorage.getItem('chat-projectPath'));
@@ -40,6 +42,9 @@ export const useChatStore = defineStore('chat', () => {
   const streamStartTime = ref<number | null>(null);
   const lastResponseMs = ref(0);
   const sessionStartedAt = ref<number | null>(null);
+
+  // Set when a session loaded from disk is confirmed not streaming (via check_session)
+  const sessionLoadedIdle = ref(false);
 
   // Pagination state
   const totalMessages = ref(0);
@@ -75,12 +80,15 @@ export const useChatStore = defineStore('chat', () => {
   const lastMessage = computed(() => messages.value[messages.value.length - 1]);
 
   // Latest TodoWrite todos — extracted from the most recent TodoWrite tool call
+  // When streaming ends, in_progress tasks are auto-marked as completed
   const latestTodos = computed(() => {
     const lastTodoMsg = messages.value.findLast(m => m.toolUse?.tool === 'TodoWrite');
     if (!lastTodoMsg?.toolUse?.input.todos) return [];
     const todos = lastTodoMsg.toolUse.input.todos;
     if (!Array.isArray(todos)) return [];
-    return todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
+    const typed = todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
+    if (isStreaming.value) return typed;
+    return typed.map(t => t.status === 'in_progress' ? { ...t, status: 'completed' as const } : t);
   });
 
   const totalTokens = computed(() => usage.value.inputTokens + usage.value.outputTokens);
@@ -174,6 +182,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function startStreaming() {
     isStreaming.value = true;
+    sessionLoadedIdle.value = false;
     streamStartTime.value = Date.now();
     if (!sessionStartedAt.value) {
       sessionStartedAt.value = Date.now();
@@ -187,6 +196,7 @@ export const useChatStore = defineStore('chat', () => {
     sessionId.value = null;
     claudeSessionId.value = null;
     activeProjectDir.value = null;
+    sessionLoadedIdle.value = false;
     totalMessages.value = 0;
     hasMoreMessages.value = false;
     oldestLoadedIndex.value = 0;
@@ -204,6 +214,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function loadMessages(msgs: ChatMessage[], meta?: { total: number; hasMore: boolean; oldestIndex: number }) {
     messages.value = msgs;
+    isLoadingSession.value = false;
     if (meta) {
       totalMessages.value = meta.total;
       hasMoreMessages.value = meta.hasMore;
@@ -239,6 +250,8 @@ export const useChatStore = defineStore('chat', () => {
     if (meta) {
       totalMessages.value = meta.total;
     }
+    // Re-scan plan mode state since appended messages may contain ExitPlanMode
+    restorePlanModeFromMessages(messages.value);
   }
 
   function startThinking() {
@@ -316,8 +329,8 @@ export const useChatStore = defineStore('chat', () => {
   });
 
   return {
-    messages, isStreaming, sessionId, claudeSessionId, projectPath, activeProjectDir, usage,
-    lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs,
+    messages, isStreaming, isLoadingSession, sessionId, claudeSessionId, projectPath, activeProjectDir, usage,
+    lastMessage, latestTodos, totalTokens, contextPercent, lastResponseMs, streamStartTime, sessionLoadedIdle,
     sessionStartedAt, sessionDurationMin, tokensPerMin, inPlanMode,
     planReviewText, isPlanReviewActive,
     totalMessages, hasMoreMessages, oldestLoadedIndex, isLoadingMore, scrollToBottomRequest, autoScroll, contentVersion,

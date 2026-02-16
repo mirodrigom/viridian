@@ -11,7 +11,7 @@ describe('useChatStore', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllTimers()
+    vi.useRealTimers()
   })
 
   describe('initialization', () => {
@@ -218,8 +218,7 @@ describe('useChatStore', () => {
       expect(store.rateLimitRemainingMs).toBe(5000)
 
       // Fast-forward time to after the limit
-      vi.advanceTimersByTime(5000)
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(5000)
 
       expect(store.isRateLimited).toBe(false)
       expect(store.rateLimitedUntil).toBeNull()
@@ -353,6 +352,8 @@ describe('useChatStore', () => {
         { content: 'Task 3', status: 'pending' as const, activeForm: 'Planning Task 3' },
       ]
 
+      // Simulate streaming so in_progress todos are returned as-is
+      store.startStreaming()
       const todoMessage = createMockToolMessage('TodoWrite', { todos })
       store.addMessage(todoMessage)
 
@@ -448,7 +449,7 @@ describe('useChatStore', () => {
       const store = useChatStore()
 
       store.sessionId = 'test-session-123'
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(window.sessionStorage.getItem('chat-sessionId')).toBe('test-session-123')
     })
@@ -457,7 +458,7 @@ describe('useChatStore', () => {
       const store = useChatStore()
 
       store.claudeSessionId = 'claude-session-456'
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(window.sessionStorage.getItem('chat-claudeSessionId')).toBe('claude-session-456')
     })
@@ -466,7 +467,7 @@ describe('useChatStore', () => {
       const store = useChatStore()
 
       store.setProjectPath('/path/to/project')
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(window.sessionStorage.getItem('chat-projectPath')).toBe('/path/to/project')
     })
@@ -475,7 +476,7 @@ describe('useChatStore', () => {
       const store = useChatStore()
 
       store.activeProjectDir = '/active/project'
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
 
       expect(window.sessionStorage.getItem('chat-activeProjectDir')).toBe('/active/project')
     })
@@ -485,12 +486,12 @@ describe('useChatStore', () => {
 
       // Set initial values
       store.sessionId = 'test'
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
       expect(window.sessionStorage.getItem('chat-sessionId')).toBe('test')
 
       // Clear values
       store.sessionId = null
-      await nextTick()
+      await vi.advanceTimersByTimeAsync(0)
       expect(window.sessionStorage.getItem('chat-sessionId')).toBeNull()
     })
   })

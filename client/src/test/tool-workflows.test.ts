@@ -292,6 +292,8 @@ describe('Tool Use Workflows', () => {
         { content: 'Deploy to staging', status: 'completed' as const, activeForm: 'Deploying to staging' }
       ]
 
+      // Simulate streaming so in_progress todos are returned as-is (not auto-completed)
+      chatStore.startStreaming()
       const todoTool = createMockToolMessage('TodoWrite', { todos })
       chatStore.addMessage(todoTool)
 
@@ -309,6 +311,8 @@ describe('Tool Use Workflows', () => {
         { content: 'New task 2', status: 'in_progress' as const, activeForm: 'Working on new task 2' }
       ]
 
+      // Simulate streaming so in_progress todos are returned as-is
+      chatStore.startStreaming()
       chatStore.addMessage(createMockToolMessage('TodoWrite', { todos: oldTodos }))
       chatStore.addMessage(createMockToolMessage('Read', { file_path: 'test.txt' })) // Non-todo tool
       chatStore.addMessage(createMockToolMessage('TodoWrite', { todos: newTodos }))

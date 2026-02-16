@@ -57,7 +57,7 @@ const fullStackNodes: SerializedNode[] = [
 - When a task spans multiple domains, delegate to each relevant subagent sequentially
 - Start with backend/data model changes, then frontend, then docs and tests
 - After all subagents complete, verify the integration points are consistent`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -628,7 +628,7 @@ const codeReviewNodes: SerializedNode[] = [
 ## Report Format
 For each finding: [Severity] [File:line] Description — Recommended fix
 Group by severity, then by reviewer domain.`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -656,7 +656,7 @@ Always provide exact file paths and line numbers. Only report real, actionable i
     type: 'expert',
     position: { x: 50, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Security', model: 'claude-opus-4-6',
+      nodeType: 'expert', label: 'Expert Security', model: 'claude-sonnet-4-5-20250929',
       systemPrompt: `You are a security-focused code reviewer. Analyze code for real, exploitable vulnerabilities:
 
 1. **Injection:** SQL injection (string concatenation in queries), command injection (unsanitized exec/spawn), template injection
@@ -756,7 +756,7 @@ const simpleNodes: SerializedNode[] = [
 4. Test awareness — check if related tests exist and verify your changes don't break them
 
 When given a task, first explore the relevant code, then implement with clean, focused changes.`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -819,7 +819,7 @@ const securityAuditNodes: SerializedNode[] = [
 - **High:** XSS, CSRF, privilege escalation — fix within the sprint
 - **Medium:** Information disclosure, missing security headers — fix in next release
 - **Low:** Best practice violations, minor hardening — track in backlog`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -974,7 +974,7 @@ const docGenNodes: SerializedNode[] = [
 - Include runnable examples and curl commands for APIs
 - Use Mermaid diagrams for architecture and data flow
 - Keep documentation DRY — single source of truth, linked from other locations`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -1120,7 +1120,7 @@ const migrationNodes: SerializedNode[] = [
 - Create adapter/shim layers for gradual migration
 - Run the full test suite after each transformation step
 - Document breaking changes and update dependent code first`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -1268,7 +1268,7 @@ const perfOptNodes: SerializedNode[] = [
 - **P1 (This sprint):** Slow API endpoints > 500ms, large bundle chunks > 500KB, N+1 queries
 - **P2 (Next sprint):** Sub-optimal caching, minor re-renders, uncompressed assets
 - **P3 (Backlog):** Micro-optimizations, style improvements, theoretical improvements`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },
@@ -1418,7 +1418,7 @@ const apiDevNodes: SerializedNode[] = [
 - Consistent response envelopes across all endpoints
 - Pagination on every list endpoint
 - Proper error shapes with status codes, error messages, and field-level detail for validation`,
-      permissionMode: 'bypassPermissions', maxTokens: 200000,
+      permissionMode: 'bypassPermissions', maxTokens: 800000,
       allowedTools: [], disallowedTools: [],
     },
   },

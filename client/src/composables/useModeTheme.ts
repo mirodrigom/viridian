@@ -6,15 +6,17 @@ export function useModeTheme() {
   const settings = useSettingsStore();
   const chat = useChatStore();
 
+  const modeClassMap: Record<string, string> = {
+    plan: 'chat-mode-plan',
+    bypassPermissions: 'chat-mode-fullauto',
+    acceptEdits: 'chat-mode-acceptEdits',
+    default: 'chat-mode-default',
+  };
+
   const modeClass = computed(() => {
     // Claude-triggered plan mode takes highest priority
     if (chat.inPlanMode) return 'chat-mode-plan';
-    // User-selected plan permission mode
-    if (settings.permissionMode === 'plan') return 'chat-mode-plan';
-    // Full auto
-    if (settings.permissionMode === 'bypassPermissions') return 'chat-mode-fullauto';
-    // Default and acceptEdits stay green
-    return '';
+    return modeClassMap[settings.permissionMode] || '';
   });
 
   return { modeClass };

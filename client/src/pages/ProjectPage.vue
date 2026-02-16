@@ -22,7 +22,7 @@ onMounted(async () => {
 
   // If navigated to /chat/:sessionId, load that session
   const sessionId = route.params.sessionId as string | undefined;
-  if (sessionId && sessionId !== chat.sessionId) {
+  if (sessionId && (sessionId !== chat.sessionId || chat.messages.length === 0)) {
     await loadSessionFromUrl(sessionId);
   } else if (!sessionId && route.name === 'project' && chat.sessionId) {
     // Landing on /project with no sessionId in URL but a stale sessionId in store
@@ -85,6 +85,7 @@ async function loadSessionFromUrl(sessionId: string) {
       chat.setProjectPath(session.projectPath);
     }
 
+    chat.isLoadingSession = true;
     chat.clearMessages();
     chat.sessionId = session.id;
     chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
@@ -94,7 +95,7 @@ async function loadSessionFromUrl(sessionId: string) {
       `/api/sessions/${session.id}/messages?projectDir=${encodeURIComponent(session.projectDir)}&limit=50`,
       { headers: { Authorization: `Bearer ${auth.token}` } },
     );
-    if (!msgRes.ok) return;
+    if (!msgRes.ok) { chat.isLoadingSession = false; return; }
     const msgData = await msgRes.json();
     if (msgData.messages?.length) {
       chat.loadMessages(msgData.messages, {
@@ -102,6 +103,8 @@ async function loadSessionFromUrl(sessionId: string) {
         hasMore: msgData.hasMore,
         oldestIndex: msgData.oldestIndex,
       });
+    } else {
+      chat.isLoadingSession = false;
     }
     if (msgData.usage) {
       chat.updateUsage({
@@ -109,7 +112,14 @@ async function loadSessionFromUrl(sessionId: string) {
         outputTokens: msgData.usage.outputTokens || 0,
       });
     }
+    // If this session is currently streaming on the server, activate streaming UI
+    // so the spinner shows immediately. The WebSocket check_session mechanism
+    // will wire up live events for the ongoing stream.
+    if (msgData.isStreaming) {
+      chat.startStreaming();
+    }
   } catch (err) {
+    chat.isLoadingSession = false;
     console.error('Failed to load session from URL:', err);
     router.replace({ name: 'project' });
   }

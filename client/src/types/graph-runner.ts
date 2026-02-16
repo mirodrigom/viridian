@@ -89,7 +89,40 @@ export interface GraphRun {
   finalOutput: string | null;
 }
 
+// ─── Execution Preview (Dry Run) ────────────────────────────────────────
+
+export interface PreviewNode {
+  nodeId: string;
+  label: string;
+  type: string;
+  model: string;
+  hasSystemPrompt: boolean;
+  skills: { id: string; label: string; command: string }[];
+  mcps: { id: string; label: string; serverType: string }[];
+  rules: { id: string; label: string; ruleType: string }[];
+  delegates: { id: string; label: string; type: string }[];
+  isLeaf: boolean;
+  depth: number;
+}
+
+export interface ExecutionPreview {
+  rootNodeId: string;
+  nodes: PreviewNode[];
+  executionOrder: string[];
+  tokenBudget: number;
+  estimatedNodes: number;
+}
+
 // ─── WebSocket Protocol: Client → Server ───────────────────────────────
+
+export interface WsPreviewGraph {
+  type: 'preview_graph';
+  graphData: {
+    nodes: { id: string; type: string; position: { x: number; y: number }; data: Record<string, unknown> }[];
+    edges: { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; data: Record<string, unknown> }[];
+  };
+}
+
 export interface WsRunGraph {
   type: 'run_graph';
   graphData: {
@@ -105,7 +138,7 @@ export interface WsAbortRun {
   type: 'abort_run';
 }
 
-export type WsClientMessage = WsRunGraph | WsAbortRun;
+export type WsClientMessage = WsPreviewGraph | WsRunGraph | WsAbortRun;
 
 // ─── WebSocket Protocol: Server → Client ───────────────────────────────
 export interface WsRunStarted {
@@ -220,6 +253,16 @@ export interface WsRunAborted {
   runId: string;
 }
 
+export interface WsPreviewResult {
+  type: 'preview_result';
+  preview: ExecutionPreview;
+}
+
+export interface WsPreviewError {
+  type: 'preview_error';
+  error: string;
+}
+
 export type WsServerMessage =
   | WsRunStarted
   | WsNodeStarted
@@ -237,4 +280,6 @@ export type WsServerMessage =
   | WsResultReturn
   | WsRunCompleted
   | WsRunFailed
-  | WsRunAborted;
+  | WsRunAborted
+  | WsPreviewResult
+  | WsPreviewError;

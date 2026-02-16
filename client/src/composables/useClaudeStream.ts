@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useWebSocket } from './useWebSocket';
 import { useRouter } from 'vue-router';
 import { uuid } from '@/lib/utils';
+import { playToolApprovalSound } from './useNotificationSound';
 
 export function useClaudeStream() {
   const chat = useChatStore();
@@ -35,11 +36,32 @@ export function useClaudeStream() {
       activeSessionId = newId;
     });
 
+    // Track whether the current stream was initiated via WebSocket (stream_start).
+    // When false and isStreaming is true, it means streaming state was restored from
+    // the REST API and we need to send check_session to wire up live WS events.
+    let wsStreamActive = false;
+
+    watch(() => chat.isStreaming, (streaming) => {
+      if (streaming && !wsStreamActive && activeSessionId && connected.value) {
+        // Streaming was activated externally (REST API) — send check_session
+        // to wire up the WebSocket listener for the ongoing stream.
+        send({ type: 'check_session', sessionId: activeSessionId });
+      }
+      if (!streaming) {
+        wsStreamActive = false;
+      }
+    });
+
     /** Returns true if the incoming WS event belongs to the current session. */
     function isForCurrentSession(data: unknown): boolean {
+      if (!data) return true; // null/undefined → allow (malformed event tolerance)
       const d = data as { sessionId?: string };
       if (!d.sessionId) return true;  // no sessionId in event → allow (backward compat)
-      if (!activeSessionId) return false; // "new chat" state → reject events from any old session
+      if (!activeSessionId) {
+        // New chat state: adopt the first sessionId we see (it's our first response)
+        activeSessionId = d.sessionId;
+        return true;
+      }
       return d.sessionId === activeSessionId;
     }
 
@@ -81,11 +103,12 @@ export function useClaudeStream() {
     }
 
     on('stream_start', (data: unknown) => {
-      const d = data as { sessionId?: string };
+      const d = (data || {}) as { sessionId?: string };
       // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
       if (d.sessionId) {
         activeSessionId = d.sessionId;
       }
+      wsStreamActive = true;
       chat.startStreaming();
       touchStreamActivity();
       needsNewAssistantMsg = false;
@@ -103,7 +126,8 @@ export function useClaudeStream() {
     on('stream_delta', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
       touchStreamActivity();
-      const d = data as { text: string };
+      const d = data as { text?: string };
+      if (!d?.text) return; // malformed event tolerance
       if (needsNewAssistantMsg) {
         // Text arriving after a tool — create a new assistant message
         // so the layout matches the reload path (text → tool → text split)
@@ -178,16 +202,26 @@ export function useClaudeStream() {
 
       // If we reconnected mid-stream, we likely missed tool events and intermediate
       // messages. Do a full reload from disk to get the complete conversation.
-      if (reconnectedMidStream && chat.sessionId && chat.activeProjectDir) {
+      const reloadId = chat.claudeSessionId || chat.sessionId;
+      if (reconnectedMidStream && reloadId && chat.activeProjectDir) {
         reconnectedMidStream = false;
-        reloadSession(chat.sessionId, chat.activeProjectDir);
+        reloadSession(reloadId, chat.activeProjectDir);
       }
     });
 
     on('tool_use', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      if (!data) return; // malformed event tolerance
       touchStreamActivity();
       const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
+
+      // Track plan mode transitions BEFORE dedup — even duplicate events
+      // should update plan mode state to prevent stale "Plan Mode" indicators
+      if (d.tool === 'EnterPlanMode') {
+        chat.inPlanMode = true;
+      } else if (d.tool === 'ExitPlanMode') {
+        chat.inPlanMode = false;
+      }
 
       // Deduplicate: skip if a message with this requestId already exists
       // (can happen with --include-partial-messages re-emitting the same tool_use)
@@ -197,12 +231,12 @@ export function useClaudeStream() {
 
       // Mark current assistant message as done — next text delta gets a new bubble
       needsNewAssistantMsg = true;
+      // Stop streaming indicator on the current assistant message
+      const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
+      if (lastAssistant) lastAssistant.isStreaming = false;
 
-      // Track plan mode transitions
-      if (d.tool === 'EnterPlanMode') {
-        chat.inPlanMode = true;
-      } else if (d.tool === 'ExitPlanMode') {
-        chat.inPlanMode = false;
+      // Handle ExitPlanMode plan text capture
+      if (d.tool === 'ExitPlanMode') {
 
         // Capture plan text: prefer the Write tool call that targets .claude/plans/,
         // falling back to assistant message content between EnterPlanMode and ExitPlanMode.
@@ -243,9 +277,14 @@ export function useClaudeStream() {
         }
       }
 
-      // In bypassPermissions mode, the CLI auto-approves tools itself, so mark as approved.
-      // In other modes, set pending — the actual approval happens via control_request.
-      const autoApproved = settings.permissionMode === 'bypassPermissions' && d.tool !== 'AskUserQuestion';
+      // Determine initial tool status.
+      // The server handles auto-approval based on the user's permission mode.
+      // EnterPlanMode/ExitPlanMode are internal tools that never need approval.
+      // In bypassPermissions (Full Auto) mode, ALL tools are auto-approved.
+      // In other modes, tools start as 'pending' until the server auto-approves
+      // or forwards a control_request for user approval.
+      const INTERNAL_TOOLS = ['EnterPlanMode', 'ExitPlanMode'];
+      const autoApproved = INTERNAL_TOOLS.includes(d.tool) || settings.permissionMode === 'bypassPermissions';
       const msg: ChatMessage = {
         id: uuid(),
         role: 'system',
@@ -265,28 +304,24 @@ export function useClaudeStream() {
       if (!isForCurrentSession(data)) return;
       const d = data as { requestId: string; toolName: string; toolInput: Record<string, unknown>; toolUseId?: string };
 
-      // Auto-approve in bypassPermissions mode (except AskUserQuestion)
-      if (settings.permissionMode === 'bypassPermissions' && d.toolName !== 'AskUserQuestion') {
-        send({ type: 'tool_response', requestId: d.requestId, approved: true });
-        return;
-      }
-
-      // Auto-approve edit tools in acceptEdits mode
-      if (settings.permissionMode === 'acceptEdits') {
-        const editTools = ['Write', 'Edit', 'NotebookEdit', 'MultiEdit'];
-        if (editTools.includes(d.toolName)) {
-          send({ type: 'tool_response', requestId: d.requestId, approved: true });
-          const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
-          if (msg?.toolUse) msg.toolUse.status = 'approved';
-          return;
-        }
-      }
-
-      // For "default" mode and non-edit tools in "acceptEdits":
-      // Store the control request ID on the tool message so respondToTool can use it
+      // Server handles auto-approval — any control_request that reaches the client
+      // is a tool that genuinely needs user approval (or AskUserQuestion).
+      // Store the control request ID on the tool message so respondToTool can use it.
       const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
       if (msg?.toolUse) {
         msg.toolUse.controlRequestId = d.requestId;
+      }
+      // Play attention sound so user knows approval is needed
+      playToolApprovalSound();
+    });
+
+    on('tool_approved', (data: unknown) => {
+      if (!isForCurrentSession(data)) return;
+      const d = data as { toolUseId: string };
+      // Server auto-approved this tool — update its status from 'pending' to 'approved'
+      const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
+      if (msg?.toolUse) {
+        msg.toolUse.status = 'approved';
       }
     });
 
@@ -323,6 +358,7 @@ export function useClaudeStream() {
     on('session_status', (data: unknown) => {
       const d = data as {
         sessionId: string;
+        serverSessionId?: string;
         isStreaming: boolean;
         accumulatedText?: string;
       };
@@ -332,16 +368,33 @@ export function useClaudeStream() {
       if (d.isStreaming) {
         // Session is still actively streaming on server — restore streaming state
         reconnectedMidStream = true;
-        chat.startStreaming();
-        // Add a placeholder assistant message so deltas have somewhere to go
-        const msg: ChatMessage = {
-          id: uuid(),
-          role: 'assistant',
-          content: d.accumulatedText || '',
-          timestamp: Date.now(),
-          isStreaming: true,
-        };
-        chat.addMessage(msg);
+        wsStreamActive = true; // Server re-wired the WS emitter for this session
+        // Adopt the server's internal session UUID so subsequent events from
+        // wireEmitter (which use session.id) pass the isForCurrentSession check.
+        // Only update the local tracking variable, not chat.sessionId (which is
+        // persisted to sessionStorage and used for URL routing).
+        if (d.serverSessionId) {
+          activeSessionId = d.serverSessionId;
+        }
+        if (!chat.isStreaming) {
+          chat.startStreaming();
+        }
+        // If messages were already loaded (e.g. via REST API), don't add a
+        // duplicate placeholder — just ensure the last assistant msg is marked streaming
+        if (chat.messages.length > 0) {
+          const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
+          if (lastAssistant) lastAssistant.isStreaming = true;
+        } else {
+          // No messages loaded yet — add a placeholder so deltas have somewhere to go
+          const msg: ChatMessage = {
+            id: uuid(),
+            role: 'assistant',
+            content: d.accumulatedText || '',
+            timestamp: Date.now(),
+            isStreaming: true,
+          };
+          chat.addMessage(msg);
+        }
       } else {
         // Session finished while we were disconnected — stop streaming UI
         // and fetch any messages we missed
@@ -351,11 +404,20 @@ export function useClaudeStream() {
         if (d.sessionId && chat.activeProjectDir) {
           fetchMissedMessages(d.sessionId, chat.activeProjectDir);
         }
+        // Mark as idle so the UI shows a "Response complete" indicator
+        // for sessions loaded from disk (only when last msg is from assistant/system)
+        if (chat.messages.length > 0) {
+          const lastMsg = chat.messages[chat.messages.length - 1];
+          if (lastMsg && lastMsg.role !== 'user') {
+            chat.sessionLoadedIdle = true;
+          }
+        }
       }
     });
 
     on('error', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      if (!data) return; // malformed event tolerance
       const d = data as { error: string };
 
       // Detect rate limit from error messages
@@ -367,7 +429,11 @@ export function useClaudeStream() {
         content: `Error: ${d.error}`,
         timestamp: Date.now(),
       });
-      chat.finishStreaming();
+      // Don't call finishStreaming() here — the error may be non-fatal (e.g. stderr
+      // output during context resize). stream_end always fires when the stream truly
+      // ends, guaranteed by the safety net in claude.ts. Calling finishStreaming()
+      // prematurely causes the "Response complete" notification to fire early and then
+      // not fire again when stream_end actually arrives (because isStreaming is already false).
     });
   }
 
@@ -421,7 +487,9 @@ export function useClaudeStream() {
     const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
     // Use the CLI's control request ID if available (for permission responses)
     const controlRequestId = msg?.toolUse?.controlRequestId || requestId;
-    send({ type: 'tool_response', requestId: controlRequestId, approved, answers });
+    // For AskUserQuestion, include the original questions so the server can build updatedInput
+    const questions = answers && msg?.toolUse?.input?.questions ? msg.toolUse.input.questions : undefined;
+    send({ type: 'tool_response', requestId: controlRequestId, approved, answers, questions });
     if (msg?.toolUse) {
       msg.toolUse.status = approved ? 'approved' : 'rejected';
       if (answers) {
@@ -431,7 +499,13 @@ export function useClaudeStream() {
   }
 
   function abort() {
-    send({ type: 'abort' });
+    // Include sessionId so the server can find the session even if the WS
+    // reconnected and currentSessionId (server-side closure var) is null.
+    const sent = send({ type: 'abort', sessionId: chat.sessionId });
+    if (!sent) {
+      // WebSocket not connected — force-finish locally so the UI isn't stuck
+      chat.finishStreaming();
+    }
   }
 
   function checkSession(sessionId: string) {
