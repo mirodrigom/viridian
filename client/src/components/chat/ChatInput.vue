@@ -32,6 +32,12 @@ const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]
 const isDragging = ref(false);
 let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Message history navigation
+const messageHistory = ref<string[]>([]);
+const historyIndex = ref(-1);
+const currentDraft = ref('');
+const isNavigatingHistory = ref(false);
+
 // Draft persistence - save/restore typed text per session
 const DRAFT_KEY = 'chat-draft';
 function getDrafts(): Record<string, string> {
@@ -57,11 +63,105 @@ function loadDraft() {
   input.value = drafts[key] || '';
   nextTick(() => autoResize());
 }
+
+// Message history persistence
+const HISTORY_KEY = 'chat-message-history';
+const MAX_HISTORY = 50;
+
+function getMessageHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveMessageHistory() {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(messageHistory.value));
+}
+
+function addToHistory(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+
+  // Remove duplicate if it exists
+  const existing = messageHistory.value.indexOf(trimmed);
+  if (existing !== -1) {
+    messageHistory.value.splice(existing, 1);
+  }
+
+  // Add to the beginning
+  messageHistory.value.unshift(trimmed);
+
+  // Keep only the latest MAX_HISTORY entries
+  if (messageHistory.value.length > MAX_HISTORY) {
+    messageHistory.value = messageHistory.value.slice(0, MAX_HISTORY);
+  }
+
+  saveMessageHistory();
+}
+
+function loadMessageHistory() {
+  messageHistory.value = getMessageHistory();
+}
+
+function resetHistoryNavigation() {
+  historyIndex.value = -1;
+  currentDraft.value = '';
+  isNavigatingHistory.value = false;
+}
+
+function navigateHistory(direction: 'up' | 'down') {
+  if (direction === 'up') {
+    if (historyIndex.value === -1) {
+      // Starting navigation - save current input as draft
+      currentDraft.value = input.value;
+      if (messageHistory.value.length === 0) return;
+      historyIndex.value = 0;
+    } else if (historyIndex.value < messageHistory.value.length - 1) {
+      historyIndex.value++;
+    } else {
+      return; // Already at the oldest message
+    }
+
+    input.value = messageHistory.value[historyIndex.value] || '';
+    isNavigatingHistory.value = true;
+  } else if (direction === 'down') {
+    if (historyIndex.value === -1) return; // Not navigating
+
+    if (historyIndex.value > 0) {
+      historyIndex.value--;
+      input.value = messageHistory.value[historyIndex.value] || '';
+    } else {
+      // Return to draft
+      input.value = currentDraft.value;
+      resetHistoryNavigation();
+    }
+  }
+
+  nextTick(() => {
+    autoResize();
+    // Move cursor to end
+    const el = textarea.value;
+    if (el) {
+      el.setSelectionRange(el.value.length, el.value.length);
+    }
+  });
+}
 // Auto-save draft on input change (debounced via watch)
-watch(input, saveDraft);
+watch(input, () => {
+  // Reset history navigation when user types
+  if (isNavigatingHistory.value) {
+    resetHistoryNavigation();
+  }
+  saveDraft();
+});
 // Restore draft when session changes
 watch(() => chat.sessionId, loadDraft);
-onMounted(loadDraft);
+onMounted(() => {
+  loadDraft();
+  loadMessageHistory();
+});
 
 // Rate limit countdown — ticks every second to update remaining time display
 const rateLimitCountdown = ref('');
@@ -317,6 +417,10 @@ function executeCommand(cmd: SlashCommand) {
   const drafts = getDrafts();
   delete drafts[key];
   localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+
+  // Reset history navigation
+  resetHistoryNavigation();
+
   cmd.action();
   nextTick(() => autoResize());
 }
@@ -333,6 +437,15 @@ function handleSubmit() {
 
   const trimmed = input.value.trim();
   if ((!trimmed && attachedImages.value.length === 0) || chat.isStreaming || chat.isRateLimited || chat.isPlanReviewActive) return;
+
+  // Add to message history (only the user's original input, not including file mentions)
+  if (trimmed) {
+    addToHistory(trimmed);
+  }
+
+  // Reset history navigation
+  resetHistoryNavigation();
+
   // Prepend file mentions as context
   let message = trimmed;
   if (mentionedFiles.value.length > 0) {
@@ -397,6 +510,33 @@ function handleKeydown(e: KeyboardEvent) {
     }
     if (e.key === 'Escape') {
       fileSuggestions.value = [];
+      return;
+    }
+  }
+
+  // Message history navigation (only when no menus are active)
+  if (!showCommandMenu.value && !showFileMenu.value) {
+    const el = textarea.value;
+    const cursorAtStart = el && el.selectionStart === 0 && el.selectionEnd === 0;
+    const cursorAtEnd = el && el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+    const inputEmpty = input.value.trim() === '';
+
+    if (e.key === 'ArrowUp' && (inputEmpty || cursorAtStart || isNavigatingHistory.value)) {
+      e.preventDefault();
+      navigateHistory('up');
+      return;
+    }
+    if (e.key === 'ArrowDown' && (inputEmpty || cursorAtEnd || isNavigatingHistory.value)) {
+      e.preventDefault();
+      navigateHistory('down');
+      return;
+    }
+    if (e.key === 'Escape' && isNavigatingHistory.value) {
+      e.preventDefault();
+      // Return to draft
+      input.value = currentDraft.value;
+      resetHistoryNavigation();
+      nextTick(() => autoResize());
       return;
     }
   }
@@ -666,14 +806,18 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           ? 'Review the plan in the sidebar to continue...'
           : chat.isRateLimited
             ? `Rate limited — resets in ${rateLimitCountdown}`
-            : 'Ask Claude to help with your code... (/ for commands)'"
+            : isNavigatingHistory
+              ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
+              : 'Ask Claude to help with your code... (/ for commands)'"
         :disabled="chat.isRateLimited || chat.isPlanReviewActive"
         class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-28 text-sm focus:outline-none"
         :class="chat.isPlanReviewActive
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
           : chat.isRateLimited
             ? 'text-red-400/60 placeholder:text-red-400/50 cursor-not-allowed'
-            : 'text-foreground placeholder:text-muted-foreground'"
+            : isNavigatingHistory
+              ? 'text-foreground placeholder:text-blue-500/70'
+              : 'text-foreground placeholder:text-muted-foreground'"
         rows="1"
         style="min-height: 44px; max-height: 120px"
         @keydown="handleKeydown"
@@ -728,7 +872,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
       </template>
       <template v-else>
-        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files
+        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files <span class="hidden lg:inline">&middot; ↑/↓ for history</span>
       </template>
     </p>
   </div>
