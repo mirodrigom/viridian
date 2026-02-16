@@ -233,6 +233,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           thinking: '',
           isThinking: false,
           toolCalls: [],
+          contentBlocks: [],
           tokens: (c as { agentA?: { tokens?: TokenUsage } }).agentA?.tokens || { inputTokens: 0, outputTokens: 0 },
         },
         agentB: {
@@ -241,6 +242,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           thinking: '',
           isThinking: false,
           toolCalls: [],
+          contentBlocks: [],
           tokens: (c as { agentB?: { tokens?: TokenUsage } }).agentB?.tokens || { inputTokens: 0, outputTokens: 0 },
         },
         commit: (c as { commit?: { hash: string; message: string; filesChanged: string[] } }).commit || null,
@@ -350,6 +352,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           thinking: '',
           isThinking: false,
           toolCalls: [],
+          contentBlocks: [],
           tokens: { inputTokens: 0, outputTokens: 0 },
         },
         agentB: {
@@ -358,6 +361,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
           thinking: '',
           isThinking: false,
           toolCalls: [],
+          contentBlocks: [],
           tokens: { inputTokens: 0, outputTokens: 0 },
         },
         commit: null,
@@ -379,7 +383,16 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     wsOn('agent_a_delta', (data: unknown) => {
       const d = data as { cycleNumber: number; text: string };
       const cycle = getCycle(d.cycleNumber);
-      if (cycle) cycle.agentA.response += d.text;
+      if (!cycle) return;
+      cycle.agentA.response += d.text;
+      // Append to the last text block or create a new one
+      const blocks = cycle.agentA.contentBlocks;
+      const last = blocks[blocks.length - 1];
+      if (last && last.type === 'text') {
+        last.text += d.text;
+      } else {
+        blocks.push({ type: 'text', text: d.text });
+      }
     });
 
     wsOn('agent_a_thinking_start', (data: unknown) => {
@@ -403,7 +416,10 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     wsOn('agent_a_tool_use', (data: unknown) => {
       const d = data as { cycleNumber: number; tool: string; input: Record<string, unknown>; requestId: string };
       const cycle = getCycle(d.cycleNumber);
-      if (cycle) cycle.agentA.toolCalls.push({ tool: d.tool, input: d.input, requestId: d.requestId });
+      if (!cycle) return;
+      const tc = { tool: d.tool, input: d.input, requestId: d.requestId };
+      cycle.agentA.toolCalls.push(tc);
+      cycle.agentA.contentBlocks.push({ type: 'tool', toolCall: tc });
     });
 
     wsOn('agent_a_complete', (data: unknown) => {
@@ -428,7 +444,15 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     wsOn('agent_b_delta', (data: unknown) => {
       const d = data as { cycleNumber: number; text: string };
       const cycle = getCycle(d.cycleNumber);
-      if (cycle) cycle.agentB.response += d.text;
+      if (!cycle) return;
+      cycle.agentB.response += d.text;
+      const blocks = cycle.agentB.contentBlocks;
+      const last = blocks[blocks.length - 1];
+      if (last && last.type === 'text') {
+        last.text += d.text;
+      } else {
+        blocks.push({ type: 'text', text: d.text });
+      }
     });
 
     wsOn('agent_b_thinking_start', (data: unknown) => {
@@ -452,7 +476,10 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     wsOn('agent_b_tool_use', (data: unknown) => {
       const d = data as { cycleNumber: number; tool: string; input: Record<string, unknown>; requestId: string };
       const cycle = getCycle(d.cycleNumber);
-      if (cycle) cycle.agentB.toolCalls.push({ tool: d.tool, input: d.input, requestId: d.requestId });
+      if (!cycle) return;
+      const tc = { tool: d.tool, input: d.input, requestId: d.requestId };
+      cycle.agentB.toolCalls.push(tc);
+      cycle.agentB.contentBlocks.push({ type: 'tool', toolCall: tc });
     });
 
     wsOn('agent_b_complete', (data: unknown) => {
