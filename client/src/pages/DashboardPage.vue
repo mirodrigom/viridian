@@ -133,7 +133,7 @@ function logout() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col bg-background">
+  <div class="flex min-h-dvh flex-col bg-background">
     <!-- Update notification banner -->
     <div v-if="updateAvailable" class="flex items-center justify-center gap-2 bg-primary/10 px-4 py-1.5 text-sm">
       <ArrowUpCircle class="h-4 w-4 text-primary" />

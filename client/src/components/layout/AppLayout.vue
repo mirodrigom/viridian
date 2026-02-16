@@ -109,7 +109,7 @@ function toggleTerminal() {
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-background">
+  <div class="flex h-dvh flex-col overflow-hidden bg-background">
     <TopBar
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"

@@ -195,7 +195,7 @@ defineExpose({ showToolsSettings });
       <Transition name="slide-left">
         <div
           v-if="showMobileSidebar"
-          class="absolute inset-y-0 left-0 z-40 w-72 bg-background shadow-xl"
+          class="absolute inset-y-0 left-0 z-40 w-[85vw] max-w-72 bg-background shadow-xl"
           @touchstart.passive="handleSidebarTouchStart"
           @touchend.passive="handleSidebarTouchEnd"
         >
@@ -223,7 +223,7 @@ defineExpose({ showToolsSettings });
           @send-prompt="(text) => sendMessage(text)"
         />
         <!-- Plan Review inline for mobile -->
-        <div v-if="chat.isPlanReviewActive" class="max-h-[60vh] border-t border-border overflow-y-auto">
+        <div v-if="chat.isPlanReviewActive" class="max-h-[35dvh] sm:max-h-[60vh] border-t border-border overflow-y-auto">
           <PlanReviewPanel
             @approve="handlePlanApprove"
             @deny="handlePlanDeny"

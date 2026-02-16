@@ -11,8 +11,8 @@ import {
 } from '@/components/ui/select';
 import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
-  ArrowDownToLine, ArrowDownFromLine, Download, Sparkles, Bug, Eye, Wrench,
-  FileCode, TestTube,
+  ChevronsDown, ChevronsUpDown, FileDown, Sparkles, Bug, Eye, Wrench,
+  FileCode, TestTube, Cpu,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
 import { exportSession } from '@/composables/useKeyboardShortcuts';
@@ -823,11 +823,11 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
   >
     <!-- Status bar: model, permission, context -->
     <TooltipProvider :delay-duration="300">
-      <div class="mb-2 flex flex-wrap items-center justify-center gap-1 md:gap-2">
+      <div class="mb-1 sm:mb-2 flex flex-wrap items-center justify-center gap-0.5 sm:gap-1 md:gap-2">
         <!-- Model selector -->
         <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
           <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.modelLabel">
-            <Zap class="h-3 w-3 sm:hidden" />
+            <Cpu class="h-3 w-3 sm:hidden" />
             <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
           </SelectTrigger>
           <SelectContent>
@@ -918,11 +918,11 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         <Tooltip>
           <TooltipTrigger as-child>
             <button
-              class="flex h-8 sm:h-6 items-center gap-1 rounded-md bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              class="hidden sm:flex h-8 sm:h-6 items-center gap-1 rounded-md bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
               :disabled="chat.messages.length === 0"
               @click="exportSession"
             >
-              <Download class="h-3 w-3" />
+              <FileDown class="h-3 w-3" />
               <span class="hidden sm:inline">Export</span>
             </button>
           </TooltipTrigger>
@@ -933,14 +933,14 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         <Tooltip>
           <TooltipTrigger as-child>
             <button
-              class="flex h-8 sm:h-6 items-center gap-1 rounded-md px-2 text-[11px] transition-colors shrink-0"
+              class="hidden sm:flex h-8 sm:h-6 items-center gap-1 rounded-md px-2 text-[11px] transition-colors shrink-0"
               :class="chat.autoScroll
                 ? 'bg-primary/15 text-primary hover:bg-primary/25'
                 : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
               @click="chat.autoScroll = !chat.autoScroll"
             >
-              <ArrowDownToLine v-if="chat.autoScroll" class="h-3 w-3" />
-              <ArrowDownFromLine v-else class="h-3 w-3" />
+              <ChevronsDown v-if="chat.autoScroll" class="h-3 w-3" />
+              <ChevronsUpDown v-else class="h-3 w-3" />
               <span class="hidden sm:inline">{{ chat.autoScroll ? 'Auto-scroll' : 'Scroll locked' }}</span>
             </button>
           </TooltipTrigger>
@@ -988,7 +988,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     <div
       v-if="showTemplateMenu"
       ref="templateMenuRef"
-      class="mb-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+      class="mb-1 max-h-48 sm:max-h-80 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
       @click.stop
     >
       <div v-for="(templates, category) in templateCategories" :key="category" class="border-b border-border last:border-b-0">
@@ -1084,7 +1084,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
               ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
               : 'Ask Claude to help with your code... (/ for commands)'"
         :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
-        class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-4 py-3 pr-24 sm:pr-36 text-sm focus:outline-none"
+        class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-3 sm:px-4 py-3 pr-20 sm:pr-36 text-sm focus:outline-none"
         :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
           : (chat?.isRateLimited ?? false)
@@ -1100,12 +1100,12 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-3 flex items-center gap-1">
-        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" class="hidden sm:block" @transcript="handleVoiceTranscript" />
         <Button
           v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
           variant="ghost"
           size="sm"
-          class="h-8 w-8 rounded-lg p-0 transition-colors"
+          class="hidden sm:inline-flex h-8 w-8 rounded-lg p-0 transition-colors"
           :class="showTemplateMenu ? 'bg-primary/15 text-primary hover:bg-primary/25' : 'text-muted-foreground hover:text-foreground'"
           title="Quick templates (Ctrl+1-5 for shortcuts)"
           @click.stop="showTemplateMenu = !showTemplateMenu; selectedTemplateIndex = 0;"
@@ -1157,7 +1157,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         Rate limit reached — input blocked until reset ({{ rateLimitCountdown }})
       </template>
       <template v-else>
-        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line</span> &middot; / for commands &middot; @ for files <span class="hidden lg:inline">&middot; ↑/↓ for history &middot; ✨ for templates</span>
+        Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line &middot; / for commands &middot; @ for files</span> <span class="hidden lg:inline">&middot; ↑/↓ for history &middot; ✨ for templates</span>
       </template>
     </p>
   </div>

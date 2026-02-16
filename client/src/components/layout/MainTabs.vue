@@ -156,7 +156,7 @@ function badgeFor(tab: string): number | null {
             <div v-if="showMobileFileSidebar" class="absolute inset-0 z-30 bg-black/50" @click="showMobileFileSidebar = false" />
           </Transition>
           <Transition name="slide-left">
-            <div v-if="showMobileFileSidebar" class="absolute inset-y-0 left-0 z-40 w-72 bg-background shadow-xl">
+            <div v-if="showMobileFileSidebar" class="absolute inset-y-0 left-0 z-40 w-[85vw] max-w-72 bg-background shadow-xl">
               <FileSidebar />
             </div>
           </Transition>

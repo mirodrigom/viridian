@@ -52,7 +52,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-background p-4">
+  <div class="flex min-h-dvh items-center justify-center bg-background p-4">
     <div class="w-full max-w-sm space-y-6">
       <!-- Logo and title -->
       <div class="text-center">
