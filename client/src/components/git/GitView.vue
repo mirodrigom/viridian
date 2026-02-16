@@ -171,7 +171,7 @@ function formatDate(dateStr: string) {
       </div>
 
       <!-- Scrollable area: file list + branches + history -->
-      <ScrollArea class="flex-1">
+      <ScrollArea class="min-h-0 flex-1">
         <!-- File status list -->
         <div class="border-b border-border p-3">
           <GitStatus />
