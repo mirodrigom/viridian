@@ -46,7 +46,7 @@ function logout() {
           <TooltipTrigger as-child>
             <button class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" @click="router.push('/')">
               <FolderOpen class="h-3.5 w-3.5 shrink-0" />
-              <span class="max-w-20 truncate sm:max-w-48">{{ chat.projectPath?.split('/').pop() }}</span>
+              <span class="max-w-24 truncate sm:max-w-48">{{ chat.projectPath?.split('/').pop() }}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent>{{ chat.projectPath }}</TooltipContent>

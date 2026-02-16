@@ -121,6 +121,19 @@ const isAwaitingUserInput = computed(() =>
   hasPendingQuestion.value || chat.isPlanReviewActive
 );
 
+const defaultTitle = 'Viridian';
+
+function restoreTitle() {
+  document.title = defaultTitle;
+}
+
+function handleVisibility() {
+  if (!document.hidden) restoreTitle();
+}
+
+onMounted(() => document.addEventListener('visibilitychange', handleVisibility));
+onUnmounted(() => document.removeEventListener('visibilitychange', handleVisibility));
+
 function showCompletion() {
   showResponseComplete.value = true;
   responseCompleteTime.value = new Date().toLocaleTimeString('en-US', {
@@ -130,6 +143,7 @@ function showCompletion() {
     hour12: true,
   });
   playResponseCompleteSound();
+  document.title = 'Viridian - Response complete';
 }
 
 watch(() => chat.isStreaming, (streaming) => {
@@ -137,6 +151,7 @@ watch(() => chat.isStreaming, (streaming) => {
     hadStreaming = true;
     streamEndedWithPendingInput = false;
     showResponseComplete.value = false;
+    restoreTitle();
   } else if (hadStreaming) {
     hadStreaming = false;
     if (isAwaitingUserInput.value) {
@@ -453,7 +468,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Messages -->
-      <div v-else class="py-2" :class="{ 'pt-12': showSearch }">
+      <div v-else class="py-2 pb-4" :class="{ 'pt-12': showSearch }">
         <!-- Load older messages indicator -->
         <div v-if="chat.hasMoreMessages" class="flex justify-center py-3">
           <div v-if="chat.isLoadingMore" class="flex items-center gap-2 text-xs text-muted-foreground">
@@ -495,7 +510,7 @@ onUnmounted(() => {
         </TransitionGroup>
 
         <!-- Energy beam: visible while Claude is streaming -->
-        <div v-if="chat.isStreaming" class="ai-thinking-beam mx-4">
+        <div v-if="chat.isStreaming" class="ai-thinking-beam mx-2 sm:mx-4">
           <div class="energy-beam" />
           <div class="energy-beam secondary" />
         </div>

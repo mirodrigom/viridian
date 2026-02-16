@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { ref } from 'vue'
 import { useClaudeStream } from '@/composables/useClaudeStream'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -24,7 +25,7 @@ vi.mock('@/stores/auth', () => ({
 
 // Enhanced WebSocket mock that tracks timing and visual states
 class VSCodeBehaviorMock {
-  public connected = { value: false }
+  public connected = ref(false)
   public eventHandlers: Record<string, Function[]> = {}
   public sentMessages: any[] = []
   public timingLogs: { event: string; timestamp: number; data?: any }[] = []

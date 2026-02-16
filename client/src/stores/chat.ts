@@ -69,6 +69,9 @@ export const useChatStore = defineStore('chat', () => {
   const planReviewText = ref<string | null>(null);
   const isPlanReviewActive = ref(false);
 
+  // Pending prompt — set by other tabs (e.g. Tasks "Send to Chat") to pre-fill ChatInput
+  const pendingPrompt = ref<string | null>(null);
+
   // Abort callback — set by useClaudeStream so other components can abort without WS access
   let _abortFn: (() => void) | null = null;
   function registerAbort(fn: () => void) { _abortFn = fn; }
@@ -205,6 +208,7 @@ export const useChatStore = defineStore('chat', () => {
     inPlanMode.value = false;
     planReviewText.value = null;
     isPlanReviewActive.value = false;
+    pendingPrompt.value = null;
     clearRateLimit();
   }
 
@@ -296,6 +300,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function setPendingPrompt(prompt: string) {
+    pendingPrompt.value = prompt;
+  }
+
+  function consumePendingPrompt(): string | null {
+    const p = pendingPrompt.value;
+    pendingPrompt.value = null;
+    return p;
+  }
+
   function activatePlanReview(planText: string) {
     planReviewText.value = planText;
     isPlanReviewActive.value = true;
@@ -341,6 +355,7 @@ export const useChatStore = defineStore('chat', () => {
     startThinking, updateThinking, finishThinking,
     appendToolInputDelta, updateToolInput,
     activatePlanReview, dismissPlanReview,
+    pendingPrompt, setPendingPrompt, consumePendingPrompt,
     setRateLimitedUntil, clearRateLimit,
     registerAbort, abortStream,
   };

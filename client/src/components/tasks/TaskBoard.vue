@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useTasksStore, STATUS_OPTIONS, PRIORITY_OPTIONS, type Task, type TaskStatus, type TaskPriority } from '@/stores/tasks';
 import { useChatStore } from '@/stores/chat';
 import { useConfirmDialog } from '@/composables/useConfirmDialog';
@@ -21,13 +21,16 @@ import {
   Collapsible, CollapsibleContent, CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import {
-  Plus, Trash2, Sparkles, FileText,
+  Plus, Trash2, Sparkles, FileText, MessageSquare,
   Loader2, CheckCircle2, Circle, Clock,
   ArrowUpRight, Link2, ChevronRight, GripVertical,
 } from 'lucide-vue-next';
+import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
+import { useRouter } from 'vue-router';
 
 const tasks = useTasksStore();
 const chat = useChatStore();
+const router = useRouter();
 const { confirm } = useConfirmDialog();
 
 const showCreateDialog = ref(false);
@@ -51,7 +54,14 @@ const dragOverColumn = ref<TaskStatus | null>(null);
 // Subtask collapse state
 const collapsedParents = ref<Set<string>>(new Set());
 
+// Markdown code copy handler
+let cleanupCopyHandler: (() => void) | undefined;
+onMounted(() => { cleanupCopyHandler = setupCodeCopyHandler(); });
+onUnmounted(() => { cleanupCopyHandler?.(); });
+
 // Detail dialog state
+const descriptionPreview = ref(false);
+const detailsPreview = ref(false);
 const showDetailDialog = ref(false);
 const detailTask = ref<Task | null>(null);
 const editTitle = ref('');
@@ -199,6 +209,8 @@ function openDetail(task: Task) {
   editDetails.value = task.details;
   editPriority.value = task.priority;
   editDirty.value = false;
+  descriptionPreview.value = false;
+  detailsPreview.value = false;
   showDetailDialog.value = true;
 }
 
@@ -220,6 +232,47 @@ async function saveDetail() {
 async function handleDetailClose(open: boolean) {
   if (!open && editDirty.value) await saveDetail();
   showDetailDialog.value = open;
+}
+
+// ── Send to Chat ──────────────────────────────────────────────────────────
+
+function buildTaskPrompt(task: Task): string {
+  const lines: string[] = [`Work on: ${task.title}`];
+
+  if (task.description) {
+    lines.push('', task.description);
+  }
+
+  if (task.details) {
+    lines.push('', `Implementation notes:\n${task.details}`);
+  }
+
+  const subtasks = tasks.getSubtasks(task.id);
+  if (subtasks.length > 0) {
+    lines.push('', 'Subtasks:');
+    for (const sub of subtasks) {
+      const check = sub.status === 'done' ? 'x' : ' ';
+      lines.push(`- [${check}] ${sub.title}`);
+    }
+  }
+
+  const deps = tasks.getDependencyTitles(task);
+  if (deps.length > 0) {
+    lines.push('', `Dependencies: ${deps.join(', ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+function sendToChat(task: Task) {
+  chat.setPendingPrompt(buildTaskPrompt(task));
+  showDetailDialog.value = false;
+
+  if (chat.claudeSessionId) {
+    router.push({ name: 'chat-session', params: { sessionId: chat.claudeSessionId } });
+  } else {
+    router.push({ name: 'project' });
+  }
 }
 </script>
 
@@ -364,9 +417,11 @@ async function handleDetailClose(open: boolean) {
                     >
                       {{ task.title }}
                     </p>
-                    <p v-if="task.description" class="mt-0.5 text-[10px] leading-tight text-muted-foreground line-clamp-2">
-                      {{ task.description }}
-                    </p>
+                    <div
+                      v-if="task.description"
+                      class="mt-0.5 text-[10px] leading-tight text-muted-foreground line-clamp-2 prose prose-sm prose-neutral max-w-none dark:prose-invert [&>*]:m-0 [&>*]:text-[10px] [&>*]:leading-tight prose-code:text-primary prose-code:text-[9px] prose-code:before:content-none prose-code:after:content-none"
+                      v-html="renderMarkdown(task.description)"
+                    />
                     <div class="mt-1.5 flex flex-wrap items-center gap-1">
                       <!-- Priority badge -->
                       <Badge variant="outline" class="h-4.5 px-1.5 text-[10px]" :class="PRIORITY_OPTIONS.find(p => p.value === task.priority)?.color">
@@ -471,6 +526,13 @@ async function handleDetailClose(open: boolean) {
                     >
                       <Sparkles v-if="expandingTaskId !== task.id" class="h-3 w-3" />
                       <Loader2 v-else class="h-3 w-3 animate-spin" />
+                    </button>
+                    <button
+                      class="rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                      title="Send to Chat"
+                      @click.stop="sendToChat(task)"
+                    >
+                      <MessageSquare class="h-3 w-3" />
                     </button>
                     <button
                       class="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -578,14 +640,54 @@ async function handleDetailClose(open: boolean) {
 
           <!-- Description -->
           <div class="space-y-1">
-            <label class="text-xs font-medium">Description</label>
-            <Textarea v-model="editDescription" placeholder="No description" class="min-h-[60px] text-sm" @input="markDirty" />
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium">Description</label>
+              <button
+                v-if="editDescription"
+                class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                @click="descriptionPreview = !descriptionPreview"
+              >
+                {{ descriptionPreview ? 'Edit' : 'Preview' }}
+              </button>
+            </div>
+            <div
+              v-if="descriptionPreview && editDescription"
+              class="min-h-[60px] rounded-md border border-border bg-muted/30 p-3 prose prose-sm prose-neutral max-w-none dark:prose-invert prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:before:content-none prose-code:after:content-none prose-p:leading-relaxed prose-headings:text-foreground"
+              v-html="renderMarkdown(editDescription)"
+            />
+            <Textarea
+              v-else
+              v-model="editDescription"
+              placeholder="No description"
+              class="min-h-[60px] text-sm"
+              @input="markDirty"
+            />
           </div>
 
           <!-- Details -->
           <div class="space-y-1">
-            <label class="text-xs font-medium">Details / Implementation Notes</label>
-            <Textarea v-model="editDetails" placeholder="No details" class="min-h-[80px] text-sm font-mono" @input="markDirty" />
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-medium">Details / Implementation Notes</label>
+              <button
+                v-if="editDetails"
+                class="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                @click="detailsPreview = !detailsPreview"
+              >
+                {{ detailsPreview ? 'Edit' : 'Preview' }}
+              </button>
+            </div>
+            <div
+              v-if="detailsPreview && editDetails"
+              class="min-h-[80px] rounded-md border border-border bg-muted/30 p-3 prose prose-sm prose-neutral max-w-none dark:prose-invert prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:before:content-none prose-code:after:content-none prose-p:leading-relaxed prose-headings:text-foreground"
+              v-html="renderMarkdown(editDetails)"
+            />
+            <Textarea
+              v-else
+              v-model="editDetails"
+              placeholder="No details"
+              class="min-h-[80px] text-sm font-mono"
+              @input="markDirty"
+            />
           </div>
 
           <!-- Priority -->
@@ -637,6 +739,11 @@ async function handleDetailClose(open: boolean) {
           </div>
 
           <DialogFooter class="gap-2">
+            <Button variant="outline" size="sm" class="gap-1" @click="sendToChat(detailTask!)">
+              <MessageSquare class="h-3.5 w-3.5" />
+              Send to Chat
+            </Button>
+            <div class="flex-1" />
             <Button variant="outline" size="sm" @click="showDetailDialog = false">
               {{ editDirty ? 'Cancel' : 'Close' }}
             </Button>

@@ -289,6 +289,6 @@ function logout() {
       :initial-path="settings.projectsDir"
       @select="(path: string) => { projectPath = path; openProject(path); }"
     />
-    <OnboardingWizard />
+    <OnboardingWizard @complete="openProject" />
   </div>
 </template>

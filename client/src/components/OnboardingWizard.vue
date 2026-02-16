@@ -11,6 +11,8 @@ import {
   ArrowRight, ArrowLeft, Check, FolderOpen, Search,
 } from 'lucide-vue-next';
 
+const emit = defineEmits<{ complete: [path: string] }>();
+
 const ONBOARDING_KEY = 'onboarding-complete';
 
 const settings = useSettingsStore();
@@ -39,6 +41,9 @@ function finish() {
   settings.save();
   localStorage.setItem(ONBOARDING_KEY, '1');
   open.value = false;
+  if (projectsDir.value) {
+    emit('complete', projectsDir.value);
+  }
 }
 
 function onDirSelect(path: string) {
@@ -48,7 +53,7 @@ function onDirSelect(path: string) {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-lg" @interact-outside.prevent>
+    <DialogContent class="max-w-2xl" @interact-outside.prevent>
       <!-- Step 0: Welcome -->
       <template v-if="step === 0">
         <DialogHeader>

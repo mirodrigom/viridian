@@ -13,7 +13,7 @@ import ChatInput from './ChatInput.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
-import { PanelLeft, PanelLeftClose, Plus, Loader2 } from 'lucide-vue-next';
+import { PanelLeft, PanelLeftClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
 import { useRouter } from 'vue-router';
@@ -98,10 +98,10 @@ defineExpose({ showToolsSettings });
         class="sidebar-slide relative shrink-0 overflow-hidden border-r border-border bg-card/50"
         :class="showSidebar ? 'w-[280px]' : 'w-9'"
       >
-        <!-- Collapsed: toggle + new session buttons -->
+        <!-- Collapsed: toggle button -->
         <div
           v-if="!showSidebar"
-          class="flex h-full w-9 flex-col items-center gap-1 pt-2"
+          class="flex h-full w-9 flex-col items-center justify-between py-2"
         >
           <Button
             variant="ghost"
@@ -145,8 +145,12 @@ defineExpose({ showToolsSettings });
       </div>
 
       <!-- Chat + right panels -->
-      <ResizablePanelGroup direction="horizontal" class="min-w-0 flex-1">
-        <ResizablePanel :default-size="hasRightPanel ? 75 : 100" :min-size="40">
+      <ResizablePanelGroup
+        :key="chat.isPlanReviewActive ? 'plan' : hasTodos ? 'todos' : 'chat'"
+        direction="horizontal"
+        class="min-w-0 flex-1"
+      >
+        <ResizablePanel :default-size="hasRightPanel ? 80 : 100" :min-size="40">
           <div class="flex h-full flex-col" :class="modeClass">
             <MessageList
               class="flex-1 overflow-hidden"
@@ -159,7 +163,7 @@ defineExpose({ showToolsSettings });
         </ResizablePanel>
         <template v-if="chat.isPlanReviewActive">
           <ResizableHandle />
-          <ResizablePanel :default-size="25" :min-size="18" :max-size="40">
+          <ResizablePanel :default-size="20" :min-size="18" :max-size="40">
             <PlanReviewPanel
               @approve="handlePlanApprove"
               @deny="handlePlanDeny"
@@ -191,7 +195,7 @@ defineExpose({ showToolsSettings });
       <Transition name="slide-left">
         <div
           v-if="showMobileSidebar"
-          class="absolute inset-y-0 left-0 z-40 w-[80vw] max-w-72 shadow-xl"
+          class="absolute inset-y-0 left-0 z-40 w-72 bg-background shadow-xl"
           @touchstart.passive="handleSidebarTouchStart"
           @touchend.passive="handleSidebarTouchEnd"
         >

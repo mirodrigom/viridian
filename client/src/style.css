@@ -223,6 +223,36 @@ html.dark .chat-mode-default {
   display: none;
 }
 
+/* ─── Auto-hide scrollbar (radix ScrollArea) ─── */
+.scrollbar-auto-hide {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+[data-slot="scroll-area"]:hover .scrollbar-auto-hide,
+.scrollbar-auto-hide:hover {
+  opacity: 1;
+}
+
+/* ─── Thin scrollbar for native overflow areas (code blocks, etc.) ─── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(from var(--muted-foreground) l c h / 0.2) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: oklch(from var(--muted-foreground) l c h / 0.2);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: oklch(from var(--muted-foreground) l c h / 0.4);
+}
+
 /* ─── Highlight.js theme ─── */
 @import "highlight.js/styles/github-dark.css";
 
@@ -231,6 +261,8 @@ html.dark .chat-mode-default {
   margin-top: 0 !important;
   border-top-left-radius: 0 !important;
   border-top-right-radius: 0 !important;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(from var(--muted-foreground) l c h / 0.2) transparent;
 }
 
 .prose .code-block-wrapper pre code {
@@ -415,7 +447,9 @@ html.dark .chat-mode-default {
   .badge-pop-enter-active,
   .badge-pop-leave-active,
   .slide-in-left-enter-active,
-  .slide-in-left-leave-active {
+  .slide-in-left-leave-active,
+  .slide-up-enter-active,
+  .slide-up-leave-active {
     transition-duration: 0.01ms !important;
   }
   [data-collapsible-content] {
@@ -424,6 +458,16 @@ html.dark .chat-mode-default {
   .dirty-pulse {
     animation: none;
   }
+}
+
+/* ─── Slide-up: for bottom sheets ─── */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.3s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
 }
 
 /* ─── Merge view (diff editor) ─── */

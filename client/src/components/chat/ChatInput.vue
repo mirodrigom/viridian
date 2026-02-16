@@ -352,6 +352,22 @@ watch(input, () => {
 });
 // Restore draft when session changes
 watch(() => chat.sessionId, loadDraft);
+// Watch for pending prompt from other tabs (e.g. Tasks "Send to Chat").
+// Uses immediate:true so it picks up prompts set before ChatInput mounts
+// (TabsContent unmounts chat when another tab is active).
+// Deferred via nextTick to run after loadDraft so it wins over draft restore.
+watch(() => chat.pendingPrompt, (prompt) => {
+  if (prompt) {
+    nextTick(() => {
+      input.value = prompt;
+      chat.consumePendingPrompt();
+      nextTick(() => {
+        autoResize();
+        textarea.value?.focus();
+      });
+    });
+  }
+}, { immediate: true });
 onMounted(() => {
   loadDraft();
   loadMessageHistory();
@@ -807,7 +823,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
   >
     <!-- Status bar: model, permission, context -->
     <TooltipProvider :delay-duration="300">
-      <div class="mb-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none sm:flex-wrap sm:justify-center sm:overflow-visible md:gap-2">
+      <div class="mb-2 flex flex-wrap items-center justify-center gap-1 md:gap-2">
         <!-- Model selector -->
         <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
           <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.modelLabel">
@@ -1068,7 +1084,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
               ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
               : 'Ask Claude to help with your code... (/ for commands)'"
         :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
-        class="block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 pr-36 text-sm focus:outline-none"
+        class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-4 py-3 pr-24 sm:pr-36 text-sm focus:outline-none"
         :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
           : (chat?.isRateLimited ?? false)
@@ -1083,7 +1099,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         @paste="handlePaste"
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
-      <div class="absolute bottom-2 right-2 flex items-center gap-1">
+      <div class="absolute bottom-2 right-3 flex items-center gap-1">
         <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" @transcript="handleVoiceTranscript" />
         <Button
           v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"

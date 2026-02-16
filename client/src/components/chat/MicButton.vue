@@ -54,7 +54,11 @@ function startRecording() {
     }
   };
 
+  let hadError = false;
+  let recordingStartedAt = 0;
+
   recognition.onerror = (event: any) => {
+    hadError = true;
     isRecording.value = false;
     isProcessing.value = false;
     const msg = event.error === 'not-allowed'
@@ -62,7 +66,7 @@ function startRecording() {
       : event.error === 'no-speech'
         ? 'No speech detected — try again'
         : event.error === 'network'
-          ? 'Speech recognition requires an internet connection'
+          ? 'Speech recognition requires a network connection (Brave may block this — try Chrome)'
           : `Speech recognition error: ${event.error}`;
     errorMessage.value = msg;
     toast.error(msg);
@@ -70,16 +74,27 @@ function startRecording() {
 
   recognition.onend = () => {
     isRecording.value = false;
+    if (hadError) return;
+
     if (finalTranscript.trim()) {
       isProcessing.value = true;
       emit('transcript', finalTranscript.trim(), enhanceMode.value);
       isProcessing.value = false;
+    } else {
+      const elapsed = Date.now() - recordingStartedAt;
+      if (elapsed < 1000) {
+        // Ended too quickly — likely blocked by the browser
+        const msg = 'Speech recognition stopped unexpectedly — your browser may not support it (try Chrome)';
+        errorMessage.value = msg;
+        toast.error(msg);
+      }
     }
   };
 
   try {
     recognition.start();
     isRecording.value = true;
+    recordingStartedAt = Date.now();
   } catch (e: any) {
     toast.error(`Could not start recording: ${e.message}`);
     isRecording.value = false;

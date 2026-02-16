@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { watch, computed } from 'vue';
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
-import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot } from 'lucide-vue-next';
+import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
 import EditorView from '@/components/editor/EditorView.vue';
@@ -23,6 +24,24 @@ import {
 import { useTasksStore } from '@/stores/tasks';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
+
+// Mobile responsive
+const isMobile = ref(false);
+const showMobileFileSidebar = ref(false);
+
+function onResize() {
+  isMobile.value = window.innerWidth < 768;
+  if (!isMobile.value) showMobileFileSidebar.value = false;
+}
+
+onMounted(() => {
+  onResize();
+  window.addEventListener('resize', onResize);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize);
+});
 
 const activeTab = defineModel<string>('activeTab', { default: 'chat' });
 const files = useFilesStore();
@@ -113,19 +132,47 @@ function badgeFor(tab: string): number | null {
       <ChatView />
     </TabsContent>
     <TabsContent value="editor" class="mt-0 flex-1 overflow-hidden">
-      <ResizablePanelGroup direction="horizontal">
-        <ResizablePanel :default-size="20" :min-size="15" :max-size="40">
-          <FileSidebar />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel :default-size="80" :min-size="40">
+      <!-- Desktop: side-by-side file sidebar + editor -->
+      <template v-if="!isMobile">
+        <ResizablePanelGroup direction="horizontal">
+          <ResizablePanel :default-size="20" :min-size="15" :max-size="40">
+            <FileSidebar />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel :default-size="80" :min-size="40">
+            <DiffEditorView v-if="files.diffData" />
+            <div v-else class="flex h-full min-h-0 flex-col">
+              <EditorTabs />
+              <EditorView class="min-h-0 flex-1" />
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </template>
+      <!-- Mobile: full-width editor + overlay file sidebar -->
+      <template v-else>
+        <div class="relative flex h-full flex-col">
+          <!-- Backdrop + sidebar overlay (absolute, within tab content) -->
+          <Transition name="fade">
+            <div v-if="showMobileFileSidebar" class="absolute inset-0 z-30 bg-black/50" @click="showMobileFileSidebar = false" />
+          </Transition>
+          <Transition name="slide-left">
+            <div v-if="showMobileFileSidebar" class="absolute inset-y-0 left-0 z-40 w-72 bg-background shadow-xl">
+              <FileSidebar />
+            </div>
+          </Transition>
+
           <DiffEditorView v-if="files.diffData" />
           <div v-else class="flex h-full min-h-0 flex-col">
-            <EditorTabs />
+            <div class="flex items-center border-b border-border">
+              <Button variant="ghost" size="sm" class="h-8 w-8 shrink-0 p-0 ml-1" @click="showMobileFileSidebar = true">
+                <FolderOpen class="h-4 w-4" />
+              </Button>
+              <EditorTabs class="flex-1" />
+            </div>
             <EditorView class="min-h-0 flex-1" />
           </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </div>
+      </template>
     </TabsContent>
     <TabsContent value="git" class="mt-0 flex-1 overflow-hidden">
       <GitView />

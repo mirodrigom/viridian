@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { ref } from 'vue'
 import { useClaudeStream } from '@/composables/useClaudeStream'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -16,7 +17,7 @@ vi.mock('@/stores/auth', () => ({
 
 // Create a more sophisticated WebSocket mock that can simulate real message flows
 class WebSocketMock {
-  public connected = { value: false }
+  public connected = ref(false)
   public eventHandlers: Record<string, Function[]> = {}
 
   public connect = vi.fn(() => {

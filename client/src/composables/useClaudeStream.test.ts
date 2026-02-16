@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { ref } from 'vue'
 import { useClaudeStream } from './useClaudeStream'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
@@ -16,7 +17,7 @@ vi.mock('@/stores/auth', () => ({
 
 // Mock useWebSocket
 const mockWebSocket = {
-  connected: { value: false },
+  connected: ref(false),
   connect: vi.fn(),
   send: vi.fn(),
   on: vi.fn(),
@@ -669,7 +670,7 @@ describe('useClaudeStream', () => {
 
       abort()
 
-      expect(mockWebSocket.send).toHaveBeenCalledWith({ type: 'abort' })
+      expect(mockWebSocket.send).toHaveBeenCalledWith({ type: 'abort', sessionId: 'test-session' })
     })
 
     it('should check session status', () => {

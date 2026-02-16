@@ -11,6 +11,8 @@ import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphRunner } from '@/composables/useGraphRunner';
 import { useChatStore } from '@/stores/chat';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import { Button } from '@/components/ui/button';
+import { Plus, X } from 'lucide-vue-next';
 
 import GraphToolbar from './GraphToolbar.vue';
 import GraphPalette from './GraphPalette.vue';
@@ -47,16 +49,25 @@ const showTemplatesDialog = ref(false);
 const showImportDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
+// Mobile responsive
+const isMobile = ref(false);
+const showMobilePalette = ref(false);
+const showMobileRunner = ref(false);
+
+function onResize() {
+  isMobile.value = window.innerWidth < 768;
+  if (!isMobile.value) {
+    showMobilePalette.value = false;
+    showMobileRunner.value = false;
+  }
+}
+
 const {
   fitView, onConnect, onNodeDragStop, onPaneClick, onNodeClick,
   addNodes, removeNodes, addEdges, removeEdges, project,
   getNodes, setNodes, setEdges, findNode,
   getViewport, setViewport,
-} = useVueFlow({
-  defaultEdgeOptions: { type: 'custom' },
-  connectionMode: 1, // ConnectionMode.Loose
-  fitViewOnInit: true,
-});
+} = useVueFlow('graph-editor');
 
 // ─── Sync VueFlow when store changes (e.g. after loading/clearing a graph) ──
 watch(
@@ -175,6 +186,8 @@ function onKeyDown(event: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', onKeyDown);
   initRunner();
+  onResize();
+  window.addEventListener('resize', onResize);
   // Restore last run after page reload
   if (graph.currentGraphId) {
     runner.restoreLastRun(graph.currentGraphId);
@@ -194,6 +207,7 @@ watch(
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('resize', onResize);
 });
 
 // ─── Graph Runner ───────────────────────────────────────────────────
@@ -223,9 +237,10 @@ function isValidConnection(connection: Connection): boolean {
 
 <template>
   <div class="flex h-full flex-col">
-    <ResizablePanelGroup direction="horizontal" class="flex-1">
+    <!-- Desktop layout -->
+    <ResizablePanelGroup v-if="!isMobile" direction="horizontal" class="flex-1">
       <!-- Left sidebar: Palette + Properties -->
-      <ResizablePanel :default-size="16" :min-size="12" :max-size="25">
+      <ResizablePanel :default-size="runner.showRunnerPanel ? 14 : 16" :min-size="12" :max-size="25">
         <div class="flex h-full flex-col border-r border-border">
           <GraphPalette />
           <GraphPropertiesPanel v-if="graph.selectedNode" class="flex-1" />
@@ -235,7 +250,7 @@ function isValidConnection(connection: Connection): boolean {
       <ResizableHandle />
 
       <!-- Canvas -->
-      <ResizablePanel :default-size="84" :min-size="35">
+      <ResizablePanel :default-size="runner.showRunnerPanel ? 60 : 84" :min-size="35">
         <div class="flex h-full flex-col">
           <GraphToolbar
             @fit-view="fitView()"
@@ -256,35 +271,22 @@ function isValidConnection(connection: Connection): boolean {
             @drop="onDrop"
           >
           <VueFlow
+            id="graph-editor"
+            :default-edge-options="{ type: 'custom' }"
+            :connection-mode="1"
+            :fit-view-on-init="true"
             :is-valid-connection="isValidConnection"
             :snap-to-grid="true"
             :snap-grid="[15, 15]"
             class="graph-canvas"
           >
-            <!-- Custom nodes -->
-            <template #node-agent="nodeProps">
-              <AgentNode v-bind="nodeProps" />
-            </template>
-            <template #node-subagent="nodeProps">
-              <SubagentNode v-bind="nodeProps" />
-            </template>
-            <template #node-expert="nodeProps">
-              <ExpertNode v-bind="nodeProps" />
-            </template>
-            <template #node-skill="nodeProps">
-              <SkillNode v-bind="nodeProps" />
-            </template>
-            <template #node-mcp="nodeProps">
-              <McpNode v-bind="nodeProps" />
-            </template>
-            <template #node-rule="nodeProps">
-              <RuleNode v-bind="nodeProps" />
-            </template>
-
-            <!-- Custom edges -->
-            <template #edge-custom="edgeProps">
-              <CustomEdge v-bind="edgeProps" />
-            </template>
+            <template #node-agent="nodeProps"><AgentNode v-bind="nodeProps" /></template>
+            <template #node-subagent="nodeProps"><SubagentNode v-bind="nodeProps" /></template>
+            <template #node-expert="nodeProps"><ExpertNode v-bind="nodeProps" /></template>
+            <template #node-skill="nodeProps"><SkillNode v-bind="nodeProps" /></template>
+            <template #node-mcp="nodeProps"><McpNode v-bind="nodeProps" /></template>
+            <template #node-rule="nodeProps"><RuleNode v-bind="nodeProps" /></template>
+            <template #edge-custom="edgeProps"><CustomEdge v-bind="edgeProps" /></template>
 
             <Background :gap="15" :size="1" pattern-color="var(--border)" />
             <MiniMap
@@ -306,6 +308,115 @@ function isValidConnection(connection: Connection): boolean {
         </ResizablePanel>
       </template>
     </ResizablePanelGroup>
+
+    <!-- Mobile layout -->
+    <template v-else>
+      <div class="relative flex flex-1 flex-col">
+        <!-- Toolbar (compact) -->
+        <GraphToolbar
+          @fit-view="fitView()"
+          @save="graph.savedViewport = getViewport(); showSaveDialog = true"
+          @load="showLoadDialog = true"
+          @templates="showTemplatesDialog = true"
+          @import="showImportDialog = true"
+          @run="showRunDialog = true"
+          @abort="abortRun()"
+        />
+
+        <GraphTimelineScrubber v-if="runner.currentRun" />
+
+        <!-- Canvas: full width/height -->
+        <div
+          ref="flowContainer"
+          class="vue-flow-wrapper flex-1"
+          @dragover="onDragOver"
+          @drop="onDrop"
+        >
+          <VueFlow
+            id="graph-editor"
+            :default-edge-options="{ type: 'custom' }"
+            :connection-mode="1"
+            :fit-view-on-init="true"
+            :is-valid-connection="isValidConnection"
+            :snap-to-grid="true"
+            :snap-grid="[15, 15]"
+            class="graph-canvas"
+          >
+            <template #node-agent="nodeProps"><AgentNode v-bind="nodeProps" /></template>
+            <template #node-subagent="nodeProps"><SubagentNode v-bind="nodeProps" /></template>
+            <template #node-expert="nodeProps"><ExpertNode v-bind="nodeProps" /></template>
+            <template #node-skill="nodeProps"><SkillNode v-bind="nodeProps" /></template>
+            <template #node-mcp="nodeProps"><McpNode v-bind="nodeProps" /></template>
+            <template #node-rule="nodeProps"><RuleNode v-bind="nodeProps" /></template>
+            <template #edge-custom="edgeProps"><CustomEdge v-bind="edgeProps" /></template>
+
+            <Background :gap="15" :size="1" pattern-color="var(--border)" />
+            <MiniMap
+              class="!bottom-16 !right-4"
+              :node-color="() => 'var(--primary)'"
+              :mask-color="'oklch(0.13 0.012 155 / 80%)'"
+            />
+            <Controls class="!bottom-16 !left-4" />
+          </VueFlow>
+        </div>
+
+        <!-- FAB: Add node -->
+        <Button
+          class="absolute bottom-4 right-4 z-10 h-12 w-12 rounded-full shadow-lg"
+          @click="showMobilePalette = true"
+        >
+          <Plus class="h-5 w-5" />
+        </Button>
+
+        <!-- Mobile Palette bottom sheet -->
+        <Transition name="fade">
+          <div v-if="showMobilePalette" class="absolute inset-0 z-20 bg-black/50" @click="showMobilePalette = false" />
+        </Transition>
+        <Transition name="slide-up">
+          <div v-if="showMobilePalette" class="absolute bottom-0 left-0 right-0 z-30 max-h-[60%] overflow-y-auto rounded-t-xl border-t border-border bg-background shadow-xl">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span class="text-sm font-medium">Add Node</span>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="showMobilePalette = false">
+                <X class="h-4 w-4" />
+              </Button>
+            </div>
+            <GraphPalette />
+          </div>
+        </Transition>
+
+        <!-- Properties bottom sheet (when node selected) -->
+        <Transition name="fade">
+          <div v-if="graph.selectedNode" class="absolute inset-0 z-20 bg-black/50" @click="graph.selectNode(null)" />
+        </Transition>
+        <Transition name="slide-up">
+          <div v-if="graph.selectedNode" class="absolute bottom-0 left-0 right-0 z-30 max-h-[60%] overflow-y-auto rounded-t-xl border-t border-border bg-background shadow-xl">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span class="text-sm font-medium">Properties</span>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="graph.selectNode(null)">
+                <X class="h-4 w-4" />
+              </Button>
+            </div>
+            <GraphPropertiesPanel />
+          </div>
+        </Transition>
+
+        <!-- Runner bottom sheet -->
+        <Transition name="fade">
+          <div v-if="runner.showRunnerPanel && showMobileRunner" class="absolute inset-0 z-20 bg-black/50" @click="showMobileRunner = false" />
+        </Transition>
+        <Transition name="slide-up">
+          <div v-if="runner.showRunnerPanel && showMobileRunner" class="absolute bottom-0 left-0 right-0 z-30 max-h-[70%] overflow-y-auto rounded-t-xl border-t border-border bg-background shadow-xl">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span class="text-sm font-medium">Runner</span>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="showMobileRunner = false">
+                <X class="h-4 w-4" />
+              </Button>
+            </div>
+            <GraphRunnerPanel />
+          </div>
+        </Transition>
+      </div>
+    </template>
 
     <!-- Dialogs -->
     <SaveGraphDialog v-model:open="showSaveDialog" />

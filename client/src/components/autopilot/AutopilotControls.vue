@@ -45,62 +45,62 @@ function openConfig() {
 </script>
 
 <template>
-  <div class="flex h-9 items-center gap-2 border-b border-border px-3">
+  <div class="flex h-auto min-h-[36px] flex-wrap items-center gap-1 sm:gap-2 border-b border-border px-2 py-1 sm:px-3">
     <!-- Action buttons -->
     <div class="flex items-center gap-1">
       <Button
         v-if="isResumable"
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 text-xs text-blue-400"
+        class="h-7 gap-1 px-1.5 sm:px-2 text-xs text-blue-400"
         @click="store.resumeFailedRun(store.currentRun!.runId)"
       >
         <RotateCcw class="h-3.5 w-3.5" />
-        Resume
+        <span class="hidden sm:inline">Resume</span>
       </Button>
 
       <Button
         v-if="!store.isRunning && !store.isPaused && !isResumable"
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 text-xs"
+        class="h-7 gap-1 px-1.5 sm:px-2 text-xs"
         @click="openConfig"
       >
         <Play class="h-3.5 w-3.5" />
-        Start
+        <span class="hidden sm:inline">Start</span>
       </Button>
 
       <Button
         v-if="store.isRunning"
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 text-xs"
+        class="h-7 gap-1 px-1.5 sm:px-2 text-xs"
         @click="store.pause()"
       >
         <Pause class="h-3.5 w-3.5" />
-        Pause
+        <span class="hidden sm:inline">Pause</span>
       </Button>
 
       <Button
         v-if="store.isPaused"
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 text-xs"
+        class="h-7 gap-1 px-1.5 sm:px-2 text-xs"
         @click="store.resume()"
       >
         <Play class="h-3.5 w-3.5" />
-        Resume
+        <span class="hidden sm:inline">Resume</span>
       </Button>
 
       <Button
         v-if="store.isRunning || store.isPaused"
         variant="ghost"
         size="sm"
-        class="h-7 gap-1 text-xs text-destructive"
+        class="h-7 gap-1 px-1.5 sm:px-2 text-xs text-destructive"
         @click="store.abort()"
       >
         <Square class="h-3.5 w-3.5" />
-        Stop
+        <span class="hidden sm:inline">Stop</span>
       </Button>
     </div>
 
@@ -119,16 +119,16 @@ function openConfig() {
     <!-- Branch name -->
     <div
       v-if="store.currentRun?.branchName"
-      class="flex items-center gap-1 text-xs text-muted-foreground"
+      class="hidden sm:flex items-center gap-1 text-xs text-muted-foreground"
     >
       <GitBranch class="h-3 w-3" />
-      {{ store.currentRun.branchName }}
+      <span class="max-w-24 truncate">{{ store.currentRun.branchName }}</span>
     </div>
 
     <!-- Cycle counter -->
     <div v-if="store.currentRun" class="text-xs text-muted-foreground">
-      Cycle {{ (store.currentRun.currentCycleNumber || 0) + 1 }}
-      <span v-if="store.currentRun.totalCommits > 0">
+      C{{ (store.currentRun.currentCycleNumber || 0) + 1 }}
+      <span v-if="store.currentRun.totalCommits > 0" class="hidden sm:inline">
         | {{ store.currentRun.totalCommits }} commits
       </span>
     </div>
@@ -136,7 +136,7 @@ function openConfig() {
     <div class="flex-1" />
 
     <!-- Settings -->
-    <Button variant="ghost" size="icon" class="h-7 w-7" @click="openConfig">
+    <Button variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="openConfig">
       <Settings class="h-3.5 w-3.5" />
     </Button>
   </div>
