@@ -90,7 +90,7 @@ export function setupAutopilotWs(server: Server) {
           const {
             goalPrompt, agentAProfileId, agentBProfileId,
             agentAModel, agentBModel,
-            cwd, allowedPaths, maxIterations,
+            cwd, allowedPaths, maxIterations, runTestVerification,
           } = data as Record<string, unknown>;
 
           if (!goalPrompt || !agentAProfileId || !agentBProfileId || !cwd) {
@@ -111,6 +111,7 @@ export function setupAutopilotWs(server: Server) {
             agentBModel: (agentBModel as string) || undefined,
             allowedPaths: (allowedPaths as string[]) || [],
             maxIterations: (maxIterations as number) || 50,
+            runTestVerification: runTestVerification !== false,
           };
 
           try {
@@ -155,6 +156,7 @@ export function setupAutopilotWs(server: Server) {
             allowedPaths: safeJsonParse<string[]>(row.allowed_paths as string, []),
             maxIterations: row.max_iterations as number,
             maxTokensPerSession: row.max_tokens_per_session as number,
+            runTestVerification: (row.run_test_verification as number) !== 0,
           };
 
           try {

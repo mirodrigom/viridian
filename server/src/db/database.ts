@@ -220,4 +220,8 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('autopilot_profiles', 'permission_mode', "TEXT");
   safeAddColumn('autopilot_profiles', 'icon', "TEXT");
   safeAddColumn('autopilot_profiles', 'difficulty', "TEXT");
+
+  // ── Autopilot: test verification cycle support ──
+  safeAddColumn('autopilot_cycles', 'is_test_verification', "INTEGER DEFAULT 0");
+  safeAddColumn('autopilot_configs', 'run_test_verification', "INTEGER DEFAULT 1");
 }

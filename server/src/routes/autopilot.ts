@@ -103,6 +103,7 @@ interface ConfigRow {
   schedule_days: string;
   schedule_timezone: string;
   goal_prompt: string;
+  run_test_verification: number;
   created_at: string;
   updated_at: string;
 }
@@ -125,6 +126,7 @@ function rowToConfig(row: ConfigRow) {
     scheduleDays: safeJsonParse<number[]>(row.schedule_days, [1, 2, 3, 4, 5]),
     scheduleTimezone: row.schedule_timezone,
     goalPrompt: row.goal_prompt,
+    runTestVerification: row.run_test_verification === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -148,7 +150,7 @@ router.post('/configs', (req: AuthRequest, res) => {
     project, name, agentAProfile, agentBProfile, allowedPaths,
     agentAModel, agentBModel, maxIterations, maxTokensPerSession,
     scheduleEnabled, scheduleStartTime, scheduleEndTime, scheduleDays,
-    scheduleTimezone, goalPrompt,
+    scheduleTimezone, goalPrompt, runTestVerification,
   } = req.body;
 
   if (!project || !agentAProfile || !agentBProfile) {
@@ -164,8 +166,8 @@ router.post('/configs', (req: AuthRequest, res) => {
       (id, user_id, project_path, name, agent_a_profile, agent_b_profile,
        allowed_paths, agent_a_model, agent_b_model, max_iterations, max_tokens_per_session,
        schedule_enabled, schedule_start_time, schedule_end_time, schedule_days,
-       schedule_timezone, goal_prompt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       schedule_timezone, goal_prompt, run_test_verification)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, req.user!.id, project,
     name || 'Autopilot Session',
@@ -181,6 +183,7 @@ router.post('/configs', (req: AuthRequest, res) => {
     JSON.stringify(scheduleDays || [1, 2, 3, 4, 5]),
     scheduleTimezone || 'UTC',
     goalPrompt || '',
+    runTestVerification !== false ? 1 : 0,
   );
 
   const row = db.prepare('SELECT * FROM autopilot_configs WHERE id = ?').get(id) as ConfigRow;
@@ -223,6 +226,10 @@ router.put('/configs/:id', (req: AuthRequest, res) => {
   if (req.body.scheduleEnabled !== undefined) {
     sets.push('schedule_enabled = ?');
     vals.push(req.body.scheduleEnabled ? 1 : 0);
+  }
+  if (req.body.runTestVerification !== undefined) {
+    sets.push('run_test_verification = ?');
+    vals.push(req.body.runTestVerification ? 1 : 0);
   }
 
   if (sets.length > 0) {
@@ -355,6 +362,7 @@ router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
     commit_message: string | null;
     files_changed: string;
     status: string;
+    is_test_verification: number;
     started_at: string;
     completed_at: string | null;
   }
@@ -383,6 +391,7 @@ router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
         filesChanged: safeJsonParse<string[]>(r.files_changed, []),
       } : null,
       status: r.status,
+      isTestVerification: r.is_test_verification === 1,
       startedAt: r.started_at,
       completedAt: r.completed_at,
     })),

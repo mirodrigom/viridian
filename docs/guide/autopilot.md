@@ -52,6 +52,31 @@ A run can end for several reasons:
 - **User abort** -- you manually stopped the run
 :::
 
+### Test Verification (Cycle N+1)
+
+After all regular cycles complete, Autopilot can run an automatic **Test Verification** cycle. This hidden extra cycle:
+
+1. **Collects all changed files** from every cycle in the run
+2. **Finds existing tests** related to those files (`*.test.*`, `*.spec.*`, `__tests__/`)
+3. **Runs existing tests** using the project's test runner
+4. **Creates new tests** for changed files that lack test coverage
+5. **Runs the full suite** again to verify everything passes
+6. **Auto-commits** any new test files to the autopilot branch
+
+The test verification cycle uses **Agent B (executor)** since it needs Write, Edit, and Bash access to create test files and run test commands.
+
+::: info Visual Distinction
+In the UI, test verification cycles appear with **amber styling** -- an amber-colored separator with a flask icon and "Test Verification" label, distinct from regular numbered cycles.
+:::
+
+**Configuration:** Test verification is **enabled by default** and can be toggled in the config dialog's **Scope** tab via the "Run Test Verification (Cycle N+1)" checkbox.
+
+**Behavior notes:**
+- Only runs when the run completes **normally** (not on abort, failure, or pause)
+- Skipped if no files were changed during the run
+- Failure does **not** affect the overall run status -- it is best-effort
+- Test file commits are included in the PR alongside all other autopilot commits
+
 ### Run Lifecycle
 
 A run progresses through these statuses:
@@ -224,6 +249,7 @@ Select one profile for each agent:
 | `allowedPaths` | string[] | `[]` | Glob patterns for scope restriction |
 | `maxIterations` | number | `20` | Maximum cycles before auto-stop |
 | `maxTokensPerSession` | number | `500000` | Token budget across both agents |
+| `runTestVerification` | boolean | `true` | Run test verification cycle (N+1) after regular cycles |
 
 ## Scheduling
 

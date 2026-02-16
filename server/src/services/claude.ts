@@ -22,6 +22,9 @@ interface ClaudeSession {
   lastActivity: number;
   /** User's requested permission mode (used for server-side auto-approval of control_requests). */
   userPermissionMode?: string;
+  /** Monotonically increasing counter to identify the current stream generation.
+   *  Used to prevent stale async generators from emitting events after a new stream has started. */
+  streamGeneration: number;
 }
 
 const activeSessions = new Map<string, ClaudeSession>();
@@ -50,6 +53,7 @@ export function createSession(cwd: string, claudeSessionId?: string): ClaudeSess
     accumulatedText: '',
     pendingQuestionBuffer: null,
     lastActivity: Date.now(),
+    streamGeneration: 0,
   };
   activeSessions.set(session.id, session);
   return session;
@@ -79,10 +83,20 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   const session = activeSessions.get(sessionId);
   if (!session) throw new Error('Session not found');
 
+  // Abort any previous stream still running on this session so its stale
+  // async generator doesn't emit a stream_end that kills the new stream.
+  if (session.abortController) {
+    session.abortController.abort();
+  }
+
   const abortController = new AbortController();
   session.abortController = abortController;
   session.isStreaming = true;
   session.lastActivity = Date.now();
+  session.pendingQuestionBuffer = null;
+
+  // Bump the generation counter — stale generators check this before emitting.
+  const generation = ++session.streamGeneration;
 
   session.accumulatedText = '';
   session.emitter.emit('stream_start');
@@ -114,12 +128,15 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       });
 
       for await (const msg of stream) {
+        // If a newer stream has started, stop processing this stale generator
+        if (session.streamGeneration !== generation) return;
         emitSDKMessage(session, msg);
       }
       // Safety net: if the generator finished but isStreaming is still true,
       // it means buildEmitEvent never saw a 'result' message (or pendingQuestionBuffer
       // swallowed the stream_end). Force-emit stream_end so the client isn't left hanging.
-      if (session.isStreaming) {
+      // Only if this is still the current generation — a newer sendMessage may have started.
+      if (session.isStreaming && session.streamGeneration === generation) {
         console.warn(`[Claude] stream generator finished but session ${session.id} still marked as streaming — forcing stream_end`);
         session.isStreaming = false;
         session.lastActivity = Date.now();
@@ -130,6 +147,8 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
         });
       }
     } catch (err) {
+      // If a newer stream has started, silently discard errors from this stale generator
+      if (session.streamGeneration !== generation) return;
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       session.isStreaming = false;
       session.lastActivity = Date.now();
@@ -342,6 +361,7 @@ export function abortSession(sessionId: string) {
   const session = activeSessions.get(sessionId);
   if (!session) return;
   const wasStreaming = session.isStreaming;
+  const generation = session.streamGeneration;
   session.pendingQuestionBuffer = null;
   if (session.abortController) {
     session.abortController.abort();
@@ -356,7 +376,9 @@ export function abortSession(sessionId: string) {
     setTimeout(() => {
       // If still alive after 3s, force-kill and emit stream_end
       try { proc.kill('SIGKILL'); } catch { /* already dead */ }
-      if (session.isStreaming) {
+      // Only emit stream_end if the same generation is still active
+      // (a new sendMessage may have started a new stream in the meantime)
+      if (session.isStreaming && session.streamGeneration === generation) {
         session.isStreaming = false;
         session.process = null;
         session.stdinWrite = undefined;

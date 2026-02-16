@@ -80,6 +80,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     cwd: string;
     allowedPaths: string[];
     maxIterations: number;
+    runTestVerification?: boolean;
   }) {
     // Reset state
     currentRun.value = null;
@@ -249,6 +250,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
         summary: null,
         startedAt: c.startedAt ? new Date(c.startedAt as string).getTime() : null,
         completedAt: c.completedAt ? new Date(c.completedAt as string).getTime() : null,
+        isTestVerification: !!(c as { isTestVerification?: boolean }).isTestVerification,
       }));
 
       // Reconstruct currentRun
@@ -339,13 +341,13 @@ export const useAutopilotStore = defineStore('autopilot', () => {
     });
 
     wsOn('cycle_started', (data: unknown) => {
-      const d = data as { runId: string; cycleNumber: number; phase: string };
+      const d = data as { runId: string; cycleNumber: number; phase: string; isTestVerification?: boolean };
       if (!currentRun.value) return;
       currentRun.value.currentCycleNumber = d.cycleNumber;
 
       const cycle: AutopilotCycle = {
         cycleNumber: d.cycleNumber,
-        status: 'agent_a_running',
+        status: d.phase === 'agent_b' ? 'agent_b_running' : 'agent_a_running',
         agentA: {
           prompt: '',
           response: '',
@@ -368,9 +370,13 @@ export const useAutopilotStore = defineStore('autopilot', () => {
         summary: null,
         startedAt: Date.now(),
         completedAt: null,
+        isTestVerification: d.isTestVerification || false,
       };
       currentRun.value.cycles.push(cycle);
-      addTimeline('cycle_started', d.cycleNumber, `Cycle ${d.cycleNumber + 1} started`);
+      const label = d.isTestVerification
+        ? 'Test Verification started'
+        : `Cycle ${d.cycleNumber + 1} started`;
+      addTimeline('cycle_started', d.cycleNumber, label);
     });
 
     wsOn('cycle_phase_change', (data: unknown) => {

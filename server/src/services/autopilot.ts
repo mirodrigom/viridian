@@ -29,6 +29,7 @@ export interface AutopilotRunConfig {
   maxIterations: number;
   maxTokensPerSession?: number;
   scheduleEndTime?: number | null;  // unix timestamp when this time window closes
+  runTestVerification?: boolean;    // run test verification cycle after regular cycles (default true)
 }
 
 export interface AutopilotContext {
@@ -67,6 +68,9 @@ export interface AutopilotContext {
 
   // Schedule
   scheduleEndTime: number | null;
+
+  // Test verification
+  runTestVerification: boolean;
 
   // Status
   status: 'running' | 'paused' | 'rate_limited' | 'completed' | 'failed' | 'aborted';
@@ -126,6 +130,7 @@ export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext 
     commitCount: 0,
     rateLimitedUntil: null,
     scheduleEndTime: config.scheduleEndTime || null,
+    runTestVerification: config.runTestVerification !== false,
     status: 'running',
     pauseRequested: false,
   };
@@ -231,6 +236,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
   let maxIterations = 50;
   let maxTokens = 500000;
   let allowedPaths: string[] = [];
+  let runTestVerification = true;
 
   if (row.config_id) {
     const cfg = db.prepare('SELECT * FROM autopilot_configs WHERE id = ?')
@@ -241,6 +247,9 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
       maxIterations = (cfg.max_iterations as number) || maxIterations;
       maxTokens = (cfg.max_tokens_per_session as number) || maxTokens;
       allowedPaths = safeJsonParse<string[]>(cfg.allowed_paths as string, []);
+      if (cfg.run_test_verification !== undefined) {
+        runTestVerification = (cfg.run_test_verification as number) === 1;
+      }
     }
   }
 
@@ -268,6 +277,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     commitCount: row.commit_count || 0,
     rateLimitedUntil: null,
     scheduleEndTime: null,
+    runTestVerification,
     status: 'running',
     pauseRequested: false,
   };
@@ -292,6 +302,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     allowedPaths,
     maxIterations,
     maxTokensPerSession: maxTokens,
+    runTestVerification,
   };
 
   // Start the loop (fire and forget)
@@ -399,6 +410,22 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
     }
 
     ctx.cycleCount++;
+  }
+
+  // Run test verification cycle if enabled and run completed normally
+  if (
+    ctx.runTestVerification &&
+    ctx.status === 'running' &&
+    !ctx.abortController.signal.aborted &&
+    !isOverTokenBudget(ctx)
+  ) {
+    try {
+      await executeTestCycle(ctx, config);
+      ctx.cycleCount++;
+    } catch (err) {
+      // Test verification failure should not fail the entire run
+      console.warn('[Autopilot] Test verification failed:', err);
+    }
   }
 
   // Determine final status and exit reason
@@ -596,6 +623,162 @@ async function executeCycle(
     summary: commitResult
       ? `Committed ${commitResult.filesChanged.length} files: ${commitResult.message}`
       : 'Cycle completed (no file changes)',
+  });
+}
+
+// ─── Test Verification Cycle ─────────────────────────────────────────────
+
+async function executeTestCycle(
+  ctx: AutopilotContext,
+  config: AutopilotRunConfig,
+): Promise<void> {
+  const { emitter, runId } = ctx;
+  const db = getDb();
+  const cycleNumber = ctx.cycleCount;
+  const cycleId = uuid();
+
+  // Collect all files changed across ALL cycles in this run
+  const allCycles = db.prepare(`
+    SELECT files_changed FROM autopilot_cycles
+    WHERE run_id = ? AND files_changed IS NOT NULL AND files_changed != '[]'
+  `).all(runId) as { files_changed: string }[];
+
+  const changedFiles = new Set<string>();
+  for (const row of allCycles) {
+    const files = safeJsonParse<string[]>(row.files_changed, []);
+    files.forEach(f => changedFiles.add(f));
+  }
+
+  if (changedFiles.size === 0) {
+    emitter.emit('cycle_completed', {
+      runId,
+      cycleNumber,
+      summary: 'Test Verification skipped: no files were changed during the run',
+    });
+    return;
+  }
+
+  // Insert cycle record with is_test_verification = 1
+  db.prepare(`
+    INSERT INTO autopilot_cycles (id, run_id, cycle_number, status, is_test_verification)
+    VALUES (?, ?, ?, 'agent_b_running', 1)
+  `).run(cycleId, runId, cycleNumber);
+
+  // Build the test verification prompt
+  const fileList = Array.from(changedFiles).map(f => `- ${f}`).join('\n');
+  const testPrompt = `## Test Verification Cycle
+
+This is an automated test verification step. The following files were modified during this autopilot run:
+
+${fileList}
+
+## Your Tasks (in order)
+
+1. **Find existing tests**: Search for existing test files related to the changed files above (look for \`*.test.*\`, \`*.spec.*\`, \`__tests__/\` directories).
+
+2. **Run existing tests**: If you find existing tests that cover the changed files, run them using the project's test runner (check \`package.json\` scripts for \`test\`, \`vitest\`, \`jest\`, etc.). Report the results.
+
+3. **Identify gaps**: For each changed file, check if corresponding tests exist. List any files that lack test coverage.
+
+4. **Create new tests**: For files without test coverage, create appropriate test files following the project's existing test patterns and conventions. Focus on:
+   - Core function behavior (happy paths)
+   - Error handling
+   - Edge cases
+
+5. **Run all tests again**: After creating new tests, run the full test suite to verify everything passes.
+
+6. **Summary**: Provide a summary of:
+   - Tests found and their status (pass/fail)
+   - New tests created (file paths)
+   - Any tests that are failing and why
+
+Be thorough but focused. Only create tests for the files that were changed in this run.`;
+
+  // Emit cycle_started with test verification marker
+  emitter.emit('cycle_started', {
+    runId,
+    cycleNumber,
+    phase: 'agent_b',
+    isTestVerification: true,
+  });
+
+  // Run Agent B (executor) — needs Write, Edit, Bash tools
+  const agentBResult = await runAgent(ctx, 'b', testPrompt, cycleNumber);
+
+  emitter.emit('agent_b_complete', {
+    runId,
+    cycleNumber,
+    response: agentBResult.response,
+    tokens: agentBResult.tokens,
+  });
+
+  // Auto-commit any new test files
+  const commitMsg = `autopilot: test verification — added/ran tests for ${changedFiles.size} changed files`;
+  const commitResult = await autoCommit(ctx.cwd, ctx.allowedPaths, commitMsg);
+
+  if (commitResult) {
+    ctx.commitCount++;
+    emitter.emit('commit_made', {
+      runId,
+      cycleNumber,
+      hash: commitResult.hash,
+      message: commitResult.message,
+      filesChanged: commitResult.filesChanged,
+    });
+
+    db.prepare(`
+      UPDATE autopilot_cycles
+      SET agent_b_prompt = ?, agent_b_response = ?,
+          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
+          commit_hash = ?, commit_message = ?, files_changed = ?,
+          status = 'committed', completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      testPrompt,
+      agentBResult.response,
+      agentBResult.tokens.inputTokens,
+      agentBResult.tokens.outputTokens,
+      commitResult.hash,
+      commitResult.message,
+      JSON.stringify(commitResult.filesChanged),
+      cycleId,
+    );
+  } else {
+    db.prepare(`
+      UPDATE autopilot_cycles
+      SET agent_b_prompt = ?, agent_b_response = ?,
+          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
+          status = 'completed', completed_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(
+      testPrompt,
+      agentBResult.response,
+      agentBResult.tokens.inputTokens,
+      agentBResult.tokens.outputTokens,
+      cycleId,
+    );
+  }
+
+  // Update run counters
+  db.prepare(`
+    UPDATE autopilot_runs
+    SET commit_count = ?, cycle_count = ?,
+        agent_b_input_tokens = ?, agent_b_output_tokens = ?
+    WHERE id = ?
+  `).run(
+    ctx.commitCount,
+    ctx.cycleCount + 1,
+    ctx.totalTokens.agentB.inputTokens,
+    ctx.totalTokens.agentB.outputTokens,
+    runId,
+  );
+
+  emitter.emit('cycle_completed', {
+    runId,
+    cycleNumber,
+    summary: commitResult
+      ? `Test Verification: committed ${commitResult.filesChanged.length} test files`
+      : 'Test Verification completed (no new test files)',
   });
 }
 
