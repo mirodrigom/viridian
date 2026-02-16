@@ -31,9 +31,21 @@ export function useClaudeStream() {
     // Track which server session ID we're actively listening to.
     // Events from other sessions are silently discarded.
     let activeSessionId: string | null = chat.sessionId;
+    // When true, reject ALL events until a new stream_start explicitly sets the session.
+    // This prevents stale events from a previous session being "adopted" after clearMessages().
+    let awaitingNewSession = false;
 
-    watch(() => chat.sessionId, (newId) => {
+    watch(() => chat.sessionId, (newId, oldId) => {
       activeSessionId = newId;
+      if (oldId && !newId) {
+        // sessionId went from something to null (clearMessages) — enable guard
+        awaitingNewSession = true;
+        // Tell the server to detach the old emitter so stale events stop flowing
+        send({ type: 'clear_session' });
+      } else if (newId) {
+        // sessionId was set (loading existing session or first response) — lift guard
+        awaitingNewSession = false;
+      }
     });
 
     // Track whether the current stream was initiated via WebSocket (stream_start).
@@ -54,6 +66,9 @@ export function useClaudeStream() {
 
     /** Returns true if the incoming WS event belongs to the current session. */
     function isForCurrentSession(data: unknown): boolean {
+      // When awaiting a new session (after clearMessages), reject everything.
+      // Only stream_start (handled separately) can lift this guard.
+      if (awaitingNewSession) return false;
       if (!data) return true; // null/undefined → allow (malformed event tolerance)
       const d = data as { sessionId?: string };
       if (!d.sessionId) return true;  // no sessionId in event → allow (backward compat)
@@ -108,6 +123,8 @@ export function useClaudeStream() {
       if (d.sessionId) {
         activeSessionId = d.sessionId;
       }
+      // Lift the guard — this is a legitimate new stream for the current session
+      awaitingNewSession = false;
       wsStreamActive = true;
       chat.startStreaming();
       touchStreamActivity();
@@ -191,10 +208,12 @@ export function useClaudeStream() {
           totalCost: d.totalCost || 0,
         });
       }
-      // Check the last assistant message for rate limit text
-      // (rate limit messages often arrive as normal text, not as error events)
+      // Check the last assistant message for rate limit text, but only if the
+      // message is short (< 500 chars). Genuine rate limit notices from the CLI
+      // are brief; long responses that merely *mention* rate limits (e.g. docs,
+      // troubleshooting guides) should not trigger the rate limit UI.
       const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
-      if (lastAssistant?.content) {
+      if (lastAssistant?.content && lastAssistant.content.length < 500) {
         detectRateLimit(lastAssistant.content);
       }
 

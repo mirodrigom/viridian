@@ -45,7 +45,7 @@ function openConfig() {
 </script>
 
 <template>
-  <div class="flex h-11 items-center gap-2 border-b border-border bg-muted/30 px-3">
+  <div class="flex h-9 items-center gap-2 border-b border-border px-3">
     <!-- Action buttons -->
     <div class="flex items-center gap-1">
       <Button

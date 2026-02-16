@@ -182,6 +182,11 @@ html.dark .chat-mode-default {
   }
 }
 
+/* ─── Collapsible sidebar slide ─── */
+.sidebar-slide {
+  transition: width 0.2s ease;
+}
+
 /* ─── Mobile sidebar transitions ─── */
 .slide-left-enter-active,
 .slide-left-leave-active {

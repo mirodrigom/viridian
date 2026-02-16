@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Search, RefreshCw, ArrowUpDown, Plus, Clock,
+  Search, RefreshCw, ArrowUpDown, Plus, Clock, Play, Settings,
   GitBranch, Loader2, CheckCircle2, AlertCircle, Pause, Square, RotateCcw,
 } from 'lucide-vue-next';
 
@@ -71,6 +71,37 @@ function selectRun(runId: string) {
   store.loadRun(runId);
 }
 
+const statusColor = computed(() => {
+  switch (store.currentRun?.status) {
+    case 'running': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+    case 'paused': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    case 'rate_limited': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+    case 'completed': return 'bg-green-500/20 text-green-400 border-green-500/30';
+    case 'schedule_timeout': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'failed': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'aborted': return 'bg-muted text-muted-foreground border-border';
+    default: return 'bg-muted text-muted-foreground border-border';
+  }
+});
+
+const statusLabel = computed(() => {
+  if (!store.currentRun) return 'Idle';
+  switch (store.currentRun.status) {
+    case 'running': return 'Running';
+    case 'paused': return 'Paused';
+    case 'rate_limited': return 'Rate Limited';
+    case 'completed': return 'Completed';
+    case 'schedule_timeout': return 'Time Limit';
+    case 'failed': return 'Failed';
+    case 'aborted': return 'Aborted';
+    default: return 'Idle';
+  }
+});
+
+const isResumable = computed(() =>
+  store.currentRun && ['failed', 'aborted'].includes(store.currentRun.status),
+);
+
 function startNew() {
   showConfig.value = true;
 }
@@ -103,7 +134,7 @@ function formatRelativeTime(dateStr: string | null): string {
   return date.toLocaleDateString();
 }
 
-function statusColor(status: string) {
+function runStatusColor(status: string) {
   switch (status) {
     case 'running': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
     case 'paused': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
@@ -146,32 +177,106 @@ function totalTokens(run: { tokens: { agentA: { inputTokens: number; outputToken
 
 <template>
   <div class="flex h-full flex-col border-r border-border bg-card/50">
-    <!-- Search + Sort + Refresh -->
-    <div class="border-b border-border px-3 py-2">
-      <div class="flex items-center gap-1.5">
-        <div class="flex flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
-          <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
-          <input
-            v-model="searchQuery"
-            class="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-            placeholder="Search runs..."
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-5 shrink-0 px-1 text-[10px] text-muted-foreground hover:text-foreground"
-            :title="sortBy === 'date' ? 'Sorted by date' : 'Sorted by name'"
-            @click="sortBy = sortBy === 'date' ? 'name' : 'date'"
-          >
-            <ArrowUpDown class="mr-0.5 h-2.5 w-2.5" />
-            {{ sortBy === 'date' ? 'Date' : 'Name' }}
-          </Button>
-        </div>
-        <Button variant="ghost" size="sm" class="h-7 w-7 shrink-0 p-0" @click="refresh">
-          <RefreshCw
-            class="h-3.5 w-3.5 transition-transform duration-300"
-            :class="{ 'animate-spin': isRefreshing }"
-          />
+    <!-- Header with controls -->
+    <div class="flex h-9 items-center gap-1.5 border-b border-border px-3">
+      <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Runs</span>
+
+      <!-- Action buttons -->
+      <Button
+        v-if="isResumable"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-1.5 text-[10px] text-blue-400"
+        @click="store.resumeFailedRun(store.currentRun!.runId)"
+      >
+        <RotateCcw class="h-3 w-3" />
+        Resume
+      </Button>
+
+      <Button
+        v-if="!store.isRunning && !store.isPaused && !isResumable"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-1.5 text-[10px]"
+        @click="startNew"
+      >
+        <Play class="h-3 w-3" />
+        Start
+      </Button>
+
+      <Button
+        v-if="store.isRunning"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-1.5 text-[10px]"
+        @click="store.pause()"
+      >
+        <Pause class="h-3 w-3" />
+        Pause
+      </Button>
+
+      <Button
+        v-if="store.isPaused"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-1.5 text-[10px]"
+        @click="store.resume()"
+      >
+        <Play class="h-3 w-3" />
+        Resume
+      </Button>
+
+      <Button
+        v-if="store.isRunning || store.isPaused"
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-1.5 text-[10px] text-destructive"
+        @click="store.abort()"
+      >
+        <Square class="h-3 w-3" />
+        Stop
+      </Button>
+
+      <!-- Status badge -->
+      <Badge
+        variant="outline"
+        :class="['gap-1 text-[10px] font-normal', statusColor]"
+      >
+        <Loader2 v-if="store.currentRun?.status === 'running'" class="h-2.5 w-2.5 animate-spin" />
+        {{ statusLabel }}
+      </Badge>
+
+      <div class="flex-1" />
+
+      <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="startNew">
+        <Settings class="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="refresh">
+        <RefreshCw
+          class="h-3.5 w-3.5 transition-transform duration-300"
+          :class="{ 'animate-spin': isRefreshing }"
+        />
+      </Button>
+    </div>
+
+    <!-- Search + Sort -->
+    <div class="border-b border-border px-3 py-1.5">
+      <div class="flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
+        <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
+        <input
+          v-model="searchQuery"
+          class="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+          placeholder="Search runs..."
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-5 shrink-0 px-1 text-[10px] text-muted-foreground hover:text-foreground"
+          :title="sortBy === 'date' ? 'Sorted by date' : 'Sorted by name'"
+          @click="sortBy = sortBy === 'date' ? 'name' : 'date'"
+        >
+          <ArrowUpDown class="mr-0.5 h-2.5 w-2.5" />
+          {{ sortBy === 'date' ? 'Date' : 'Name' }}
         </Button>
       </div>
     </div>
@@ -226,7 +331,7 @@ function totalTokens(run: { tokens: { agentA: { inputTokens: number; outputToken
           <div class="mt-0.5 flex items-center gap-1.5">
             <Badge
               variant="outline"
-              :class="['h-4 px-1 text-[9px] font-normal', statusColor(run.status)]"
+              :class="['h-4 px-1 text-[9px] font-normal', runStatusColor(run.status)]"
             >
               {{ run.status }}
             </Badge>

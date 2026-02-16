@@ -444,12 +444,20 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
 
   // ─── Actions: Run Completion ──────────────────────────────────────
 
+  function persistLastRun() {
+    if (!currentRun.value?.graphId || !currentRun.value.runId) return;
+    try {
+      sessionStorage.setItem(`graph-last-run:${currentRun.value.graphId}`, currentRun.value.runId);
+    } catch { /* ignore quota errors */ }
+  }
+
   function onRunCompleted(data: { runId: string; finalOutput: string }) {
     if (!currentRun.value) return;
     currentRun.value.status = 'completed';
     currentRun.value.completedAt = Date.now();
     currentRun.value.finalOutput = data.finalOutput;
     activeEdgeFlows.value = {};
+    persistLastRun();
   }
 
   function onRunFailed(data: { runId: string; error: string }) {
@@ -458,6 +466,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value.completedAt = Date.now();
     addTimeline('node_failed', '', 'Runner', `Run failed: ${data.error}`);
     activeEdgeFlows.value = {};
+    persistLastRun();
   }
 
   function onRunAborted(_data: { runId: string }) {
@@ -465,6 +474,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     currentRun.value.status = 'aborted';
     currentRun.value.completedAt = Date.now();
     activeEdgeFlows.value = {};
+    persistLastRun();
   }
 
   // ─── Actions: Playback Controls ───────────────────────────────────
@@ -512,6 +522,9 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
       if (!res.ok) throw new Error('Failed to fetch run history');
       const data = await res.json();
       runHistory.value = data.runs;
+    } catch (err) {
+      console.warn('[graphRunner] fetchRunHistory failed:', err);
+      runHistory.value = [];
     } finally {
       loadingHistory.value = false;
     }
@@ -610,6 +623,19 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     previewLoading.value = false;
   }
 
+  /** Restore the last run for a graph from sessionStorage (after page reload). */
+  async function restoreLastRun(graphId: string) {
+    if (currentRun.value) return; // already have an active/loaded run
+    const savedRunId = sessionStorage.getItem(`graph-last-run:${graphId}`);
+    if (!savedRunId) return;
+    try {
+      await loadRun(savedRunId);
+    } catch {
+      // Run may have been deleted — clean up stale entry
+      sessionStorage.removeItem(`graph-last-run:${graphId}`);
+    }
+  }
+
   function reset() {
     currentRun.value = null;
     selectedNodeId.value = null;
@@ -645,7 +671,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
     // Preview actions
     requestPreview, setPreview, clearPreview,
     // Run history actions
-    fetchRunHistory, loadRun, deleteRun,
+    fetchRunHistory, loadRun, deleteRun, restoreLastRun,
     // Playback actions
     enterPlayback, exitPlayback, setPlaybackTime, setPlaybackRatio,
     togglePlayPause, setPlaybackSpeed,

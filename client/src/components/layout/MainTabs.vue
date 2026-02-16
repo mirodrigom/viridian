@@ -14,6 +14,12 @@ import GitView from '@/components/git/GitView.vue';
 import TaskBoard from '@/components/tasks/TaskBoard.vue';
 import GraphEditor from '@/components/graph/GraphEditor.vue';
 import AutopilotView from '@/components/autopilot/AutopilotView.vue';
+import FileSidebar from '@/components/layout/FileSidebar.vue';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
 import { useTasksStore } from '@/stores/tasks';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
@@ -107,11 +113,19 @@ function badgeFor(tab: string): number | null {
       <ChatView />
     </TabsContent>
     <TabsContent value="editor" class="mt-0 flex-1 overflow-hidden">
-      <DiffEditorView v-if="files.diffData" />
-      <div v-else class="flex h-full min-h-0 flex-col">
-        <EditorTabs />
-        <EditorView class="min-h-0 flex-1" />
-      </div>
+      <ResizablePanelGroup direction="horizontal">
+        <ResizablePanel :default-size="20" :min-size="15" :max-size="40">
+          <FileSidebar />
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel :default-size="80" :min-size="40">
+          <DiffEditorView v-if="files.diffData" />
+          <div v-else class="flex h-full min-h-0 flex-col">
+            <EditorTabs />
+            <EditorView class="min-h-0 flex-1" />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </TabsContent>
     <TabsContent value="git" class="mt-0 flex-1 overflow-hidden">
       <GitView />

@@ -284,33 +284,39 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col border-r border-border bg-card/50">
-    <!-- Search + Sort + Refresh -->
-    <div class="border-b border-border px-3 py-2">
+  <div class="flex h-full flex-col bg-card/50">
+    <!-- Header -->
+    <div class="flex h-9 items-center justify-between border-b border-border px-3">
       <div class="flex items-center gap-1.5">
-        <div class="flex flex-1 items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
-          <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
-          <input
-            v-model="searchQuery"
-            class="h-5 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-            placeholder="Search sessions..."
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-5 shrink-0 px-1 text-[10px] text-muted-foreground hover:text-foreground"
-            :title="sessionSort === 'date' ? 'Sorted by date — click for name' : 'Sorted by name — click for date'"
-            @click="sessionSort = sessionSort === 'date' ? 'name' : 'date'"
-          >
-            <ArrowUpDown class="mr-0.5 h-2.5 w-2.5" />
-            {{ sessionSort === 'date' ? 'Date' : 'Name' }}
-          </Button>
-        </div>
-        <Button variant="ghost" size="sm" class="h-7 w-7 shrink-0 p-0" @click="refreshSessions">
-          <RefreshCw
-            class="h-3.5 w-3.5 transition-transform duration-300"
-            :class="{ 'animate-spin': isRefreshing }"
-          />
+        <slot name="header-action" />
+        <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Sessions</span>
+      </div>
+      <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="refreshSessions">
+        <RefreshCw
+          class="h-3.5 w-3.5 transition-transform duration-300"
+          :class="{ 'animate-spin': isRefreshing }"
+        />
+      </Button>
+    </div>
+
+    <!-- Search + Sort -->
+    <div class="border-b border-border px-3 py-1.5">
+      <div class="flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1">
+        <Search class="h-3 w-3 shrink-0 text-muted-foreground" />
+        <input
+          v-model="searchQuery"
+          class="h-5 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+          placeholder="Search sessions..."
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-5 shrink-0 px-1 text-[10px] text-muted-foreground hover:text-foreground"
+          :title="sessionSort === 'date' ? 'Sorted by date — click for name' : 'Sorted by name — click for date'"
+          @click="sessionSort = sessionSort === 'date' ? 'name' : 'date'"
+        >
+          <ArrowUpDown class="mr-0.5 h-2.5 w-2.5" />
+          {{ sessionSort === 'date' ? 'Date' : 'Name' }}
         </Button>
       </div>
     </div>

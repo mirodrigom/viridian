@@ -21,7 +21,6 @@ import SaveGraphDialog from './dialogs/SaveGraphDialog.vue';
 import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
 import RunGraphDialog from './dialogs/RunGraphDialog.vue';
 import TemplatesDialog from './dialogs/TemplatesDialog.vue';
-import QuickRunWizard from './dialogs/QuickRunWizard.vue';
 import ImportGraphDialog from './dialogs/ImportGraphDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
@@ -45,7 +44,6 @@ const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showRunDialog = ref(false);
 const showTemplatesDialog = ref(false);
-const showQuickRunDialog = ref(false);
 const showImportDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
@@ -177,7 +175,22 @@ function onKeyDown(event: KeyboardEvent) {
 onMounted(() => {
   document.addEventListener('keydown', onKeyDown);
   initRunner();
+  // Restore last run after page reload
+  if (graph.currentGraphId) {
+    runner.restoreLastRun(graph.currentGraphId);
+  }
 });
+
+// Also restore when switching to a different saved graph
+watch(
+  () => graph.currentGraphId,
+  (graphId) => {
+    if (graphId) {
+      runner.reset();
+      runner.restoreLastRun(graphId);
+    }
+  },
+);
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown);
@@ -185,8 +198,19 @@ onUnmounted(() => {
 
 // ─── Graph Runner ───────────────────────────────────────────────────
 
-function onRunGraph(prompt: string) {
+async function onRunGraph(prompt: string) {
   const cwd = chat.projectPath || '/home';
+
+  // Auto-save the graph before running so the run gets a valid graphId
+  if (!graph.currentGraphId) {
+    try {
+      await graph.saveGraph(cwd);
+    } catch (e) {
+      console.warn('[GraphEditor] Auto-save before run failed:', e);
+      // Run anyway — the run just won't appear in history
+    }
+  }
+
   runGraph(prompt, cwd);
 }
 
@@ -199,35 +223,38 @@ function isValidConnection(connection: Connection): boolean {
 
 <template>
   <div class="flex h-full flex-col">
-    <GraphToolbar
-      @fit-view="fitView()"
-      @save="graph.savedViewport = getViewport(); showSaveDialog = true"
-      @load="showLoadDialog = true"
-      @templates="showTemplatesDialog = true"
-      @import="showImportDialog = true"
-      @run="showRunDialog = true"
-      @abort="abortRun()"
-      @quick-run="showQuickRunDialog = true"
-    />
-
-    <GraphTimelineScrubber v-if="runner.currentRun" />
-
     <ResizablePanelGroup direction="horizontal" class="flex-1">
-      <!-- Palette -->
+      <!-- Left sidebar: Palette + Properties -->
       <ResizablePanel :default-size="16" :min-size="12" :max-size="25">
-        <GraphPalette />
+        <div class="flex h-full flex-col border-r border-border">
+          <GraphPalette />
+          <GraphPropertiesPanel v-if="graph.selectedNode" class="flex-1" />
+        </div>
       </ResizablePanel>
 
       <ResizableHandle />
 
       <!-- Canvas -->
-      <ResizablePanel :default-size="58" :min-size="35">
-        <div
-          ref="flowContainer"
-          class="vue-flow-wrapper h-full"
-          @dragover="onDragOver"
-          @drop="onDrop"
-        >
+      <ResizablePanel :default-size="84" :min-size="35">
+        <div class="flex h-full flex-col">
+          <GraphToolbar
+            @fit-view="fitView()"
+            @save="graph.savedViewport = getViewport(); showSaveDialog = true"
+            @load="showLoadDialog = true"
+            @templates="showTemplatesDialog = true"
+            @import="showImportDialog = true"
+            @run="showRunDialog = true"
+            @abort="abortRun()"
+          />
+
+          <GraphTimelineScrubber v-if="runner.currentRun" />
+
+          <div
+            ref="flowContainer"
+            class="vue-flow-wrapper flex-1"
+            @dragover="onDragOver"
+            @drop="onDrop"
+          >
           <VueFlow
             :is-valid-connection="isValidConnection"
             :snap-to-grid="true"
@@ -267,16 +294,17 @@ function isValidConnection(connection: Connection): boolean {
             />
             <Controls class="!bottom-4 !left-4" />
           </VueFlow>
+          </div>
         </div>
       </ResizablePanel>
 
-      <ResizableHandle />
-
-      <!-- Properties / Runner Panel -->
-      <ResizablePanel :default-size="26" :min-size="18" :max-size="40">
-        <GraphRunnerPanel v-if="runner.showRunnerPanel" />
-        <GraphPropertiesPanel v-else />
-      </ResizablePanel>
+      <!-- Right sidebar: Runner Panel (collapsed by default) -->
+      <template v-if="runner.showRunnerPanel">
+        <ResizableHandle />
+        <ResizablePanel :default-size="26" :min-size="18" :max-size="40">
+          <GraphRunnerPanel />
+        </ResizablePanel>
+      </template>
     </ResizablePanelGroup>
 
     <!-- Dialogs -->
@@ -284,7 +312,6 @@ function isValidConnection(connection: Connection): boolean {
     <LoadGraphDialog v-model:open="showLoadDialog" />
     <RunGraphDialog v-model:open="showRunDialog" @run="onRunGraph" />
     <TemplatesDialog v-model:open="showTemplatesDialog" />
-    <QuickRunWizard v-model:open="showQuickRunDialog" />
     <ImportGraphDialog v-model:open="showImportDialog" />
   </div>
 </template>

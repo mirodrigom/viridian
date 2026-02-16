@@ -12,7 +12,6 @@ import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
-import FileSidebar from './FileSidebar.vue';
 import TerminalPanel from './TerminalPanel.vue';
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
@@ -118,17 +117,7 @@ function toggleTerminal() {
     />
     <ResizablePanelGroup direction="vertical" class="flex-1">
       <ResizablePanel :default-size="showTerminal ? 70 : 100" :min-size="30">
-        <ResizablePanelGroup direction="horizontal">
-          <ResizablePanel :default-size="activeTab === 'editor' ? 75 : 100" :min-size="40">
-            <MainTabs v-model:active-tab="activeTab" />
-          </ResizablePanel>
-          <template v-if="activeTab === 'editor' && !isMobile">
-            <ResizableHandle />
-            <ResizablePanel :default-size="25" :min-size="15" :max-size="40">
-              <FileSidebar />
-            </ResizablePanel>
-          </template>
-        </ResizablePanelGroup>
+        <MainTabs v-model:active-tab="activeTab" />
       </ResizablePanel>
       <template v-if="showTerminal">
         <ResizableHandle />

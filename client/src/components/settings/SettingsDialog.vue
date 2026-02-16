@@ -1,24 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStore } from '@/stores/chat';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import McpSettingsDialog from './McpSettingsDialog.vue';
-import ApiKeysDialog from './ApiKeysDialog.vue';
-import { Server, Key } from 'lucide-vue-next';
+import { Server } from 'lucide-vue-next';
 
-const settings = useSettingsStore();
 const auth = useAuthStore();
 const chat = useChatStore();
 
@@ -30,7 +23,6 @@ const gitEmail = ref('');
 const gitConfigLoading = ref(false);
 const gitConfigSaved = ref(false);
 const showMcpDialog = ref(false);
-const showApiKeysDialog = ref(false);
 
 watch(open, async (isOpen) => {
   if (isOpen && chat.projectPath) {
@@ -76,81 +68,6 @@ async function saveGitConfig() {
       </DialogHeader>
 
       <div class="space-y-5 py-4">
-        <!-- Appearance -->
-        <div>
-          <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Appearance</h4>
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <Label>Editor Font Size</Label>
-              <Select :model-value="String(settings.fontSize)" @update:model-value="(v: any) => { settings.fontSize = Number(v); settings.save(); }">
-                <SelectTrigger class="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="11">11px</SelectItem>
-                  <SelectItem value="12">12px</SelectItem>
-                  <SelectItem value="13">13px</SelectItem>
-                  <SelectItem value="14">14px</SelectItem>
-                  <SelectItem value="16">16px</SelectItem>
-                  <SelectItem value="18">18px</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
-        <!-- Editor Settings -->
-        <div>
-          <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Editor</h4>
-          <div class="space-y-4">
-            <div class="flex items-center justify-between">
-              <Label>Font Size</Label>
-              <Select :model-value="String(settings.editorFontSize)" @update:model-value="(v: any) => { settings.editorFontSize = Number(v); settings.save(); }">
-                <SelectTrigger class="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="11">11px</SelectItem>
-                  <SelectItem value="12">12px</SelectItem>
-                  <SelectItem value="13">13px</SelectItem>
-                  <SelectItem value="14">14px</SelectItem>
-                  <SelectItem value="16">16px</SelectItem>
-                  <SelectItem value="18">18px</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="flex items-center justify-between">
-              <Label>Tab Size</Label>
-              <Select :model-value="String(settings.editorTabSize)" @update:model-value="(v: any) => { settings.editorTabSize = Number(v); settings.save(); }">
-                <SelectTrigger class="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="2">2 spaces</SelectItem>
-                  <SelectItem value="4">4 spaces</SelectItem>
-                  <SelectItem value="8">8 spaces</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div class="flex items-center justify-between">
-              <Label>Word Wrap</Label>
-              <Switch :checked="settings.editorWordWrap" @update:checked="(v: boolean) => { settings.editorWordWrap = v; settings.save(); }" />
-            </div>
-            <div class="flex items-center justify-between">
-              <Label>Line Numbers</Label>
-              <Switch :checked="settings.editorShowLineNumbers" @update:checked="(v: boolean) => { settings.editorShowLineNumbers = v; settings.save(); }" />
-            </div>
-            <div class="flex items-center justify-between">
-              <Label>Minimap</Label>
-              <Switch :checked="settings.editorMinimap" @update:checked="(v: boolean) => { settings.editorMinimap = v; settings.save(); }" />
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
         <!-- MCP Servers -->
         <div>
           <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Integrations</h4>
@@ -158,10 +75,6 @@ async function saveGitConfig() {
             <Button variant="outline" size="sm" class="w-full gap-2" @click="showMcpDialog = true">
               <Server class="h-4 w-4" />
               MCP Servers
-            </Button>
-            <Button variant="outline" size="sm" class="w-full gap-2" @click="showApiKeysDialog = true">
-              <Key class="h-4 w-4" />
-              API Keys
             </Button>
           </div>
         </div>
@@ -195,5 +108,4 @@ async function saveGitConfig() {
     </DialogContent>
   </Dialog>
   <McpSettingsDialog v-model:open="showMcpDialog" />
-  <ApiKeysDialog v-model:open="showApiKeysDialog" />
 </template>

@@ -265,6 +265,7 @@ export const useGraphStore = defineStore('graph', () => {
       y += VERTICAL_GAP;
     }
     isDirty.value = true;
+    graphVersion.value++;
   }
 
   /** Average x of all parent nodes (sources of edges targeting this node). Falls back to 0. */

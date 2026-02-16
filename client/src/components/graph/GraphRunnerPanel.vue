@@ -155,9 +155,9 @@ function formatDate(isoStr: string): string {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div class="flex h-full flex-col border-l border-border">
     <!-- Header -->
-    <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+    <div class="flex h-9 items-center gap-2 border-b border-border px-3">
       <!-- Back button when in detail view -->
       <button
         v-if="activeTab === 'detail' && runner.selectedExecution"
@@ -168,7 +168,7 @@ function formatDate(isoStr: string): string {
       </button>
 
       <Bot class="h-4 w-4 text-primary" />
-      <span class="text-sm font-semibold">Runner</span>
+      <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Runner</span>
 
       <div class="flex-1" />
 

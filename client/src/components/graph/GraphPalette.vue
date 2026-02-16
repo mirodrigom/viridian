@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import type { GraphNodeType } from '@/types/graph';
 import { NODE_CONFIG } from '@/types/graph';
-import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck } from 'lucide-vue-next';
+import { useGraphStore } from '@/stores/graph';
+import { Input } from '@/components/ui/input';
+import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, Circle } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+const graph = useGraphStore();
 
 const nodeTypes: { type: GraphNodeType; icon: typeof Bot }[] = [
   { type: 'agent', icon: Bot },
@@ -21,9 +25,22 @@ function onDragStart(event: DragEvent, type: GraphNodeType) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col border-r border-border bg-muted/20">
-    <div class="border-b border-border px-3 py-2">
-      <h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Nodes</h3>
+  <div class="flex shrink-0 flex-col bg-background">
+    <!-- Graph name -->
+    <div class="flex h-9 items-center gap-1.5 border-b border-border px-2">
+      <Input
+        v-model="graph.currentGraphName"
+        class="h-6 flex-1 border-transparent bg-transparent px-1 text-xs font-medium hover:border-border focus:border-border"
+        placeholder="Graph name..."
+      />
+      <Circle
+        v-if="graph.isDirty"
+        class="h-2 w-2 shrink-0 fill-primary text-primary dirty-pulse"
+      />
+    </div>
+
+    <div class="flex h-7 items-center border-b border-border px-3">
+      <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Nodes</span>
     </div>
 
     <ScrollArea class="flex-1">

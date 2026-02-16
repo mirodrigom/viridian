@@ -84,14 +84,13 @@ function formatDate(dateStr: string) {
     <!-- Left: Status + Commit + Remote + Branches + History -->
     <div class="flex w-72 shrink-0 flex-col border-r border-border">
       <!-- Header with branch and refresh -->
-      <div class="flex items-center justify-between border-b border-border px-3 py-2">
+      <div class="flex h-9 items-center justify-between border-b border-border px-3">
         <div class="flex items-center gap-2">
-          <span class="text-sm font-medium text-foreground">Source Control</span>
+          <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Source Control</span>
           <Badge
             v-if="git.branch"
             variant="outline"
-            class="cursor-pointer text-xs"
-            @click="toggleBranches"
+            class="cursor-pointer text-[10px]"
           >
             <GitBranch class="mr-1 h-3 w-3" />
             {{ git.branch }}
@@ -266,7 +265,7 @@ function formatDate(dateStr: string) {
 
     <!-- Right: Diff viewer -->
     <div class="flex flex-1 flex-col">
-      <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div class="flex h-9 items-center gap-2 border-b border-border px-3">
         <Button
           variant="ghost"
           size="sm"

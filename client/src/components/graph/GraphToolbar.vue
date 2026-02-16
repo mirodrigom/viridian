@@ -3,13 +3,12 @@ import { useRouter } from 'vue-router';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'vue-sonner';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
   FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload,
-  LayoutGrid, Maximize2, Trash2, Circle, Play, Square, PanelRight, Rocket,
+  LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight,
 } from 'lucide-vue-next';
 
 const emit = defineEmits<{
@@ -20,7 +19,6 @@ const emit = defineEmits<{
   import: [];
   run: [];
   abort: [];
-  quickRun: [];
 }>();
 
 const graph = useGraphStore();
@@ -96,20 +94,7 @@ function onExport() {
 </script>
 
 <template>
-  <div class="flex h-10 items-center gap-1.5 border-b border-border bg-muted/30 px-3">
-    <!-- Graph name -->
-    <Input
-      v-model="graph.currentGraphName"
-      class="h-7 w-40 border-transparent bg-transparent px-1.5 text-sm font-medium hover:border-border focus:border-border"
-      placeholder="Graph name..."
-    />
-
-    <!-- Dirty indicator -->
-    <Circle
-      v-if="graph.isDirty"
-      class="h-2 w-2 shrink-0 fill-primary text-primary dirty-pulse"
-    />
-
+  <div class="flex h-9 items-center gap-1.5 border-b border-border px-3">
     <div class="flex-1" />
 
     <!-- Actions -->
@@ -207,22 +192,6 @@ function onExport() {
 
       <div class="mx-1 h-4 w-px bg-border" />
 
-      <!-- Quick Run -->
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 w-7 p-0 text-primary hover:text-primary/80"
-            :disabled="runner.isRunning"
-            @click="emit('quickRun')"
-          >
-            <Rocket class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Quick Run (from template)</TooltipContent>
-      </Tooltip>
-
       <!-- Run / Stop -->
       <Tooltip v-if="!runner.isRunning">
         <TooltipTrigger as-child>
@@ -266,7 +235,7 @@ function onExport() {
             <PanelRight class="h-4 w-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{{ runner.showRunnerPanel ? 'Show Properties' : 'Show Runner' }}</TooltipContent>
+        <TooltipContent>{{ runner.showRunnerPanel ? 'Hide Runner' : 'Show Runner' }}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
 

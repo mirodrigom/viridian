@@ -17,6 +17,7 @@ function handleClose(e: Event, path: string) {
       class="group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-sm transition-colors duration-150"
       :class="files.activeFile === file.path ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'"
       @click="files.activeFile = file.path"
+      @mousedown.middle.prevent="files.closeFile(file.path)"
     >
       <span v-if="file.modified" class="h-1.5 w-1.5 rounded-full bg-primary dirty-pulse" />
       <span class="truncate max-w-32">{{ file.name }}</span>

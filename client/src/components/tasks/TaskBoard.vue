@@ -226,9 +226,9 @@ async function handleDetailClose(open: boolean) {
 <template>
   <div class="flex h-full flex-col">
     <!-- Header -->
-    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+    <div class="flex h-9 items-center justify-between border-b border-border px-3">
       <div class="flex items-center gap-3">
-        <h2 class="text-sm font-semibold">Tasks</h2>
+        <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Tasks</span>
         <div v-if="tasks.stats.total > 0" class="flex items-center gap-2">
           <div class="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
             <div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: `${tasks.stats.progress}%` }" />

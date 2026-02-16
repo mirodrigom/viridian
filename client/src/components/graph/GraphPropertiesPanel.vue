@@ -44,20 +44,25 @@ function update(field: string, value: unknown) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col border-l border-border bg-muted/20">
-    <!-- Empty state -->
-    <div v-if="!node" class="flex flex-1 flex-col items-center justify-center p-4 text-center text-sm text-muted-foreground">
-      <p>Select a node to edit its properties</p>
-    </div>
-
+  <div class="flex min-h-0 flex-col overflow-hidden bg-muted/20">
     <!-- Properties form -->
-    <template v-else-if="data && config">
-      <div class="flex items-center gap-2 border-b border-border px-3 py-2" :class="config.accentClass">
-        <component :is="icons[data.nodeType]" class="h-4 w-4 shrink-0" />
-        <span class="flex-1 text-xs font-semibold uppercase tracking-wider">{{ config.label }} Properties</span>
-        <button class="rounded p-0.5 hover:bg-background/50" @click="graph.selectNode(null)">
-          <X class="h-3.5 w-3.5" />
+    <template v-if="data && config">
+      <!-- Double-line divider -->
+      <div class="h-1.5 border-y border-border bg-muted/40" />
+
+      <!-- Section header -->
+      <div class="flex h-7 items-center border-b border-border bg-background px-3">
+        <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</span>
+        <div class="flex-1" />
+        <button class="rounded p-0.5 hover:bg-accent" @click="graph.selectNode(null)">
+          <X class="h-3 w-3 text-muted-foreground" />
         </button>
+      </div>
+
+      <!-- Node type header -->
+      <div class="flex h-8 items-center gap-2 border-b border-border px-3" :class="config.accentClass">
+        <component :is="icons[data.nodeType]" class="h-3.5 w-3.5 shrink-0" />
+        <span class="text-xs font-medium">{{ config.label }}</span>
       </div>
 
       <ScrollArea class="flex-1">

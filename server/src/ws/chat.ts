@@ -202,6 +202,13 @@ export function setupChatWs(server: Server) {
           }
         }
 
+        if (data.type === 'clear_session') {
+          // Client created a new session — detach the old emitter so stale events
+          // from a still-running CLI process don't leak into the new session.
+          if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }
+          currentSessionId = null;
+        }
+
         if (data.type === 'tool_response' && currentSessionId) {
           const { requestId, approved, answers, questions } = data;
           respondToPermission(currentSessionId, requestId, approved, answers, questions);

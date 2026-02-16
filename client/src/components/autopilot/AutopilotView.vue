@@ -7,7 +7,6 @@ import {
 } from '@/components/ui/resizable';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAutopilot } from '@/composables/useAutopilot';
-import AutopilotControls from './AutopilotControls.vue';
 import AutopilotSessionSidebar from './AutopilotSessionSidebar.vue';
 import AutopilotDualChat from './AutopilotDualChat.vue';
 import AutopilotTimeline from './AutopilotTimeline.vue';
@@ -21,9 +20,6 @@ provide('showAutopilotConfig', showConfig);
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- Controls bar -->
-    <AutopilotControls />
-
     <!-- Main content: sidebar + dual chat + right panel -->
     <div class="flex-1 overflow-hidden">
       <ResizablePanelGroup direction="horizontal" class="h-full">

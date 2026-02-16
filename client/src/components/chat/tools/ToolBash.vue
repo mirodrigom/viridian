@@ -21,17 +21,17 @@ const timeout = computed(() => {
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-md border border-border bg-[oklch(0.15_0.01_155)]">
+  <div class="overflow-hidden rounded-md border border-border bg-muted/20">
     <div v-if="description" class="border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
       {{ description }}
     </div>
     <div class="px-3 py-2 font-mono text-xs">
       <div class="flex items-start gap-1.5">
-        <span class="select-none text-green-400">$</span>
-        <pre class="whitespace-pre-wrap break-all text-[oklch(0.92_0.01_155)]">{{ command }}</pre>
+        <span class="select-none text-primary">$</span>
+        <pre class="whitespace-pre-wrap break-all text-foreground">{{ command }}</pre>
       </div>
       <div v-if="toolUse.isInputStreaming" class="mt-1">
-        <span class="inline-block h-3 w-1 animate-pulse rounded-sm bg-green-400" />
+        <span class="inline-block h-3 w-1 animate-pulse rounded-sm bg-primary" />
       </div>
     </div>
     <div v-if="timeout" class="border-t border-border/50 px-3 py-1 text-[10px] text-muted-foreground">
