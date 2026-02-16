@@ -342,7 +342,7 @@ onUnmounted(() => {
         :key="session.id"
         class="group flex w-full cursor-pointer items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-accent"
         :class="{
-          'bg-accent border-l-2 border-l-primary': session.id === chat.sessionId && !hasUnsavedSession,
+          'bg-accent/80 border-l-2 border-l-primary shadow-sm': session.id === chat.sessionId && !hasUnsavedSession,
           'border-l-2 border-l-transparent': session.id !== chat.sessionId || hasUnsavedSession,
         }"
         @click="resumeSession(session)"
@@ -350,7 +350,7 @@ onUnmounted(() => {
         <Loader2 v-if="session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         <MessageSquare v-else class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0 flex-1">
-          <p class="truncate text-xs text-foreground">{{ session.title }}</p>
+          <p class="truncate text-xs text-foreground" :title="session.title">{{ session.title }}</p>
           <p class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Clock class="h-2.5 w-2.5" />
             {{ (session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)) ? 'Working...' : formatRelativeTime(session.lastActive) }}
@@ -363,7 +363,7 @@ onUnmounted(() => {
           <Button
             variant="ghost"
             size="sm"
-            class="hidden h-5 w-5 p-0 text-destructive/70 hover:text-destructive group-hover:inline-flex"
+            class="h-5 w-5 p-0 text-destructive/70 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity inline-flex"
             @click.stop="confirmDeleteSession(session)"
           >
             <Trash2 class="h-3 w-3" />

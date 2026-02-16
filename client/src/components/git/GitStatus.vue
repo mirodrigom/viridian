@@ -50,7 +50,7 @@ function toggleSelectAll() {
           Unstage All
         </Button>
       </div>
-      <div class="space-y-0.5">
+      <div class="space-y-1">
         <div
           v-for="file in git.staged"
           :key="'s-' + file.path"
@@ -106,7 +106,7 @@ function toggleSelectAll() {
       </div>
 
       <!-- Modified files -->
-      <div class="space-y-0.5">
+      <div class="space-y-1">
         <div
           v-for="file in git.modified"
           :key="'m-' + file.path"

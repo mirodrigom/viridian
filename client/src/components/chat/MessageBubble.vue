@@ -102,7 +102,7 @@ function formatTime(ts: number) {
   <div
     v-if="message.role === 'user'"
     class="flex items-end justify-end gap-1.5 sm:gap-2.5 px-2 sm:px-4 py-3 transition-colors"
-    :class="{ 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult }"
+    :class="{ 'bg-yellow-500/20 border-l-2 border-l-yellow-500': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult }"
   >
     <div class="max-w-[85%] sm:max-w-[75%]">
       <div class="rounded-2xl rounded-br-md bg-primary px-3 sm:px-4 py-2.5 text-primary-foreground shadow-sm">
@@ -130,7 +130,7 @@ function formatTime(ts: number) {
     class="px-2 sm:px-4 transition-colors"
     :class="[
       isGroupStart ? 'pt-3' : 'pt-0.5',
-      { 'pb-1': true, 'bg-yellow-500/10': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult },
+      { 'pb-1': true, 'bg-yellow-500/20 border-l-2 border-l-yellow-500': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult },
     ]"
   >
     <div class="flex items-start gap-1.5 sm:gap-2.5">

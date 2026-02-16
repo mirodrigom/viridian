@@ -575,6 +575,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     </TooltipProvider>
 
     <!-- Slash command menu -->
+    <Transition name="scale-fade">
     <div v-if="showCommandMenu && filteredCommands.length > 0" class="mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
       <button
         v-for="(cmd, idx) in filteredCommands"
@@ -588,8 +589,10 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         <span class="text-xs">{{ cmd.description }}</span>
       </button>
     </div>
+    </Transition>
 
     <!-- File mention menu -->
+    <Transition name="scale-fade">
     <div v-if="showFileMenu" class="mb-1 max-h-40 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
       <button
         v-for="(file, idx) in fileSuggestions"
@@ -603,9 +606,18 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         <span class="truncate font-mono text-xs">{{ file }}</span>
       </button>
     </div>
+    </Transition>
 
     <!-- Mentioned files badges -->
-    <div v-if="mentionedFiles.length > 0" class="mb-1.5 flex flex-wrap gap-1">
+    <TransitionGroup
+      v-if="mentionedFiles.length > 0"
+      tag="div"
+      class="mb-1.5 flex flex-wrap gap-1"
+      enter-active-class="badge-pop-enter-active"
+      enter-from-class="badge-pop-enter-from"
+      leave-active-class="badge-pop-leave-active"
+      leave-to-class="badge-pop-leave-to"
+    >
       <span
         v-for="file in mentionedFiles"
         :key="file"
@@ -617,7 +629,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           <X class="h-2.5 w-2.5" />
         </button>
       </span>
-    </div>
+    </TransitionGroup>
 
     <!-- Image previews -->
     <div v-if="attachedImages.length > 0" class="mb-1.5 flex flex-wrap gap-1.5">
@@ -638,8 +650,8 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       :class="chat.isRateLimited
         ? 'border-red-500/40 bg-red-950/20'
         : isDragging
-          ? 'border-primary/50 ring-1 ring-primary/20 bg-card'
-          : 'border-border bg-card focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20'"
+          ? 'border-primary/50 ring-2 ring-primary/30 bg-card'
+          : 'border-border bg-card focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/30'"
       @dragover="handleDragOver"
       @dragleave="handleDragLeave"
       @drop="handleDrop"

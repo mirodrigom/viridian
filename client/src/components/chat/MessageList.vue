@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
-import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2, CheckCircle2 } from 'lucide-vue-next';
+import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2, CheckCircle2, Bug, Code2, Sparkles } from 'lucide-vue-next';
 import MessageBubble from './MessageBubble.vue';
 import { playResponseCompleteSound } from '@/composables/useNotificationSound';
 
@@ -24,7 +24,14 @@ const searchResultIndex = ref(0);
 const emit = defineEmits<{
   approveTool: [requestId: string];
   rejectTool: [requestId: string];
+  sendPrompt: [text: string];
 }>();
+
+const suggestedPrompts = [
+  { icon: Bug, text: 'Debug an error', prompt: 'Help me debug this error' },
+  { icon: Code2, text: 'Explain this code', prompt: 'Explain how this code works' },
+  { icon: Sparkles, text: 'Refactor a function', prompt: 'Help me refactor this function to be cleaner' },
+];
 
 // Search results: indices of messages matching the query
 const searchResults = computed(() => {
@@ -428,9 +435,20 @@ onUnmounted(() => {
             <ClaudeLogo :size="32" class="text-primary" />
           </div>
           <h2 class="mb-1 text-lg font-semibold text-foreground">Start a conversation</h2>
-          <p class="text-sm text-muted-foreground">
+          <p class="mb-4 text-sm text-muted-foreground">
             Ask Claude to help with your code, debug issues, or build features.
           </p>
+          <div class="flex flex-wrap justify-center gap-2">
+            <button
+              v-for="sp in suggestedPrompts"
+              :key="sp.text"
+              class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-foreground hover:shadow-md"
+              @click="emit('sendPrompt', sp.prompt)"
+            >
+              <component :is="sp.icon" class="h-3 w-3" />
+              {{ sp.text }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -453,21 +471,28 @@ onUnmounted(() => {
           </Button>
         </div>
 
-        <div
-          v-for="(msg, idx) in chat.messages"
-          :key="msg.id"
-          :id="`msg-${msg.id}`"
+        <TransitionGroup
+          enter-active-class="slide-up-fade-enter-active"
+          enter-from-class="slide-up-fade-enter-from"
+          leave-active-class="slide-up-fade-leave-active"
+          leave-to-class="slide-up-fade-leave-to"
         >
-          <MessageBubble
-            :message="msg"
-            :search-query="searchQuery"
-            :is-search-match="matchingIds.has(msg.id)"
-            :is-active-result="searchResults[searchResultIndex] === idx"
-            :is-group-start="isGroupStart(idx)"
-            @approve-tool="(id) => emit('approveTool', id)"
-            @reject-tool="(id) => emit('rejectTool', id)"
-          />
-        </div>
+          <div
+            v-for="(msg, idx) in chat.messages"
+            :key="msg.id"
+            :id="`msg-${msg.id}`"
+          >
+            <MessageBubble
+              :message="msg"
+              :search-query="searchQuery"
+              :is-search-match="matchingIds.has(msg.id)"
+              :is-active-result="searchResults[searchResultIndex] === idx"
+              :is-group-start="isGroupStart(idx)"
+              @approve-tool="(id) => emit('approveTool', id)"
+              @reject-tool="(id) => emit('rejectTool', id)"
+            />
+          </div>
+        </TransitionGroup>
 
         <!-- Energy beam: visible while Claude is streaming -->
         <div v-if="chat.isStreaming" class="ai-thinking-beam mx-4">

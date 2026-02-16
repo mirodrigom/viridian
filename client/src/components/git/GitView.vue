@@ -137,39 +137,41 @@ function formatDate(dateStr: string) {
         <Loader2 v-if="git.remoteLoading" class="ml-auto h-3.5 w-3.5 animate-spin text-muted-foreground" />
       </div>
 
-      <ScrollArea class="flex-1">
-        <!-- Commit input -->
-        <div class="border-b border-border p-3">
-          <div class="mb-2 flex items-center gap-1">
-            <Textarea
-              v-model="git.commitMessage"
-              placeholder="Commit message..."
-              class="min-h-[60px] flex-1 resize-none text-sm"
-              rows="2"
-            />
-          </div>
-          <div class="flex gap-1.5">
-            <Button
-              size="sm"
-              class="flex-1"
-              :disabled="!git.commitMessage.trim() || git.staged.length === 0"
-              @click="git.doCommit"
-            >
-              Commit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="gap-1"
-              :disabled="git.staged.length === 0 || git.generatingMessage"
-              @click="git.generateCommitMessage"
-            >
-              <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
-              <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
-            </Button>
-          </div>
+      <!-- Commit input — pinned at top, always visible -->
+      <div class="shrink-0 border-b border-border p-3">
+        <div class="mb-2 flex items-center gap-1">
+          <Textarea
+            v-model="git.commitMessage"
+            placeholder="Commit message..."
+            class="min-h-[60px] flex-1 resize-none text-sm"
+            rows="2"
+          />
         </div>
+        <div class="flex gap-1.5">
+          <Button
+            size="sm"
+            class="flex-1"
+            :disabled="!git.commitMessage.trim() || git.staged.length === 0"
+            @click="git.doCommit"
+          >
+            Commit
+            <Badge v-if="git.staged.length > 0" variant="secondary" class="ml-1.5 h-4 px-1 text-[10px]">{{ git.staged.length }}</Badge>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            class="gap-1"
+            :disabled="git.staged.length === 0 || git.generatingMessage"
+            @click="git.generateCommitMessage"
+          >
+            <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
+            <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
+          </Button>
+        </div>
+      </div>
 
+      <!-- Scrollable area: file list + branches + history -->
+      <ScrollArea class="flex-1">
         <!-- File status list -->
         <div class="border-b border-border p-3">
           <GitStatus />

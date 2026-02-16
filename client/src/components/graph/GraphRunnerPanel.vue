@@ -204,10 +204,17 @@ function formatDate(isoStr: string): string {
         </div>
 
         <ScrollArea v-else class="h-full">
-          <div class="space-y-0.5 p-3">
+          <TransitionGroup
+            tag="div"
+            class="space-y-0.5 p-3"
+            enter-active-class="slide-in-left-enter-active"
+            enter-from-class="slide-in-left-enter-from"
+            leave-active-class="slide-in-left-leave-active"
+            leave-to-class="slide-in-left-leave-to"
+          >
             <div
               v-for="(entry, i) in runner.effectiveTimeline"
-              :key="i"
+              :key="entry.timestamp + '-' + i"
               class="group flex items-start gap-2 rounded px-2 py-1.5 text-xs transition-colors hover:bg-accent/50"
               :class="entry.nodeId ? 'cursor-pointer' : ''"
               @click="selectNode(entry.nodeId)"
@@ -242,8 +249,8 @@ function formatDate(isoStr: string): string {
               </div>
             </div>
 
-            <div ref="timelineEnd" />
-          </div>
+            <div ref="timelineEnd" :key="'anchor'" />
+          </TransitionGroup>
         </ScrollArea>
       </TabsContent>
 

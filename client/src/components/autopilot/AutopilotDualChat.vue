@@ -83,7 +83,7 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
       <ResizablePanelGroup direction="horizontal" class="h-full">
         <!-- Agent A panel -->
         <ResizablePanel :default-size="50" :min-size="25">
-          <div class="flex h-full flex-col border-r border-border">
+          <div class="flex h-full flex-col border-r border-border border-l-2 border-l-blue-500/60">
             <!-- Header -->
             <div class="flex items-center gap-2 border-b border-border px-3 py-2">
               <div class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-500/15">
@@ -151,7 +151,7 @@ function toToolUseInfo(tc: AutopilotToolCall): ToolUseInfo {
 
         <!-- Agent B panel -->
         <ResizablePanel :default-size="50" :min-size="25">
-          <div class="flex h-full flex-col">
+          <div class="flex h-full flex-col border-l-2 border-l-emerald-500/60">
             <!-- Header -->
             <div class="flex items-center gap-2 border-b border-border px-3 py-2">
               <div class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/15">

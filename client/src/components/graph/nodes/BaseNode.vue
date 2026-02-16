@@ -118,7 +118,7 @@ function onDelete() {
       :id="handle.id"
       type="target"
       :position="handle.position"
-      class="!h-2.5 !w-2.5 !rounded-full !border-2 !border-card"
+      class="!h-3 !w-3 !rounded-full !border-2 !border-card transition-transform hover:!scale-125"
       :style="{ backgroundColor: config.accentVar }"
     />
 
@@ -150,7 +150,7 @@ function onDelete() {
       :id="handle.id"
       type="source"
       :position="handle.position"
-      class="!h-2.5 !w-2.5 !rounded-full !border-2 !border-card"
+      class="!h-3 !w-3 !rounded-full !border-2 !border-card transition-transform hover:!scale-125"
       :style="{
         backgroundColor: config.accentVar,
         left: sourceHandles.length > 1
@@ -167,8 +167,8 @@ function onDelete() {
 }
 
 @keyframes exec-glow {
-  0%, 100% { box-shadow: 0 0 8px oklch(0.8 0.15 85 / 20%); }
-  50% { box-shadow: 0 0 16px oklch(0.8 0.15 85 / 40%); }
+  0%, 100% { box-shadow: 0 0 8px oklch(from var(--primary) l c h / 20%); }
+  50% { box-shadow: 0 0 16px oklch(from var(--primary) l c h / 40%); }
 }
 
 .auxiliary-pulse {
@@ -176,8 +176,8 @@ function onDelete() {
 }
 
 @keyframes auxiliary-glow {
-  0%, 100% { box-shadow: 0 0 4px oklch(0.8 0.12 85 / 10%); }
-  50% { box-shadow: 0 0 10px oklch(0.8 0.12 85 / 25%); }
+  0%, 100% { box-shadow: 0 0 4px oklch(from var(--primary) l c h / 10%); }
+  50% { box-shadow: 0 0 10px oklch(from var(--primary) l c h / 25%); }
 }
 
 .delegated-pulse {
@@ -187,5 +187,13 @@ function onDelete() {
 @keyframes delegated-glow {
   0%, 100% { box-shadow: 0 0 4px oklch(0.7 0.12 250 / 10%); }
   50% { box-shadow: 0 0 8px oklch(0.7 0.12 250 / 20%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exec-pulse,
+  .auxiliary-pulse,
+  .delegated-pulse {
+    animation: none;
+  }
 }
 </style>

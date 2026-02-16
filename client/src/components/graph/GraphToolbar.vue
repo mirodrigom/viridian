@@ -107,7 +107,7 @@ function onExport() {
     <!-- Dirty indicator -->
     <Circle
       v-if="graph.isDirty"
-      class="h-2 w-2 shrink-0 fill-primary text-primary"
+      class="h-2 w-2 shrink-0 fill-primary text-primary dirty-pulse"
     />
 
     <div class="flex-1" />

@@ -106,12 +106,12 @@ const totalDels = computed(() => parsedFiles.value.reduce((s, f) => s + f.dels, 
           <Button variant="ghost" size="sm" class="h-5 w-5 p-0" title="Open diff in editor" @click="git.openDiffInEditor(file.path)">
             <Columns2 class="h-3 w-3" />
           </Button>
-          <span class="ml-auto text-[10px] text-green-400">+{{ file.adds }}</span>
-          <span class="text-[10px] text-red-400">-{{ file.dels }}</span>
+          <span class="ml-auto text-[11px] tabular-nums text-green-400">+{{ file.adds }}</span>
+          <span class="text-[11px] tabular-nums text-red-400">-{{ file.dels }}</span>
         </div>
 
         <div v-for="(hunk, hi) in file.hunks" :key="hi">
-          <div class="bg-blue-500/5 px-4 py-1 font-mono text-[11px] text-blue-400">
+          <div class="bg-blue-500/10 border-y border-blue-500/15 px-4 py-1.5 font-mono text-[11px] text-blue-400">
             {{ hunk.header }}
           </div>
           <table class="w-full font-mono text-xs">
@@ -122,12 +122,14 @@ const totalDels = computed(() => parsedFiles.value.reduce((s, f) => s + f.dels, 
                 :class="{
                   'bg-green-500/10': line.type === 'add',
                   'bg-red-500/10': line.type === 'del',
+                  'hover:bg-muted/30': line.type === 'ctx',
                 }"
+                class="transition-colors"
               >
-                <td class="w-10 select-none border-r border-border/30 px-1.5 text-right text-[10px] text-muted-foreground/50">
+                <td class="w-10 select-none border-r border-border/30 px-1.5 text-right text-[11px] text-muted-foreground/60 tabular-nums">
                   {{ line.type !== 'add' && line.type !== 'hdr' ? line.oldLine : '' }}
                 </td>
-                <td class="w-10 select-none border-r border-border/30 px-1.5 text-right text-[10px] text-muted-foreground/50">
+                <td class="w-10 select-none border-r border-border/30 px-1.5 text-right text-[11px] text-muted-foreground/60 tabular-nums">
                   {{ line.type !== 'del' && line.type !== 'hdr' ? line.newLine : '' }}
                 </td>
                 <td class="w-4 select-none px-1 text-center">

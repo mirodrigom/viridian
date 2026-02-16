@@ -287,7 +287,7 @@ async function handleDetailClose(open: boolean) {
       </div>
 
       <!-- Kanban columns -->
-      <div v-else class="grid grid-cols-3 gap-4">
+      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           v-for="col in STATUS_OPTIONS"
           :key="col.value"
@@ -305,9 +305,9 @@ async function handleDetailClose(open: boolean) {
           <!-- Drop zone with visual feedback -->
           <div
             :class="[
-              'space-y-2 min-h-[60px] rounded-md border-2 border-dashed p-1 transition-colors',
+              'space-y-2 min-h-[60px] rounded-md border-2 border-dashed p-1 transition-all duration-200',
               dragOverColumn === col.value
-                ? 'border-primary/50 bg-primary/5'
+                ? 'border-primary bg-primary/10 shadow-inner'
                 : 'border-transparent',
             ]"
           >
@@ -320,7 +320,7 @@ async function handleDetailClose(open: boolean) {
               @click="openDetail(task)"
               :class="[
                 'transition-all cursor-pointer',
-                draggingTaskId === task.id ? 'opacity-40 scale-95' : '',
+                draggingTaskId === task.id ? 'opacity-40 scale-95 shadow-lg' : '',
                 tasks.hasSubtasks(task.id)
                   ? 'border-l-2 border-l-primary/60 bg-accent/20'
                   : 'hover:bg-accent/50',
@@ -369,12 +369,12 @@ async function handleDetailClose(open: boolean) {
                     </p>
                     <div class="mt-1.5 flex flex-wrap items-center gap-1">
                       <!-- Priority badge -->
-                      <Badge variant="outline" class="h-4 px-1 text-[9px]" :class="PRIORITY_OPTIONS.find(p => p.value === task.priority)?.color">
+                      <Badge variant="outline" class="h-4.5 px-1.5 text-[10px]" :class="PRIORITY_OPTIONS.find(p => p.value === task.priority)?.color">
                         {{ task.priority }}
                       </Badge>
 
                       <!-- Epic progress indicator (for parents with subtasks) -->
-                      <Badge v-if="tasks.hasSubtasks(task.id)" variant="secondary" class="h-4 px-1 text-[9px]">
+                      <Badge v-if="tasks.hasSubtasks(task.id)" variant="secondary" class="h-4.5 px-1.5 text-[10px]">
                         {{ tasks.getSubtasks(task.id).filter(s => s.status === 'done').length }}/{{ tasks.getSubtasks(task.id).length }}
                       </Badge>
 
@@ -384,7 +384,7 @@ async function handleDetailClose(open: boolean) {
                           <TooltipTrigger as-child>
                             <Badge
                               variant="outline"
-                              class="h-4 max-w-20 gap-0.5 truncate px-1 text-[9px]"
+                              class="h-4.5 max-w-20 gap-0.5 truncate px-1.5 text-[10px]"
                               :class="tasks.isBlockedByDependency(task)
                                 ? 'border-orange-500/40 text-orange-500'
                                 : 'border-green-500/40 text-green-500'"
@@ -403,7 +403,7 @@ async function handleDetailClose(open: boolean) {
                       <Badge
                         v-if="tasks.isBlockedByDependency(task)"
                         variant="outline"
-                        class="h-4 px-1 text-[9px] border-orange-500/40 text-orange-500"
+                        class="h-4.5 px-1.5 text-[10px] border-orange-500/40 text-orange-500"
                       >
                         blocked
                       </Badge>

@@ -101,6 +101,7 @@ defineExpose({ showToolsSettings });
             class="flex-1 overflow-hidden"
             @approve-tool="(id) => respondToTool(id, true)"
             @reject-tool="(id) => respondToTool(id, false)"
+            @send-prompt="(text) => sendMessage(text)"
           />
           <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
         </div>
@@ -163,6 +164,7 @@ defineExpose({ showToolsSettings });
           class="flex-1 overflow-hidden"
           @approve-tool="(id) => respondToTool(id, true)"
           @reject-tool="(id) => respondToTool(id, false)"
+          @send-prompt="(text) => sendMessage(text)"
         />
         <!-- Plan Review inline for mobile -->
         <div v-if="chat.isPlanReviewActive" class="max-h-[60vh] border-t border-border overflow-y-auto">
