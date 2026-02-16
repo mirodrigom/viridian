@@ -18,18 +18,20 @@ The editor is accessible from the **Graphs** tab in the main navigation.
 
 ## Quick Run (Recommended for Getting Started)
 
-The fastest way to run a multi-agent workflow is the **Quick Run Wizard**. It lets you pick a pre-built template, describe your task, preview the execution plan, and run -- all without touching the graph editor.
+The fastest way to run a multi-agent workflow is through the **Templates dialog**. It lets you pick a pre-built template, describe your task, preview the execution plan, and run — all without manually building a graph.
 
 ### How to Use
 
-1. Click the **Rocket icon** in the graph toolbar (or open the Graphs tab if you haven't built a graph yet).
-2. **Step 1 -- Choose a Template:** Select from the available templates. Each card shows the template name, category, description, and a breakdown of node types (e.g., "2 agents, 3 experts, 1 skill").
-3. **Step 2 -- Define Your Task:** Enter a prompt describing what you want the agent team to do. You can click a **Goal Preset** badge (e.g., "Code Review", "Refactor", "Security Audit") to pre-fill the prompt, then customize it.
-4. **Step 3 -- Execution Preview:** Review which agents, skills, MCP servers, and rules will execute. The preview shows the full execution tree with depth indentation, model badges, and warnings for nodes missing system prompts. This is a **dry run** -- no tokens are consumed.
+1. Click the **Templates icon** in the graph toolbar.
+2. **Browse templates:** Each card shows the template name, category, description, and node type breakdown (e.g., "2 agents, 3 experts, 1 skill"). Each template has two actions:
+   - **Import** — Loads the template into the editor for customization.
+   - **Run** — Proceeds directly to the prompt and execution flow.
+3. **Define Your Task:** Enter a prompt describing what you want the agent team to do. Click a **Goal Preset** badge (e.g., "Code Review", "Refactor", "Security Audit") to pre-fill the prompt, then customize it.
+4. **Execution Preview:** Review which agents, skills, MCP servers, and rules will execute. The preview shows the full execution tree with depth indentation, model badges, and warnings for nodes missing system prompts. This is a **dry run** — no tokens are consumed.
 5. Click **Run** to start execution. The Runner Panel opens automatically to show live progress.
 
 ::: tip
-The execution preview is free -- it resolves the graph structure without spawning any Claude CLI processes. Use it to verify the plan looks correct before spending tokens.
+The execution preview is free — it resolves the graph structure without spawning any Claude CLI processes. Use it to verify the plan looks correct before spending tokens.
 :::
 
 ### Goal Presets
@@ -77,6 +79,19 @@ The center panel is a full Vue Flow canvas with:
 ::: tip
 Connections are automatically validated. You cannot create an invalid edge -- for example, you cannot connect a Skill node to another Skill node, or a Rule node to an Agent node as a source. The connection rules are enforced in real time.
 :::
+
+### Mobile Layout
+
+On mobile (< 768px), the editor switches to a full-canvas layout with:
+
+- A **compact toolbar** with essential actions.
+- A **floating action button** (Plus icon) to add nodes via a bottom sheet palette.
+- **Bottom sheets** for node properties and the runner panel, sliding up from the screen edge.
+- The MiniMap is repositioned to avoid overlapping the FAB.
+
+### Auto-Save Before Run
+
+When you run a graph that hasn't been saved yet, the editor automatically saves it to the database before execution begins.
 
 ## Node Types
 
@@ -250,7 +265,7 @@ The Templates dialog (accessible from the toolbar's template icon) provides pre-
 
 When you load a template, all node IDs are regenerated to ensure uniqueness, the graph name is set to the template name, and the canvas auto-fits to show all nodes.
 
-Templates are also available through the **Quick Run Wizard** (Rocket icon), which lets you run a template directly without loading it into the editor first.
+Each template card in the dialog offers two actions: **Import** (loads into the editor for customization) and **Run** (proceeds directly to the prompt and execution flow without modifying the editor).
 
 ## Saving and Loading Graphs
 
@@ -717,7 +732,6 @@ Root Agent (Orchestrator, Sonnet)
 | Auto Layout | LayoutGrid | Arrange nodes in a hierarchical layout |
 | Fit View | Maximize2 | Zoom to fit all nodes in the viewport |
 | Delete | Trash2 | Delete the selected node |
-| Quick Run | Rocket | Open the Quick Run Wizard (template → prompt → preview → run) |
 | Run / Stop | Play / Square | Start or abort a graph run |
 | Toggle Panel | PanelRight | Switch between Properties and Runner panels |
 | Stats | -- | Shows node and edge counts |

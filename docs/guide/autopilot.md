@@ -316,20 +316,24 @@ If you are hitting rate limits frequently, consider:
 
 ## The Dashboard
 
-The Autopilot UI is a three-panel layout:
+The Autopilot UI is a three-panel layout on desktop (resizable) and a tab-based layout on mobile.
 
 ### Left Panel: Session Sidebar
 
-Lists past autopilot runs with their status, branch name, cycle count, and commit count. Click a run to load its full history (cycles, agent responses, commits) into the main view.
+Lists past autopilot runs with their status, branch name, cycle count, and commit count. Click a run to load its full history (cycles, agent responses, commits) into the main view. On mobile, the sidebar is an overlay activated by a hamburger menu button.
 
 ### Center Panel: Dual Chat
 
 A side-by-side split view showing both agents' activity in real-time:
 
-- **Left side (Agent A)** -- displays the thinker's analysis, rendered as Markdown. Shows thinking indicators, tool usage, and cycle separators.
-- **Right side (Agent B)** -- displays the executor's implementation, rendered as Markdown. Shows tool usage, commit badges (with hash, message, and file count), and cycle summaries.
+- **Left side (Agent A)** -- displays the thinker's analysis with a blue left border, rendered as Markdown. Shows thinking indicators, tool usage, and cycle separators.
+- **Right side (Agent B)** -- displays the executor's implementation with an emerald left border, rendered as Markdown. Shows tool usage, commit badges (with hash, message, and file count), and cycle summaries.
 
 Each panel has a header showing the agent's profile name, description, role badge (Agent A / Agent B), and a spinner when that agent is actively running.
+
+Agent output uses **interleaved content blocks** — text and tool calls are rendered in the order they appear during execution, preserving the natural flow of analysis, tool use, and response.
+
+On mobile, the dual chat switches to a **tabbed view** with toggle buttons for Agent A and Agent B, showing one agent at a time in a full-width layout.
 
 ### Right Panel: Timeline and Dashboard Tabs
 
@@ -368,7 +372,17 @@ Live metrics for the current run:
 
 ## Controls
 
-The control bar at the top of the Autopilot view provides lifecycle management:
+The control bar at the top of the Autopilot view provides lifecycle management. On mobile, button labels are hidden (icon-only) and less critical info like branch name and commit count is collapsed.
+
+### Mobile Layout
+
+On mobile devices (< 768px), the Autopilot view switches to a tab-based navigation:
+
+- **Chat** tab (MessageSquare icon) — Agent collaboration view
+- **Timeline** tab (Clock icon) — Cycle timeline
+- **Dashboard** tab (BarChart3 icon) — Metrics view
+
+The session sidebar becomes a slide-out overlay activated by a menu button in the header.
 
 ### Start
 

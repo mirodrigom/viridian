@@ -3,7 +3,7 @@ layout: home
 hero:
   name: Viridian
   text: Full-featured web UI for Claude Code
-  tagline: v0.1.0 — Chat, edit code, manage git, run autonomous agents — all from your browser.
+  tagline: v0.2.0 — Chat, edit code, manage git, run autonomous agents — all from your browser.
   image:
     src: /logo.svg
     alt: Viridian

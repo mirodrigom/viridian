@@ -11,12 +11,16 @@ The chat interface is the core of Viridian — your primary channel for interact
 **Key capabilities:**
 
 - **Multimodal input** — Send text, paste or drag-and-drop up to 5 images, and use `@filename` mentions to attach project files as context.
+- **Message history** — Navigate through sent messages with Arrow Up/Down keys (up to 50 per session).
+- **Message templates** — 15+ pre-built prompt templates organized into 5 categories (Debug, Review, Refactor, Docs, Testing) with `Ctrl+1` through `Ctrl+5` keyboard shortcuts.
 - **Thinking modes** — Five levels of reasoning depth (Standard, Think, Think Hard, Think Harder, Ultrathink) accessible from the status bar. Higher levels produce more thorough responses for complex problems.
 - **Tool visualization** — When Claude uses tools (Bash, Edit, Read, Write, Grep, Glob, TodoWrite), each invocation is rendered as a dedicated card with tool-specific formatting — terminal output for Bash, diff views for edits, checklists for todos.
 - **Interactive approval** — In secure mode, each tool call shows Allow/Deny buttons with a 55-second countdown timer. In Full Auto mode, tools execute without prompting.
 - **Voice input** — Microphone button for speech-to-text with four enhancement modes (Raw, Clean, Expand, Code).
 - **Slash commands** — Type `/` to access `/clear`, `/model`, `/think`, `/permission`, `/status`, `/cost`, and `/help`.
-- **Session management** — Sidebar lists all sessions sorted by time or name, with search, pagination, delete, and real-time WebSocket updates when session files change on disk.
+- **Session management** — Collapsible sidebar (36px collapsed, 280px expanded) listing all sessions sorted by time or name, with search, pagination, delete, and real-time WebSocket updates when session files change on disk.
+- **Suggested prompts** — Empty sessions show quick-start buttons (Debug, Explain Code, Refactor) to help you get started.
+- **Tab notifications** — Document title changes and a sound plays when Claude finishes responding while on a different browser tab.
 - **Search** — `Ctrl+F` to find and navigate through matches across all messages.
 - **Token tracking** — Status bar shows context usage percentage, cost, input/output tokens, and response time.
 - **Draft persistence** — Unsent messages are saved to localStorage per session and survive page reloads.
@@ -54,14 +58,14 @@ A browser-based code editor built on CodeMirror 6 for viewing, editing, and diff
 
 A full Git workflow interface — stage, commit, branch, push/pull — with visual diffs and AI-generated commit messages.
 
-**Layout:** Two-panel design with a fixed left panel (288px) for status, staging, commits, and branches, and a flexible right panel for the inline diff viewer.
+**Layout:** Two-panel design on desktop with a fixed left panel (288px) for status, staging, commits, and branches, and a flexible right panel for the inline diff viewer. On mobile, switches to a tab-based layout (Controls / Diff).
 
 **Key capabilities:**
 
 - **File status** — Shows staged changes and unstaged changes (modified + untracked) with per-file status badges.
 - **Staging** — Individual file staging (+), checkbox multi-select with a "Stage Selected (N)" button, and bulk Stage All / Unstage All operations.
 - **Inline diff viewer** — Parses unified diff output into a structured view with line-level coloring (green for additions, red for deletions), line numbers for both sides, and a summary bar with totals. Toggle between Working Changes and Staged Changes.
-- **Commit** — Multi-line textarea with a Commit button that's disabled when the message is empty or nothing is staged.
+- **Commit** — Multi-line textarea (pinned at top) with a Commit button showing a staged file count badge, disabled when the message is empty or nothing is staged.
 - **AI commit messages** — Click the sparkle button to generate a conventional commit message from the staged diff. Uses SSE streaming for a live typewriter effect.
 - **Branch management** — Collapsible panel listing all branches, with checkout on click and a create-branch input.
 - **Remote operations** — Fetch, Pull, and Push buttons with loading spinners and error toasts.
@@ -98,7 +102,7 @@ A fully interactive PTY terminal embedded in the browser — not a command runne
 
 A Kanban-style task board for planning and tracking work, with AI-powered task generation from PRDs.
 
-**Layout:** Three columns — To Do, In Progress, Done — with a progress bar header.
+**Layout:** Three columns — To Do, In Progress, Done — with a progress bar header. Responsive: 3 columns on desktop, 2 on tablet, 1 on mobile.
 
 **Key capabilities:**
 
@@ -106,6 +110,8 @@ A Kanban-style task board for planning and tracking work, with AI-powered task g
 - **PRD parsing** — Paste a Product Requirements Document and Claude generates a hierarchical task breakdown with parent tasks (epics/features) and nested subtasks, including dependencies.
 - **Task expansion** — Click the sparkle icon on any root task to have Claude generate 3-7 subtasks. Re-run expansion to get different breakdowns.
 - **Drag and drop** — Move tasks between columns. Parent task status auto-derives from children (all done = done, all todo = todo, mixed = in progress).
+- **Markdown support** — Task descriptions and details render as Markdown with a preview/edit toggle in the detail dialog.
+- **Send to Chat** — Forward any task to the Chat tab as a formatted prompt with full context (title, description, details, subtasks, dependencies).
 - **Dependencies** — Tasks can depend on other tasks. Blocked tasks show an orange badge. Dependencies are resolved automatically during PRD parsing.
 - **Subtask management** — Inline subtask lists with clickable status icons that cycle through todo → in progress → done.
 - **Project scoping** — Tasks are scoped to the project directory. Switching projects loads a different task board.
@@ -119,15 +125,15 @@ A Kanban-style task board for planning and tracking work, with AI-powered task g
 
 A visual multi-agent coordination system — design agent workflows as directed graphs, then execute them.
 
-**Layout:** Three-panel resizable layout with a node palette (left), Vue Flow canvas (center), and properties/runner panel (right).
+**Layout:** Three-panel resizable layout on desktop with a node palette (left), Vue Flow canvas (center), and properties/runner panel (right). On mobile, uses a full-canvas layout with bottom sheets for palette, properties, and runner, plus a floating action button for adding nodes.
 
 **Key capabilities:**
 
 - **Six node types** — Three executable (Agent, Subagent, Expert) and three auxiliary (Skill, MCP, Rule). Executable nodes spawn Claude CLI instances; auxiliary nodes modify their behavior.
 - **Typed edges** — Delegation (parent→child), skill-usage, tool-access (MCP), rule-constraint, and data-flow. Connection rules are enforced in real time.
 - **Properties panel** — Configure each node's model, system prompt, permissions, allowed tools, and type-specific fields. AI prompt generation (sparkle button) creates prompts aware of the node's connections.
-- **8 templates** — Pre-built workflows including Full-Stack Dev Team, Code Review Pipeline, Security Audit Team, API Development Team, and more.
-- **Graph execution** — Enter a prompt and the root node orchestrates delegation to its children using Claude CLI's `--agents` flag. Rules become `CLAUDE.md`, MCP nodes become `.mcp.json` in a temp directory.
+- **8 templates** — Pre-built workflows including Full-Stack Dev Team, Code Review Pipeline, Security Audit Team, API Development Team, and more. Each template can be **imported** into the editor or **run directly** from the templates dialog.
+- **Graph execution** — Enter a prompt and the root node orchestrates delegation to its children. Rules become `CLAUDE.md`, MCP nodes become `.mcp.json` in a temp directory. Graphs auto-save before running.
 - **Real-time monitoring** — Canvas overlays show node status (yellow=running, blue=delegated, green=completed, red=failed) with animated edge flows for delegation and result returns.
 - **Timeline scrubber** — DVR-like controls for replaying completed runs: step forward/backward, play/pause, variable speed (0.5x to 4x), and LIVE mode toggle.
 - **Runner panel** — Three tabs: Timeline (chronological event feed), Node Detail (full output, tokens, tools, errors for a selected node), and History (past runs with load and delete).
@@ -142,7 +148,7 @@ A visual multi-agent coordination system — design agent workflows as directed 
 
 A dual-Claude autonomous collaboration system — two specialized agents work together in cycles to analyze, implement, and commit code improvements without human intervention.
 
-**Layout:** Three-panel design with a session sidebar (left), dual chat view (center), and timeline/dashboard tabs (right).
+**Layout:** Three-panel resizable design on desktop with a session sidebar (left), dual chat view (center), and timeline/dashboard tabs (right). On mobile, switches to a tab-based layout (Chat / Timeline / Dashboard) with a slide-out sidebar overlay.
 
 **The A-B-Commit cycle:**
 

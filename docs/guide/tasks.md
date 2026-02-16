@@ -90,7 +90,7 @@ Each task has the following fields:
 | `createdAt` | `string` | ISO timestamp |
 | `updatedAt` | `string` | ISO timestamp |
 
-Click any task card to open the **Detail Dialog**, where you can edit the title, description, details, and priority. Changes auto-save when you close the dialog.
+Click any task card to open the **Detail Dialog**, where you can edit the title, description, details, and priority. The description and details fields support **Markdown rendering** with a preview/edit toggle. Changes auto-save when you close the dialog.
 
 ### Dependencies
 
@@ -99,6 +99,18 @@ Tasks can declare dependencies on other tasks. A dependency badge appears on the
 ### Subtasks
 
 Subtasks are displayed inline within their parent card as a collapsible list. Each subtask shows a status icon that you can click to cycle through `todo` -> `in_progress` -> `done`. The parent card displays a progress counter (e.g. "3/5") next to its title.
+
+## Send to Chat
+
+Any task can be sent to the Chat tab as a prompt. Click the **MessageSquare** icon on a task card or use the "Send to Chat" button in the detail dialog. The prompt is formatted with the task's title, description, details, subtasks, and dependencies, giving Claude full context to work on the task. The app navigates to the Chat tab automatically after sending.
+
+## Responsive Layout
+
+The Kanban board adapts to screen size:
+
+- **Desktop** (lg+): Three columns side-by-side
+- **Tablet** (md): Two columns
+- **Mobile**: Single column
 
 ## Project Scoping
 

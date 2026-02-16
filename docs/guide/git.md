@@ -4,10 +4,17 @@ Viridian includes a full-featured Git interface that mirrors the workflows you w
 
 ## Overview
 
-The interface is split into two panels:
+The interface is split into two panels on desktop:
 
-- **Left panel (fixed 288 px)** — branch indicator, remote operations, commit form, file status list, branch management, and commit history.
+- **Left panel (fixed 288 px)** — branch indicator, remote operations, commit form (pinned at top), file status list (scrollable), branch management, and commit history.
 - **Right panel (flexible)** — inline diff viewer that renders working-tree or staged diffs with syntax-level coloring.
+
+On mobile (viewport < 768px), the layout switches to a **tab-based view** with two tabs:
+
+- **Controls** — Remote operations, pinned commit form, scrollable file status, branches, and history.
+- **Diff** — Selected file diff with Working/Staged toggle.
+
+Clicking a file in the status list on mobile automatically switches to the Diff tab.
 
 All Git operations go through an authenticated REST API (`/api/git/*`) which delegates to [simple-git](https://github.com/nickt/simple-git) on the server. Every request includes the project's `cwd` so the server operates on the correct repository.
 
@@ -92,8 +99,8 @@ Each file header in the diff view has two action buttons:
 
 The commit form sits above the file list in the left panel. It consists of:
 
-1. A multi-line textarea for the commit message.
-2. A **Commit** button (disabled when the message is empty or no files are staged).
+1. A multi-line textarea for the commit message (pinned at the top, not scrollable).
+2. A **Commit** button with a badge showing the number of staged files (disabled when the message is empty or no files are staged).
 3. An **AI generate** button (the sparkle icon, covered below).
 
 When you click Commit, the store sends `POST /api/git/commit` with the message. On success, the message is cleared, the status is refreshed, and the diff view is reset.

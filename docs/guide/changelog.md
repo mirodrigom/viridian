@@ -2,6 +2,35 @@
 
 All notable changes to Viridian are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-02-16
+
+### Added
+
+- **Message history navigation** — Arrow Up/Down to browse sent messages (up to 50 per session), Escape to return to draft
+- **Message templates** — 15+ pre-built prompt templates in 5 categories (Debug, Review, Refactor, Docs, Testing) with Ctrl+1-5 keyboard shortcuts
+- **Suggested prompts** — Empty chat sessions show quick-start buttons (Debug, Explain Code, Refactor)
+- **Tab notifications** — Document title changes and sound plays when Claude finishes responding on a background tab
+- **Collapsible chat sidebar** — Sidebar collapses to 36px strip with toggle button and quick "New session" button
+- **Send to Chat** — Forward any task from the Task Board to the Chat tab as a formatted prompt with full context
+- **Task Markdown support** — Description and details fields render Markdown with preview/edit toggle in the detail dialog
+- **Interleaved content blocks** — Autopilot dual chat renders text and tool calls in the order they appear during execution
+- **Graph auto-save** — Graphs auto-save before running if not yet persisted
+
+### Changed
+
+- **Git view mobile layout** — Tab-based layout (Controls / Diff) replaces the two-panel view on mobile, with pinned commit form and staged count badge
+- **Graph templates dialog** — Replaced QuickRunWizard with a unified templates dialog offering Import and Run actions per template
+- **Graph editor mobile layout** — Full-canvas layout with floating action button, bottom sheets for palette/properties/runner
+- **Autopilot mobile layout** — Tab-based navigation (Chat / Timeline / Dashboard) with slide-out sidebar overlay
+- **Autopilot controls** — Responsive design with icon-only buttons and compact cycle display on mobile
+- **Task board responsive columns** — 3 columns on desktop, 2 on tablet, 1 on mobile
+- **File sidebar** — Moved from main layout into Editor tab (resizable on desktop, overlay on mobile)
+- **Viewport height** — Switched from `h-screen` to `h-dvh` for proper mobile viewport handling
+
+### Removed
+
+- **QuickRunWizard** — Functionality merged into the Templates dialog
+
 ## [0.1.0] — 2026-02-14
 
 Initial release.

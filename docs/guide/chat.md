@@ -10,6 +10,8 @@ The chat view is organized as a three-panel layout:
 - **Center panel** -- The message list and input area where the conversation takes place.
 - **Right panel** -- Contextual panels that appear dynamically: a Todo timeline when Claude creates tasks, or a Plan review panel when operating in Plan mode.
 
+On desktop, the sidebar is collapsible — it shrinks to a 36px strip with a toggle button and a quick "New session" button. Click the toggle to expand it back to 280px.
+
 On mobile devices (viewport < 768px), the sidebar becomes a slide-out overlay accessible via a hamburger button, and the right panel stacks inline below the messages.
 
 ## Sending Messages
@@ -19,6 +21,28 @@ Type your message in the input area at the bottom of the chat and press **Enter*
 ### Text Messages
 
 The textarea auto-resizes as you type (up to 120px height). Messages are sent to Claude along with any attached context (images, file mentions) in a single request.
+
+### Message History
+
+Press **Arrow Up** to navigate backward through your sent messages (up to 50 stored per session). Press **Arrow Down** to go forward, and **Escape** to return to your current draft. When navigating, the placeholder shows "History X/Y (↑/↓ to navigate, Esc to return)".
+
+### Message Templates
+
+Click the **Templates** button (sparkles icon) in the input toolbar to open the template menu. Templates are pre-built prompts organized into five categories, each with a keyboard shortcut:
+
+| Category | Shortcut | Templates |
+|----------|----------|-----------|
+| **Debug** | `Ctrl+1` | Debug Error, Explain Issue, Trace Problem |
+| **Review** | `Ctrl+2` | Review Code, Security Check, Performance Review |
+| **Refactor** | `Ctrl+3` | Clean Refactor, Optimize Code, Restructure |
+| **Docs** | `Ctrl+4` | Add Docs, Explain Code, Add Comments |
+| **Testing** | `Ctrl+5` | Unit Tests, Integration Tests, Edge Cases |
+
+Templates insert at the cursor position, preserving any existing text. Navigate the menu with **Arrow Up/Down**, select with **Enter** or **Tab**, and dismiss with **Escape**.
+
+::: tip
+On mobile, the Templates button is hidden to conserve space. Use the keyboard shortcuts on desktop for fast access.
+:::
 
 ### Image Attachments
 
@@ -180,6 +204,20 @@ The sidebar maintains a WebSocket connection to `/ws/sessions` that listens for 
 ::: info Design rationale
 Sessions are identified by their JSONL filename, which doubles as the Claude CLI session ID. This means conversations started in the web UI can be resumed from the CLI (via `claude --resume`) and vice versa, providing seamless continuity across interfaces.
 :::
+
+## Suggested Prompts
+
+When a session has no messages, the message area shows three suggested prompt buttons to help you get started:
+
+- **Debug an error** — Opens a debugging conversation
+- **Explain this code** — Asks Claude to explain code
+- **Refactor a function** — Starts a refactoring session
+
+Click any button to send it as your first message.
+
+## Tab Notifications
+
+When Claude finishes a response while you are on a different browser tab, the document title changes to **"Viridian - Response complete"** and a notification sound plays. The title resets when you return to the tab.
 
 ## Chat Search
 
