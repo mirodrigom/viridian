@@ -143,7 +143,7 @@ These nodes do not spawn their own Claude instances. Instead, they modify the be
 
 #### Skill
 
-A reusable prompt template that defines a specific capability. When connected to an executable node, the skill's instructions are included in that node's system prompt under an "Available Skills" section.
+A reusable prompt template that defines a specific capability. When connected to an executable node, the skill appears in a compact **skill index** in the agent's system prompt (name + description only). The full skill instructions are written to individual files in a `skills/` directory that agents read on-demand — only loading the skills they actually need for the current task. This keeps the context window lean when many skills are connected.
 
 | Property | Description |
 |----------|-------------|
@@ -232,7 +232,7 @@ When a node is selected, the right panel shows a form for editing its properties
 ### Common Fields (all node types)
 
 - **Label** -- The display name shown on the node and in the timeline.
-- **Description** -- An optional description for documentation purposes.
+- **Description** -- A brief summary (1-2 sentences) used in planning prompts, skill indexes, and node cards on the canvas. This is the primary field agents see when deciding which skills to use or which subagents to delegate to — keep it concise and informative.
 
 ### AI Prompt Generation
 
@@ -391,9 +391,10 @@ Starting from the root, each node is executed recursively:
 
 **5. Per-Node Environment**
 
-Each node that has Rule or MCP connections gets its own temporary directory with:
+Each node that has Rule, MCP, or Skill connections gets its own temporary directory with:
 - `CLAUDE.md` -- containing only that node's rules
 - `.mcp.json` -- containing only that node's MCP server configs
+- `skills/` -- containing one `.md` file per connected skill (full instructions, loaded on-demand)
 
 The Claude CLI runs from this tmpdir so it auto-discovers these files. An explicit project path instruction is injected into the system prompt so agents work on the real project files despite running from a tmpdir.
 
@@ -429,6 +430,52 @@ Each node execution has a **10-minute inactivity timeout**. If a node stops prod
 
 The timeout resets every time the node produces any output, so long-running tasks that are actively working will not be interrupted.
 
+## Context Window Optimization
+
+As graphs scale to many agents and skills (20-30 agents with 60+ skills), keeping the context window lean becomes critical. The Graph Runner uses several strategies to minimize configuration overhead in each agent's system prompt, reserving context for actual reasoning.
+
+### On-Demand Skill Loading
+
+Instead of inlining every skill's full `promptTemplate` into the system prompt, the runner uses a two-tier approach:
+
+1. **Compact skill index** -- Each connected skill appears as a one-line entry in the system prompt: the command name, label, and description. This costs ~15 tokens per skill instead of ~100+ tokens for a full template.
+
+2. **Skill files on disk** -- The full instructions for each skill are written to `skills/<command>.md` files in the node's tmpdir. Agents read these files on-demand using the `Read` tool only when they need a specific skill.
+
+```
+## Available Skills (in the system prompt)
+- `/commit` — **Git Commit**: Stages and commits changes following conventions
+- `/test` — **Run Tests**: Executes test suite and reports failures
+
+Before using a skill, read its full instructions:
+  Read(`/tmp/graph-node-abc/skills/<command-name>.md`)
+Only load the skill(s) you actually need for the current task.
+```
+
+This means a node connected to 20 skills pays ~300 tokens in its system prompt instead of ~2000+, and only loads the 1-2 skills it actually needs for a given task.
+
+### The Description Field
+
+Every node type has a `description` field that serves as the compact representation used in planning prompts, skill indexes, and node cards on the canvas. Good descriptions are critical for:
+
+- **Planning prompts** -- Orchestrators see child descriptions when deciding how to delegate tasks. A vague description leads to poor delegation.
+- **Skill indexes** -- The compact skill index uses descriptions to help agents decide which skills to load. Without a description, agents must load every skill file to understand what's available.
+- **Node cards** -- Descriptions are shown on the canvas, replacing truncated system prompts for a cleaner overview.
+
+::: tip
+Write descriptions as concise action summaries (1-2 sentences). For skills: what the skill does and when to use it. For agents: what domain they own and what they're responsible for. For rules: what behavior they enforce.
+:::
+
+### Graph as Context Scoper
+
+The graph structure itself is a context optimization mechanism. Each node only receives configuration for its **directly connected** auxiliary nodes:
+
+- An agent connected to 3 skills out of 60 total only sees those 3 in its skill index
+- An agent connected to 2 rules out of 20 only has those 2 in its CLAUDE.md
+- MCP servers are scoped per-node via individual `.mcp.json` files
+
+This edge-based scoping means you can build a graph with hundreds of auxiliary nodes without any single agent being overwhelmed -- each agent's context is proportional to its own connections, not the total graph size.
+
 ## Sandbox Isolation
 
 Graph execution runs in an isolated sandbox to keep node configurations separate from your project files and from each other.
@@ -440,9 +487,12 @@ When a graph run starts, the server creates:
 ```
 /tmp/graph-run-<run-id>/
 ├── project/              ← symlink to your real project directory
-├── graph-node-<id-1>/    ← tmpdir for node 1 (if it has rules/MCP)
+├── graph-node-<id-1>/    ← tmpdir for node 1 (if it has rules/MCP/skills)
 │   ├── CLAUDE.md         ← this node's rules only
-│   └── .mcp.json         ← this node's MCP servers only
+│   ├── .mcp.json         ← this node's MCP servers only
+│   └── skills/           ← this node's skill instructions (on-demand)
+│       ├── commit.md
+│       └── test-runner.md
 ├── graph-node-<id-2>/    ← tmpdir for node 2
 │   ├── CLAUDE.md
 │   └── .mcp.json
@@ -452,8 +502,8 @@ When a graph run starts, the server creates:
 Key points:
 
 - **Project access via symlink** -- The `project/` symlink points to your real project. Agents read and write your actual project files through this symlink, so changes are real.
-- **Per-node isolation** -- Each node's `CLAUDE.md` and `.mcp.json` only contain that node's directly connected rules and MCP servers. One node's rules don't leak into another node's context.
-- **Nodes without rules/MCP** -- Nodes that have no Rule or MCP connections don't get a tmpdir -- they run directly from the project symlink path.
+- **Per-node isolation** -- Each node's `CLAUDE.md`, `.mcp.json`, and `skills/` directory only contain that node's directly connected rules, MCP servers, and skills. One node's configuration doesn't leak into another node's context.
+- **Nodes without auxiliary connections** -- Nodes that have no Rule, MCP, or Skill connections don't get a tmpdir -- they run directly from the project symlink path.
 - **Automatic cleanup** -- The entire sandbox directory is removed when the run completes (or fails/aborts).
 
 ::: info

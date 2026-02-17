@@ -545,37 +545,37 @@ function createDefaultNodeData(type: GraphNodeType): NodeData {
   switch (type) {
     case 'agent':
       return {
-        nodeType: 'agent', label: 'Agent',
+        nodeType: 'agent', label: 'Agent', description: '',
         model: 'claude-opus-4-6', systemPrompt: '',
         permissionMode: 'bypassPermissions', maxTokens: 200000,
         allowedTools: [], disallowedTools: [],
       };
     case 'subagent':
       return {
-        nodeType: 'subagent', label: 'Subagent',
+        nodeType: 'subagent', label: 'Subagent', description: '',
         model: 'claude-sonnet-4-5-20250929', systemPrompt: '',
         permissionMode: 'bypassPermissions', taskDescription: '',
       };
     case 'expert':
       return {
-        nodeType: 'expert', label: 'Expert',
+        nodeType: 'expert', label: 'Expert', description: '',
         model: 'claude-opus-4-6', systemPrompt: '',
         specialty: '',
       };
     case 'skill':
       return {
-        nodeType: 'skill', label: 'Skill',
+        nodeType: 'skill', label: 'Skill', description: '',
         command: '', promptTemplate: '', allowedTools: [],
       };
     case 'mcp':
       return {
-        nodeType: 'mcp', label: 'MCP Server',
+        nodeType: 'mcp', label: 'MCP Server', description: '',
         serverType: 'stdio', command: '', args: [],
         tools: [],
       };
     case 'rule':
       return {
-        nodeType: 'rule', label: 'Rule',
+        nodeType: 'rule', label: 'Rule', description: '',
         ruleType: 'guideline', ruleText: '', scope: 'project',
       };
   }

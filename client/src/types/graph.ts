@@ -23,6 +23,7 @@ export interface AgentNodeData extends BaseNodeData {
   nodeType: 'agent';
   model: string;
   systemPrompt: string;
+  /** @deprecated Always 'bypassPermissions'. Kept for backward compatibility with saved graphs. */
   permissionMode: string;
   maxTokens: number;
   allowedTools: string[];
@@ -33,6 +34,7 @@ export interface SubagentNodeData extends BaseNodeData {
   nodeType: 'subagent';
   model: string;
   systemPrompt: string;
+  /** @deprecated Always 'bypassPermissions'. Kept for backward compatibility with saved graphs. */
   permissionMode: string;
   taskDescription: string;
 }

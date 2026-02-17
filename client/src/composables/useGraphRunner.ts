@@ -153,8 +153,12 @@ export function useGraphRunner() {
   }
 
   /** Run a graph directly from template data (no graph editor needed) */
-  function quickRun(graphData: { nodes: unknown[]; edges: unknown[] }, prompt: string) {
+  function quickRun(template: { name: string; nodes: unknown[]; edges: unknown[] }, prompt: string) {
     runner.reset();
+    // Load template into graph store so the canvas renders nodes with execution overlays
+    graph.loadTemplate(template as import('@/data/graphTemplates').GraphTemplate);
+    // Send the store's serialized data (with remapped IDs) so node IDs match
+    const graphData = graph.serialize();
     const chat = useChatStore();
     const cwd = chat.projectPath || '/home';
     const sent = runner.wsSend({

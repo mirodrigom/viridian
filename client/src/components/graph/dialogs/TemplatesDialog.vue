@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphRunner } from '@/composables/useGraphRunner';
-import { GRAPH_TEMPLATES, type GraphTemplate } from '@/data/graphTemplates';
+import { GRAPH_TEMPLATES, TEMPLATE_CATEGORIES, type GraphTemplate, type TemplateCategory } from '@/data/graphTemplates';
 import { GOAL_PRESETS } from '@/data/goalPresets';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -18,6 +18,8 @@ import { toast } from 'vue-sonner';
 import {
   Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck,
   Download, Play, ArrowLeft, Eye, Loader2, LayoutTemplate,
+  // Category icons
+  Code, Search, Cog, Gamepad2, Box, Palette, Scale, Calculator, Globe, Cloud, CloudCog,
 } from 'lucide-vue-next';
 
 const open = defineModel<boolean>('open', { default: false });
@@ -25,14 +27,16 @@ const graph = useGraphStore();
 const runner = useGraphRunnerStore();
 const { quickRun, init } = useGraphRunner();
 
-const step = ref<'list' | 'prompt' | 'preview'>('list');
+const step = ref<'worlds' | 'templates' | 'prompt' | 'preview'>('worlds');
+const selectedCategory = ref<TemplateCategory | null>(null);
 const selectedTemplate = ref<GraphTemplate | null>(null);
 const prompt = ref('');
 
 // Reset when dialog closes
 watch(open, (v) => {
   if (!v) {
-    step.value = 'list';
+    step.value = 'worlds';
+    selectedCategory.value = null;
     selectedTemplate.value = null;
     prompt.value = '';
     runner.clearPreview();
@@ -41,11 +45,21 @@ watch(open, (v) => {
   }
 });
 
-const categoryColors: Record<string, string> = {
-  development: 'bg-chart-2/15 text-chart-2 border-chart-2/30',
-  analysis: 'bg-chart-4/15 text-chart-4 border-chart-4/30',
-  automation: 'bg-chart-5/15 text-chart-5 border-chart-5/30',
+const categoryIcons: Record<string, typeof Bot> = {
+  Code, Search, Cog, Gamepad2, Box, Palette, Scale, Calculator, Globe, Cloud, CloudCog,
 };
+
+const categoriesWithCounts = computed(() =>
+  TEMPLATE_CATEGORIES.map(cat => ({
+    ...cat,
+    templateCount: GRAPH_TEMPLATES.filter(t => t.category === cat.id).length,
+  })).filter(cat => cat.templateCount > 0),
+);
+
+const filteredTemplates = computed(() => {
+  if (!selectedCategory.value) return GRAPH_TEMPLATES;
+  return GRAPH_TEMPLATES.filter(t => t.category === selectedCategory.value);
+});
 
 function nodeTypeCounts(template: GraphTemplate) {
   const counts: Record<string, number> = {};
@@ -53,6 +67,11 @@ function nodeTypeCounts(template: GraphTemplate) {
     counts[n.type] = (counts[n.type] || 0) + 1;
   }
   return counts;
+}
+
+function selectWorld(category: TemplateCategory) {
+  selectedCategory.value = category;
+  step.value = 'templates';
 }
 
 function onImport(template: GraphTemplate) {
@@ -77,17 +96,18 @@ function goToPreview() {
 
 function onExecute() {
   if (!selectedTemplate.value || !prompt.value.trim()) return;
-  quickRun(
-    { nodes: selectedTemplate.value.nodes, edges: selectedTemplate.value.edges },
-    prompt.value.trim(),
-  );
+  quickRun(selectedTemplate.value, prompt.value.trim());
   runner.showRunnerPanel = true;
   open.value = false;
 }
 
 function onBack() {
   if (step.value === 'preview') step.value = 'prompt';
-  else if (step.value === 'prompt') step.value = 'list';
+  else if (step.value === 'prompt') step.value = 'templates';
+  else if (step.value === 'templates') {
+    step.value = 'worlds';
+    selectedCategory.value = null;
+  }
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -97,9 +117,14 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+const selectedCategoryMeta = computed(() =>
+  TEMPLATE_CATEGORIES.find(c => c.id === selectedCategory.value),
+);
+
 const stepTitle = computed(() => {
   switch (step.value) {
-    case 'list': return 'Graph Templates';
+    case 'worlds': return 'Template Worlds';
+    case 'templates': return selectedCategoryMeta.value?.name || 'Templates';
     case 'prompt': return 'Define Your Task';
     case 'preview': return 'Execution Preview';
   }
@@ -107,7 +132,8 @@ const stepTitle = computed(() => {
 
 const stepDescription = computed(() => {
   switch (step.value) {
-    case 'list': return 'Import a template into the editor or run it directly';
+    case 'worlds': return 'Choose a domain to explore templates';
+    case 'templates': return selectedCategoryMeta.value?.description || 'Import a template or run it directly';
     case 'prompt': return `Using "${selectedTemplate.value?.name}" template`;
     case 'preview': return 'Review which agents, skills, and rules will execute';
   }
@@ -125,7 +151,7 @@ const typeIcons: Record<string, typeof Bot> = {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="sm:max-w-lg" @keydown="onKeyDown">
+    <DialogContent class="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-lg" :class="{ 'sm:max-w-2xl': step === 'preview' }" @keydown="onKeyDown">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <LayoutTemplate class="h-4 w-4 text-primary" />
@@ -134,26 +160,49 @@ const typeIcons: Record<string, typeof Bot> = {
         <DialogDescription>{{ stepDescription }}</DialogDescription>
       </DialogHeader>
 
-      <!-- Step 1: Template List -->
-      <ScrollArea v-if="step === 'list'" class="max-h-[420px]">
+      <!-- Step 1: World Selection -->
+      <ScrollArea v-if="step === 'worlds'" class="min-h-0 flex-1">
+        <div class="grid grid-cols-2 gap-2 p-1">
+          <button
+            v-for="cat in categoriesWithCounts"
+            :key="cat.id"
+            class="group flex flex-col items-start gap-2 rounded-lg border border-border/60 bg-card p-3 text-left transition-all hover:border-border hover:shadow-md"
+            @click="selectWorld(cat.id)"
+          >
+            <div class="flex w-full items-center gap-2">
+              <div
+                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border"
+                :class="cat.color"
+              >
+                <component :is="categoryIcons[cat.icon]" class="h-4 w-4" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-semibold">{{ cat.name }}</span>
+                  <Badge variant="outline" class="text-[10px]">
+                    {{ cat.templateCount }}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <p class="text-[10px] leading-relaxed text-muted-foreground">
+              {{ cat.description }}
+            </p>
+          </button>
+        </div>
+      </ScrollArea>
+
+      <!-- Step 2: Templates in category -->
+      <ScrollArea v-else-if="step === 'templates'" class="min-h-0 flex-1">
         <div class="space-y-3 p-1">
           <div
-            v-for="template in GRAPH_TEMPLATES"
+            v-for="template in filteredTemplates"
             :key="template.id"
             class="group rounded-lg border border-border/60 bg-card p-4 transition-all hover:border-border hover:shadow-md"
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-semibold">{{ template.name }}</span>
-                  <Badge
-                    variant="outline"
-                    class="text-[10px] capitalize"
-                    :class="categoryColors[template.category]"
-                  >
-                    {{ template.category }}
-                  </Badge>
-                </div>
+                <span class="text-sm font-semibold">{{ template.name }}</span>
                 <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
                   {{ template.description }}
                 </p>
@@ -191,7 +240,7 @@ const typeIcons: Record<string, typeof Bot> = {
         </div>
       </ScrollArea>
 
-      <!-- Step 2: Prompt Input -->
+      <!-- Step 3: Prompt Input -->
       <div v-else-if="step === 'prompt'" class="space-y-4 py-2">
         <!-- Template summary -->
         <div class="flex flex-wrap gap-1.5">
@@ -229,23 +278,21 @@ const typeIcons: Record<string, typeof Bot> = {
         </div>
       </div>
 
-      <!-- Step 3: Execution Preview -->
-      <div v-else-if="step === 'preview'" class="space-y-3 py-2">
+      <!-- Step 4: Execution Preview -->
+      <div v-else-if="step === 'preview'" class="min-h-0 flex-1 overflow-y-auto py-2">
         <div v-if="runner.previewLoading" class="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
           <Loader2 class="h-4 w-4 animate-spin" />
           Resolving execution plan...
         </div>
 
-        <ScrollArea v-else-if="runner.currentPreview" class="max-h-[380px]">
-          <ExecutionPreviewTree :preview="runner.currentPreview" />
-        </ScrollArea>
+        <ExecutionPreviewTree v-else-if="runner.currentPreview" :preview="runner.currentPreview" />
 
         <div v-else class="py-8 text-center text-sm text-muted-foreground">
           Failed to generate preview. Try running directly.
         </div>
       </div>
 
-      <DialogFooter v-if="step !== 'list'" class="gap-2">
+      <DialogFooter v-if="step !== 'worlds'" class="gap-2">
         <Button variant="outline" @click="onBack">
           <ArrowLeft class="mr-1.5 h-3.5 w-3.5" />
           Back
