@@ -15,6 +15,7 @@ fi
 # Server config
 export HOST="0.0.0.0"
 export PORT="${PORT:-3010}"
+export DOCS_PORT="${DOCS_PORT:-5173}"
 export CORS_ORIGIN="http://${LAN_IP}:5174"
 
 # Client config
@@ -26,12 +27,14 @@ echo "============================================"
 echo "  LAN IP:   ${LAN_IP}"
 echo "  Client:   http://${LAN_IP}:5174"
 echo "  Server:   http://${LAN_IP}:${PORT}"
+echo "  Docs:     http://${LAN_IP}:${DOCS_PORT}"
 echo "============================================"
 echo ""
 
 # Run pnpm (via flatpak-spawn if inside Flatpak sandbox)
+# Starts server, client, AND docs dev server
 if [ -f /.flatpak-info ]; then
-  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='http://${LAN_IP}:5174' VITE_HOST=0.0.0.0 pnpm dev"
+  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='http://${LAN_IP}:5174' VITE_HOST=0.0.0.0 pnpm dev:all"
 else
-  pnpm dev
+  pnpm dev:all
 fi
