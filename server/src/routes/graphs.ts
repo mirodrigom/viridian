@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import archiver from 'archiver';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 import { safeJsonParse } from '../lib/safeJson.js';
+import { exportGraphToClaude } from '../services/graph-exporter.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -125,6 +127,44 @@ router.delete('/:id', (req: AuthRequest, res) => {
 
   db.prepare('DELETE FROM graphs WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
   res.json({ ok: true });
+});
+
+// ─── Export as .claude/ directory (zip) ─────────────────────────────────
+
+router.post('/export-claude', (req: AuthRequest, res) => {
+  try {
+    const { graphData, name } = req.body;
+    if (!graphData?.nodes || !graphData?.edges) {
+      res.status(400).json({ error: 'graphData with nodes and edges is required' });
+      return;
+    }
+
+    const files = exportGraphToClaude(graphData, name || 'Untitled Graph');
+
+    const safeName = (name || 'graph')
+      .replace(/[<>:"/\\|?*]/g, '')
+      .replace(/\s+/g, '-')
+      .toLowerCase();
+
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${safeName}-claude.zip"`,
+    });
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    for (const file of files) {
+      archive.append(file.content, { name: file.path });
+    }
+
+    archive.finalize();
+  } catch (err) {
+    if (!res.headersSent) {
+      const msg = err instanceof Error ? err.message : 'Export failed';
+      res.status(500).json({ error: msg });
+    }
+  }
 });
 
 // ─── AI prompt generation ───────────────────────────────────────────────

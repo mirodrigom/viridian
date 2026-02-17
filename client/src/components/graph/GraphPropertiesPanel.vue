@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useGraphStore } from '@/stores/graph';
 import { NODE_CONFIG } from '@/types/graph';
 import type { NodeData, AgentNodeData, SubagentNodeData, ExpertNodeData, SkillNodeData, McpNodeData, RuleNodeData } from '@/types/graph';
@@ -12,7 +12,8 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X, Loader2 } from 'lucide-vue-next';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X, Loader2, ChevronRight } from 'lucide-vue-next';
 
 const graph = useGraphStore();
 
@@ -28,13 +29,7 @@ const MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ];
 
-const PERMISSION_OPTIONS = [
-  { value: 'default', label: 'Default' },
-  { value: 'acceptEdits', label: 'Accept Edits' },
-  { value: 'plan', label: 'Plan Mode' },
-  { value: 'bypassPermissions', label: 'Full Auto' },
-];
-
+const advancedOpen = ref(false);
 const nodeId = computed(() => node.value?.id || null);
 
 function update(field: string, value: unknown) {
@@ -73,10 +68,15 @@ function update(field: string, value: unknown) {
             <Input :model-value="data.label" class="h-8 text-sm" @update:model-value="update('label', $event)" />
           </div>
 
-          <!-- Common: Description -->
+          <!-- Common: Description (brief summary for planning prompts & skill indexes) -->
           <div class="space-y-1.5">
             <Label class="text-xs">Description</Label>
-            <Input :model-value="data.description || ''" class="h-8 text-sm" placeholder="Optional..." @update:model-value="update('description', $event)" />
+            <Textarea
+              :model-value="data.description || ''"
+              class="min-h-[48px] max-h-[80px] overflow-y-auto !field-sizing-normal text-xs"
+              placeholder="Brief summary for planning prompts (1-2 sentences)..."
+              @update:model-value="update('description', $event)"
+            />
           </div>
 
           <Separator />
@@ -91,23 +91,6 @@ function update(field: string, value: unknown) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem v-for="opt in MODEL_OPTIONS" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </template>
-
-          <!-- Agent / Subagent: Permission Mode -->
-          <template v-if="data.nodeType === 'agent' || data.nodeType === 'subagent'">
-            <div class="space-y-1.5">
-              <Label class="text-xs">Permission Mode</Label>
-              <Select :model-value="(data as AgentNodeData | SubagentNodeData).permissionMode" @update:model-value="update('permissionMode', $event)">
-                <SelectTrigger class="h-8 text-sm">
-                  <SelectValue placeholder="Select mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="opt in PERMISSION_OPTIONS" :key="opt.value" :value="opt.value">
                     {{ opt.label }}
                   </SelectItem>
                 </SelectContent>
@@ -140,19 +123,6 @@ function update(field: string, value: unknown) {
               <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
               </p>
-            </div>
-          </template>
-
-          <!-- Agent: Max Tokens -->
-          <template v-if="data.nodeType === 'agent'">
-            <div class="space-y-1.5">
-              <Label class="text-xs">Max Tokens</Label>
-              <Input
-                type="number"
-                :model-value="(data as AgentNodeData).maxTokens"
-                class="h-8 text-sm"
-                @update:model-value="update('maxTokens', Number($event))"
-              />
             </div>
           </template>
 
@@ -322,6 +292,37 @@ function update(field: string, value: unknown) {
               </p>
             </div>
           </template>
+
+          <!-- Advanced Settings (collapsible) -->
+          <Separator />
+          <Collapsible v-model:open="advancedOpen">
+            <CollapsibleTrigger
+              class="flex w-full items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronRight
+                class="h-3 w-3 shrink-0 transition-transform duration-200"
+                :class="{ 'rotate-90': advancedOpen }"
+              />
+              <span>Advanced</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div class="mt-3 space-y-4">
+                <!-- Agent: Max Tokens -->
+                <template v-if="data.nodeType === 'agent'">
+                  <div class="space-y-1.5">
+                    <Label class="text-xs">Max Tokens</Label>
+                    <Input
+                      type="number"
+                      :model-value="(data as AgentNodeData).maxTokens"
+                      class="h-8 text-sm"
+                      @update:model-value="update('maxTokens', Number($event))"
+                    />
+                    <p class="text-[10px] text-muted-foreground">Default: 200,000</p>
+                  </div>
+                </template>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </ScrollArea>
     </template>

@@ -23,8 +23,8 @@ const data = computed(() => props.data as ExpertNodeData);
         <span class="text-muted-foreground">Model</span>
         <span class="font-mono text-foreground">{{ data.model?.split('-').slice(-2).join('-') || 'not set' }}</span>
       </div>
-      <div v-if="data.systemPrompt" class="truncate text-muted-foreground/70">
-        {{ data.systemPrompt.slice(0, 60) }}{{ data.systemPrompt.length > 60 ? '...' : '' }}
+      <div v-if="data.description" class="truncate text-muted-foreground/70">
+        {{ data.description.slice(0, 80) }}{{ data.description.length > 80 ? '...' : '' }}
       </div>
     </div>
   </BaseNode>

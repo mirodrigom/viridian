@@ -19,8 +19,8 @@ const data = computed(() => props.data as SkillNodeData);
         <span class="text-muted-foreground">Command</span>
         <span class="font-mono text-foreground">{{ data.command }}</span>
       </div>
-      <div v-if="data.promptTemplate" class="truncate text-muted-foreground/70">
-        {{ data.promptTemplate.slice(0, 80) }}{{ data.promptTemplate.length > 80 ? '...' : '' }}
+      <div v-if="data.description" class="truncate text-muted-foreground/70">
+        {{ data.description.slice(0, 80) }}{{ data.description.length > 80 ? '...' : '' }}
       </div>
       <div v-if="data.allowedTools?.length" class="text-muted-foreground/70">
         {{ data.allowedTools.length }} tools

@@ -2,12 +2,13 @@
 import { useRouter } from 'vue-router';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
+import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'vue-sonner';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
-  FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload,
+  FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package,
   LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight,
 } from 'lucide-vue-next';
 
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 
 const graph = useGraphStore();
 const runner = useGraphRunnerStore();
+const auth = useAuthStore();
 const router = useRouter();
 
 function onNewGraph() {
@@ -91,6 +93,53 @@ function onExport() {
 
   toast.success('Graph exported');
 }
+
+async function onExportClaude() {
+  if (graph.nodeCount === 0) {
+    toast.error('Nothing to export — graph is empty');
+    return;
+  }
+
+  const serialized = graph.serialize();
+
+  try {
+    const res = await fetch('/api/graphs/export-claude', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({
+        graphData: { nodes: serialized.nodes, edges: serialized.edges },
+        name: graph.currentGraphName,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      toast.error(err.error || 'Export failed');
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    const safeName = graph.currentGraphName
+      .replace(/[<>:"/\\|?*]/g, '')
+      .replace(/\s+/g, '-')
+      .toLowerCase() || 'graph';
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}-claude.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast.success('Exported as .claude/ directory');
+  } catch {
+    toast.error('Export failed');
+  }
+}
 </script>
 
 <template>
@@ -142,6 +191,15 @@ function onExport() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>Export as JSON</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExportClaude()">
+            <Package class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Export as .claude/ (zip)</TooltipContent>
       </Tooltip>
 
       <Tooltip>

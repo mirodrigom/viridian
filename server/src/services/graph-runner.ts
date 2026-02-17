@@ -12,7 +12,7 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
-import { appendFileSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
@@ -78,7 +78,7 @@ interface NodeEnvironment {
 }
 
 /** Default token budget for a graph run (if root node doesn't specify maxTokens) */
-const DEFAULT_TOKEN_BUDGET = 500_000;
+const DEFAULT_TOKEN_BUDGET = 1_000_000;
 /** Emit a budget_warning event at this fraction of the budget */
 const BUDGET_WARNING_THRESHOLD = 0.8;
 /** Maximum time (ms) a single node execution can run before being considered stuck */
@@ -129,10 +129,11 @@ function prepareNodeEnvironment(
 ): NodeEnvironment {
   const nodeRules = resolved.rules;
   const nodeMcps = resolved.mcps;
+  const nodeSkills = resolved.skills;
   const projectPath = sandbox ? sandbox.projectMirrorDir : originalCwd;
 
-  // No rules or MCPs → no tmpdir needed, use project path
-  if (nodeRules.length === 0 && nodeMcps.length === 0) {
+  // No rules, MCPs, or skills → no tmpdir needed, use project path
+  if (nodeRules.length === 0 && nodeMcps.length === 0 && nodeSkills.length === 0) {
     return {
       tmpDir: null,
       effectiveCwd: projectPath,
@@ -144,7 +145,7 @@ function prepareNodeEnvironment(
   const nodeLabel = (resolved.node.data.label as string) || resolved.node.id;
   const parentDir = sandbox ? sandbox.sandboxDir : tmpdir();
   const tmpDir = mkdtempSync(join(parentDir, `graph-node-${resolved.node.id.slice(0, 8)}-`));
-  debugLog(`[GraphRunner] Created node tmpdir: ${tmpDir} for "${nodeLabel}" (rules=${nodeRules.length}, mcps=${nodeMcps.length})`);
+  debugLog(`[GraphRunner] Created node tmpdir: ${tmpDir} for "${nodeLabel}" (rules=${nodeRules.length}, mcps=${nodeMcps.length}, skills=${nodeSkills.length})`);
 
   // Write CLAUDE.md with this node's rules
   if (nodeRules.length > 0) {
@@ -186,6 +187,23 @@ function prepareNodeEnvironment(
       JSON.stringify({ mcpServers }, null, 2),
       'utf8',
     );
+  }
+
+  // Write on-demand skill files (agents read these only when needed)
+  if (nodeSkills.length > 0) {
+    const skillsDir = join(tmpDir, 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    for (const skill of nodeSkills) {
+      const commandSlug = ((skill.data.command as string) || 'unnamed')
+        .replace(/^\//, '')
+        .replace(/[^a-zA-Z0-9-_]/g, '-');
+      const label = (skill.data.label as string) || 'Skill';
+      const template = (skill.data.promptTemplate as string) || '';
+      const tools = (skill.data.allowedTools as string[]) || [];
+      const content = `# ${label}\n\nCommand: \`${skill.data.command}\`\nAllowed Tools: ${tools.join(', ') || 'all default tools'}\n\n## Instructions\n\n${template}\n`;
+      writeFileSync(join(skillsDir, `${commandSlug}.md`), content, 'utf8');
+    }
+    debugLog(`[GraphRunner] Wrote ${nodeSkills.length} skill files to ${skillsDir}`);
   }
 
   return {
@@ -283,13 +301,21 @@ export function findRootNode(graphData: GraphData, resolved: Map<string, Resolve
 
 function composeSystemPrompt(
   resolved: ResolvedNode,
-  opts?: { skipRules?: boolean; projectPath?: string },
+  opts?: { skipRules?: boolean; projectPath?: string; skillsDir?: string },
 ): string {
   const parts: string[] = [];
 
-  // Project path instruction
+  // Project path instruction + structure discovery guidance
   if (opts?.projectPath) {
-    parts.push(`IMPORTANT: The project you are working on is located at: ${opts.projectPath}\nYou MUST use absolute paths (starting with ${opts.projectPath}) when reading, editing, creating, or searching project files. Do NOT use relative paths.`);
+    parts.push(`IMPORTANT: The project you are working on is located at: ${opts.projectPath}
+You MUST use absolute paths (starting with ${opts.projectPath}) when reading, editing, creating, or searching project files. Do NOT use relative paths.
+
+## Efficient Codebase Navigation
+Before reading files, understand the project structure first:
+1. Use \`Glob("${opts.projectPath}/**/*", { maxDepth: 2 })\` to get the top-level directory layout
+2. Use \`Grep\` to search for specific patterns, classes, or functions instead of reading entire files
+3. Only \`Read\` the specific files relevant to your task — do NOT read every file in the project
+4. Check for README.md, CLAUDE.md, or package.json at the project root for project conventions`);
   }
 
   // Node's own system prompt
@@ -308,15 +334,27 @@ function composeSystemPrompt(
     parts.push(`\n## Rules\n${ruleLines.join('\n')}`);
   }
 
-  // Available Skills section
+  // Available Skills — compact index (full instructions loaded on-demand from files)
   if (resolved.skills.length > 0) {
-    const skillSections = resolved.skills.map(s => {
+    const skillIndex = resolved.skills.map(s => {
       const command = s.data.command as string || '';
-      const template = s.data.promptTemplate as string || '';
+      const description = (s.data.description as string) || (s.data.label as string) || 'Skill';
       const label = s.data.label as string || 'Skill';
-      return `### Skill: ${label}\n**Command**: \`${command}\`\n**Instructions**:\n${template}`;
-    });
-    parts.push(`\n## Available Skills\nWhen executing a task that matches one of these skills, follow the skill's instructions exactly.\n\n${skillSections.join('\n\n')}`);
+      return `- \`${command}\` — **${label}**: ${description}`;
+    }).join('\n');
+
+    if (opts?.skillsDir) {
+      parts.push(`\n## Available Skills\n${skillIndex}\n\nBefore using a skill, read its full instructions:\n  Read(\`${opts.skillsDir}/<command-name>.md\`)\nOnly load the skill(s) you actually need for the current task.`);
+    } else {
+      // Fallback: inline full templates (no tmpdir available)
+      const skillSections = resolved.skills.map(s => {
+        const command = s.data.command as string || '';
+        const template = s.data.promptTemplate as string || '';
+        const label = s.data.label as string || 'Skill';
+        return `### Skill: ${label}\n**Command**: \`${command}\`\n**Instructions**:\n${template}`;
+      });
+      parts.push(`\n## Available Skills\nWhen executing a task that matches one of these skills, follow the skill's instructions exactly.\n\n${skillSections.join('\n\n')}`);
+    }
   }
 
   return parts.join('\n\n');
@@ -427,11 +465,10 @@ function parseDelegationPlan(
     parsed = JSON.parse(jsonStr.trim());
   } catch (err) {
     debugLog(`[GraphRunner] Failed to parse delegation plan JSON: ${err}. Raw output:\n${planOutput.slice(0, 500)}`);
-    // Fallback: if we can't parse, assign the full task to the first child
-    const firstChild = Object.entries(children)[0];
-    if (firstChild) {
-      const [key, { nodeId }] = firstChild;
+    // Fallback: delegate to ALL children with the original prose as context
+    for (const [key, { nodeId }] of Object.entries(children)) {
       assignments.push({ childNodeId: nodeId, childLabel: key, task: planOutput });
+      debugLog(`[GraphRunner] Fallback assignment: "${key}" (${nodeId})`);
     }
     return assignments;
   }
@@ -561,10 +598,12 @@ async function executeSinglePass(
     ctx.nodeEnvs.set(nodeId, env);
   }
 
-  // Compose system prompt
+  // Compose system prompt (skills loaded on-demand from files when tmpdir is available)
+  const skillsDir = env.tmpDir ? join(env.tmpDir, 'skills') : undefined;
   const composeOpts = {
     skipRules: !!env.tmpDir,
     projectPath: env.realProjectPath,
+    skillsDir: resolved.skills.length > 0 ? skillsDir : undefined,
   };
   const systemPrompt = composeSystemPrompt(resolved, composeOpts);
 
@@ -783,9 +822,18 @@ async function executeNode(
       debugLog(`[GraphRunner] "${nodeLabel}" Phase 2: SYNTHESIS (${childResults.size} child results)`);
       ctx.emitter.emit('node_phase', { nodeId, phase: 'synthesis' });
 
-      const synthesisPrompt = buildSynthesisPrompt(childResults);
-      const sessionId = ctx.sessionIds.get(nodeId); // resume planning session for continuity
-      result = await executeSinglePass(ctx, nodeId, synthesisPrompt, { sessionId });
+      if (ctx.abortController.signal.aborted && childResults.size > 0) {
+        // Budget exceeded — don't spawn another CLI (wastes tokens), just merge child results
+        debugLog(`[GraphRunner] "${nodeLabel}" budget exceeded — merging ${childResults.size} child results directly`);
+        const merged = [...childResults.entries()]
+          .map(([name, text]) => `## ${name}\n\n${text}`)
+          .join('\n\n---\n\n');
+        result = merged;
+      } else {
+        const synthesisPrompt = buildSynthesisPrompt(childResults);
+        const sessionId = ctx.sessionIds.get(nodeId); // resume planning session for continuity
+        result = await executeSinglePass(ctx, nodeId, synthesisPrompt, { sessionId });
+      }
     }
   }
 
