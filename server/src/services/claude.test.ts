@@ -66,7 +66,7 @@ const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoW
 function shouldAutoApprove(session: Session, toolName: string): boolean {
   const mode = session.userPermissionMode || 'default'
   if (mode === 'bypassPermissions') return true
-  if (toolName === 'AskUserQuestion') return false
+  if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false
   if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true
   if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true
   return false
@@ -170,7 +170,8 @@ function emitSDKMessage(session: Session, msg: SDKMessage) {
     }
   }
 
-  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion' && session.userPermissionMode !== 'bypassPermissions') {
+  const BLOCKING_TOOLS = ['AskUserQuestion', 'ExitPlanMode']
+  if (msg.type === 'tool_use' && BLOCKING_TOOLS.includes(msg.tool!) && session.userPermissionMode !== 'bypassPermissions') {
     session.pendingQuestionBuffer = []
   }
 
@@ -275,6 +276,17 @@ describe('shouldAutoApprove', () => {
     expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'acceptEdits' }), 'AskUserQuestion')).toBe(false)
     expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'plan' }), 'AskUserQuestion')).toBe(false)
     expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'default' }), 'AskUserQuestion')).toBe(false)
+  })
+
+  it('non-bypassPermissions modes never auto-approve ExitPlanMode', () => {
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'acceptEdits' }), 'ExitPlanMode')).toBe(false)
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'plan' }), 'ExitPlanMode')).toBe(false)
+    expect(shouldAutoApprove(createTestSession({ userPermissionMode: 'default' }), 'ExitPlanMode')).toBe(false)
+  })
+
+  it('bypassPermissions auto-approves ExitPlanMode', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    expect(shouldAutoApprove(session, 'ExitPlanMode')).toBe(true)
   })
 
   it('acceptEdits auto-approves file tools only', () => {
@@ -490,7 +502,29 @@ describe('emitSDKMessage — AskUserQuestion buffering', () => {
     expect(completeHandler).toHaveBeenCalled()
   })
 
-  it('non-AskUserQuestion tool_use does NOT start buffering', () => {
+  it('ExitPlanMode tool_use starts buffering', () => {
+    const session = createTestSession()
+    const toolHandler = vi.fn()
+    session.emitter.on('tool_use', toolHandler)
+
+    emitSDKMessage(session, {
+      type: 'tool_use',
+      tool: 'ExitPlanMode',
+      input: {},
+      requestId: 'exit-1',
+    })
+
+    expect(toolHandler).toHaveBeenCalled()
+    expect(session.pendingQuestionBuffer).toEqual([])
+  })
+
+  it('ExitPlanMode does NOT start buffering in bypassPermissions mode', () => {
+    const session = createTestSession({ userPermissionMode: 'bypassPermissions' })
+    emitSDKMessage(session, { type: 'tool_use', tool: 'ExitPlanMode', input: {}, requestId: 'exit-1' })
+    expect(session.pendingQuestionBuffer).toBeNull()
+  })
+
+  it('non-blocking tool_use does NOT start buffering', () => {
     const session = createTestSession()
     emitSDKMessage(session, { type: 'tool_use', tool: 'Write', input: {}, requestId: 'w-1' })
     expect(session.pendingQuestionBuffer).toBeNull()

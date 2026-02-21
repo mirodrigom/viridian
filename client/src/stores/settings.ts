@@ -2,11 +2,11 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-export type ClaudeModel = 'claude-sonnet-4-5-20250929' | 'claude-opus-4-6' | 'claude-haiku-4-5-20251001';
+export type ClaudeModel = 'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-haiku-4-5-20251001';
 export type ThinkingMode = 'standard' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
 
 export const MODEL_OPTIONS: { value: ClaudeModel; label: string; description: string }[] = [
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5', description: 'Fast and capable — best balance of speed and quality' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Fast and capable — best balance of speed and quality' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', description: 'Most powerful — deep reasoning and complex tasks' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Fastest — quick tasks with lower cost' },
 ];

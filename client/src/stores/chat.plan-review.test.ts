@@ -17,27 +17,42 @@ describe('useChatStore — plan review', () => {
       expect(store.planReviewText).toBe('# My Plan\n\n1. Step one\n2. Step two')
       expect(store.isPlanReviewActive).toBe(true)
     })
+
+    it('stores requestId when provided', () => {
+      store.activatePlanReview('plan text', 'req-exit-plan')
+
+      expect(store.planReviewRequestId).toBe('req-exit-plan')
+      expect(store.isPlanReviewActive).toBe(true)
+    })
+
+    it('sets requestId to null when not provided', () => {
+      store.activatePlanReview('plan text')
+
+      expect(store.planReviewRequestId).toBeNull()
+    })
   })
 
   describe('dismissPlanReview', () => {
-    it('clears plan text and deactivates review', () => {
-      store.activatePlanReview('some plan')
+    it('clears plan text, requestId, and deactivates review', () => {
+      store.activatePlanReview('some plan', 'req-123')
       store.dismissPlanReview()
 
       expect(store.planReviewText).toBeNull()
       expect(store.isPlanReviewActive).toBe(false)
+      expect(store.planReviewRequestId).toBeNull()
     })
   })
 
   describe('clearMessages resets plan state', () => {
     it('clears plan review on clearMessages', () => {
-      store.activatePlanReview('plan text')
+      store.activatePlanReview('plan text', 'req-123')
       store.inPlanMode = true
 
       store.clearMessages()
 
       expect(store.planReviewText).toBeNull()
       expect(store.isPlanReviewActive).toBe(false)
+      expect(store.planReviewRequestId).toBeNull()
       expect(store.inPlanMode).toBe(false)
     })
   })

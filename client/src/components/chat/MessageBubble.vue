@@ -191,7 +191,7 @@ function formatTime(ts: number) {
         </div>
         <span class="text-sm font-medium text-foreground">{{ message.toolUse.tool === 'AskUserQuestion' ? 'Question' : message.toolUse.tool }}</span>
         <Badge
-          v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'"
+          v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion' && message.toolUse.tool !== 'ExitPlanMode'"
           variant="outline"
           class="ml-auto text-[10px]"
         >
@@ -205,6 +205,13 @@ function formatTime(ts: number) {
           Awaiting answer
         </Badge>
         <Badge
+          v-else-if="message.toolUse.status === 'pending' && message.toolUse.tool === 'ExitPlanMode'"
+          variant="outline"
+          class="ml-auto text-[10px]"
+        >
+          Plan review
+        </Badge>
+        <Badge
           v-else-if="message.toolUse.status === 'rejected'"
           variant="destructive"
           class="ml-auto text-[10px]"
@@ -216,8 +223,8 @@ function formatTime(ts: number) {
       <!-- Tool-specific visualization -->
       <ToolView :tool-use="message.toolUse" />
 
-      <!-- Approval buttons (when pending, not for AskUserQuestion which has its own modal) -->
-      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion'" class="flex gap-2 border-t border-border bg-muted/10 px-2.5 sm:px-3.5 py-2.5">
+      <!-- Approval buttons (when pending, not for AskUserQuestion/ExitPlanMode which have their own UI) -->
+      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion' && message.toolUse.tool !== 'ExitPlanMode'" class="flex gap-2 border-t border-border bg-muted/10 px-2.5 sm:px-3.5 py-2.5">
         <Button size="sm" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
           <Check class="h-3.5 w-3.5" />
           Allow

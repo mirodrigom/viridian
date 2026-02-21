@@ -79,7 +79,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 0, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Subagent Infrastructure', description: 'Infrastructure specialist for CI/CD pipelines, Docker configurations, deployment scripts, and build systems.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an infrastructure specialist responsible for CI/CD pipelines, Docker configurations, deployment scripts, and build systems.
 
 ## Responsibilities
@@ -103,7 +103,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: -150, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert CLI', description: 'CLI and shell scripting specialist for portable, well-documented POSIX-compatible scripts.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert CLI', description: 'CLI and shell scripting specialist for portable, well-documented POSIX-compatible scripts.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a CLI and shell scripting expert. You write portable, well-documented shell scripts following POSIX conventions. You handle argument parsing, error codes, signal traps, and provide clear --help output. Prefer sh-compatible syntax unless bash-specific features are required.',
       specialty: 'CLI tools and shell scripting',
     },
@@ -113,7 +113,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 190, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert DevOps', description: 'DevOps specialist for infrastructure-as-code, container orchestration, and deployment automation.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert DevOps', description: 'DevOps specialist for infrastructure-as-code, container orchestration, and deployment automation.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a DevOps expert specializing in infrastructure-as-code, container orchestration, and deployment automation. You design reproducible environments, implement blue-green deployments, and optimize CI pipelines for speed and reliability. Always consider rollback strategies and monitoring.',
       specialty: 'DevOps practices and tooling',
     },
@@ -138,7 +138,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 600, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Subagent Frontend', description: 'Senior frontend engineer for component development, styling, accessibility, and responsive design.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a senior frontend engineer specializing in modern component-based architectures with deep expertise in Vue 3 (Composition API, Pinia), React, CSS architecture (Tailwind, CSS modules), and web performance.
 
 ## Working Rules
@@ -158,7 +158,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 450, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Vue/JS', description: 'Vue.js and TypeScript expert for composable components using the Composition API with proper prop interfaces.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Vue/JS', description: 'Vue.js and TypeScript expert for composable components using the Composition API with proper prop interfaces.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a Vue.js and TypeScript expert. You build composable, reusable components using the Composition API with proper prop interfaces, event emission, and slot patterns. You prefer local state where possible, lifting to Pinia stores only when state is shared across routes. Never store derived data — compute it.',
       specialty: 'Vue.js and JavaScript/TypeScript',
     },
@@ -168,7 +168,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 790, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Accessibility', description: 'Web accessibility specialist auditing for WCAG 2.1 AA compliance including keyboard navigation and color contrast.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Accessibility', description: 'Web accessibility specialist auditing for WCAG 2.1 AA compliance including keyboard navigation and color contrast.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a web accessibility specialist auditing for WCAG 2.1 AA compliance. You check for: semantic HTML, keyboard navigation, visible focus indicators, sufficient color contrast (4.5:1 for text), proper ARIA roles on custom widgets, associated form labels, and logical heading hierarchy. You identify real barriers, not theoretical concerns.',
       specialty: 'Web accessibility (WCAG, ARIA)',
     },
@@ -193,7 +193,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 1200, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Subagent Backend', description: 'Senior backend engineer for API design, database optimization, server-side architecture, and system reliability.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a senior backend engineer specializing in server-side architecture, API design, database optimization, and system reliability.
 
 ## Core Principles
@@ -213,7 +213,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1050, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Database', description: 'Database specialist for schema design, query optimization, indexing strategy, and N+1 detection.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Database', description: 'Database specialist for schema design, query optimization, indexing strategy, and N+1 detection.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a database specialist focused on schema design, query optimization, and indexing strategy. You ensure proper normalization, appropriate data types, foreign key constraints with ON DELETE behavior, and indexes on columns used in WHERE/JOIN/ORDER BY. You detect N+1 queries, missing LIMIT clauses, and recommend batch operations over single-row loops.',
       specialty: 'Database design and SQL',
     },
@@ -223,7 +223,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1390, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert TypeScript/Node.js', description: 'TypeScript and Node.js expert for type-safe async code with proper error boundaries and concurrency patterns.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert TypeScript/Node.js', description: 'TypeScript and Node.js expert for type-safe async code with proper error boundaries and concurrency patterns.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a TypeScript and Node.js expert. You write type-safe code with proper interfaces, discriminated unions, and strict null checks. You handle async operations correctly with proper error boundaries, avoid callback hell, and use structured concurrency patterns (Promise.all for parallel work, sequential for dependent operations).',
       specialty: 'TypeScript and Node.js backend',
     },
@@ -233,7 +233,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1220, y: 790 },
     data: {
-      nodeType: 'expert', label: 'Expert API', description: 'API design expert for resource-oriented REST endpoints with consistent response envelopes and pagination.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert API', description: 'API design expert for resource-oriented REST endpoints with consistent response envelopes and pagination.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an API design expert. You follow resource-oriented design with proper HTTP method semantics (GET is safe/idempotent, POST creates, PUT replaces, PATCH updates). You ensure consistent response envelopes, mandatory pagination on list endpoints, proper error shapes with status codes, and camelCase field naming in JSON for JS/TS projects.',
       specialty: 'REST/GraphQL API design',
     },
@@ -258,7 +258,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 1800, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Subagent Documentation', description: 'Technical documentation writer for READMEs, API docs, architecture guides, and code comments.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a technical documentation writer creating clear, accurate, and maintainable documentation for developers.
 
 ## Standards
@@ -277,7 +277,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1650, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert MDX/Docs', description: 'MDX and documentation expert for well-structured docs with Mermaid diagrams and cross-references.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert MDX/Docs', description: 'MDX and documentation expert for well-structured docs with Mermaid diagrams and cross-references.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an MDX and documentation writing expert. You create well-structured documentation with proper heading hierarchy, fenced code blocks with language identifiers, and cross-references between documents. You use Mermaid for diagrams and keep documentation DRY — single source of truth, linked from other locations.',
       specialty: 'MDX and documentation writing',
     },
@@ -287,7 +287,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1990, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Design/OpenAPI', description: 'OpenAPI 3.x specification expert for accurate schemas with types, constraints, and example values.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Design/OpenAPI', description: 'OpenAPI 3.x specification expert for accurate schemas with types, constraints, and example values.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an OpenAPI specification expert. You write accurate OpenAPI 3.x schemas with proper types, required fields, enum constraints, and example values. You ensure request/response schemas match the actual implementation and generate human-readable API documentation from specs.',
       specialty: 'OpenAPI spec and API documentation',
     },
@@ -306,7 +306,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 2400, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Subagent Conventions', description: 'Code conventions enforcer for naming standards, import ordering, dead code detection, and pattern consistency.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a code conventions enforcer ensuring consistency across the entire codebase.
 
 ## Responsibilities
@@ -325,7 +325,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 2400, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Naming', description: 'Naming conventions expert ensuring consistent camelCase, PascalCase, and UPPER_SNAKE usage across the codebase.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Naming', description: 'Naming conventions expert ensuring consistent camelCase, PascalCase, and UPPER_SNAKE usage across the codebase.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a naming conventions expert. You ensure consistent, descriptive names across the codebase: camelCase for variables/functions, PascalCase for types/classes/components, UPPER_SNAKE for constants. Boolean fields use is/has/can prefixes. Function names use verb-first (get, set, create, delete, handle). Avoid abbreviations unless universally understood.',
       specialty: 'Naming conventions and code style',
     },
@@ -349,7 +349,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 300, y: 1100 },
     data: {
       nodeType: 'subagent', label: 'Subagent GitHub', description: 'GitHub workflow automation specialist for issues, pull requests, reviews, and repository management.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a GitHub workflow automation specialist managing issues, pull requests, reviews, and repository workflows.
 
 ## Workflow Patterns
@@ -368,7 +368,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 150, y: 1360 },
     data: {
-      nodeType: 'expert', label: 'Expert Branches', description: 'Git branching strategy expert for naming conventions, merge strategies, and release workflows.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Branches', description: 'Git branching strategy expert for naming conventions, merge strategies, and release workflows.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a Git branching strategy expert. You advise on branch naming (feature/, fix/, chore/), merge strategies (rebase for feature branches, merge commits for releases), and release workflows. You ensure branches are short-lived, regularly rebased, and cleanly merged.',
       specialty: 'Git branching strategies',
     },
@@ -378,7 +378,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 490, y: 1360 },
     data: {
-      nodeType: 'expert', label: 'Expert Pull Requests', description: 'Pull request management expert for clear descriptions, actionable reviews, and code suggestions.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Pull Requests', description: 'Pull request management expert for clear descriptions, actionable reviews, and code suggestions.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a pull request management expert. You write clear PR descriptions with context, testing instructions, and screenshots when relevant. You review PRs by checking correctness, test coverage, performance impact, and backward compatibility. You leave actionable feedback with specific code suggestions.',
       specialty: 'PR review and management',
     },
@@ -409,7 +409,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 900, y: 1100 },
     data: {
       nodeType: 'subagent', label: 'Subagent QA', description: 'QA engineer for test coverage, reliability, edge cases, and systematic bug detection.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a QA engineer focused on test quality, coverage, and reliability.
 
 ## Responsibilities
@@ -429,7 +429,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 750, y: 1360 },
     data: {
-      nodeType: 'expert', label: 'Expert Integration', description: 'Integration testing expert verifying multi-component interactions including API, database, and WebSocket flows.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Integration', description: 'Integration testing expert verifying multi-component interactions including API, database, and WebSocket flows.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an integration testing expert. You write tests that verify multiple components work together correctly: API endpoints with database, authentication flows end-to-end, WebSocket connections with state management. You set up proper test fixtures, use realistic test data, and clean up after each test.',
       specialty: 'Integration testing',
     },
@@ -439,7 +439,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1090, y: 1360 },
     data: {
-      nodeType: 'expert', label: 'Expert Sanity', description: 'Smoke and sanity testing expert designing fast, high-confidence tests for critical paths and regression catching.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Sanity', description: 'Smoke and sanity testing expert designing fast, high-confidence tests for critical paths and regression catching.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a smoke and sanity testing expert. You design fast, high-confidence tests that verify critical paths still work after changes: login flow, main CRUD operations, navigation between key pages, and API health endpoints. These tests should run in under 30 seconds and catch obvious regressions.',
       specialty: 'Sanity and smoke testing',
     },
@@ -464,7 +464,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 1500, y: 1100 },
     data: {
       nodeType: 'subagent', label: 'Subagent DEV-OPS', description: 'DevOps engineer for CI/CD pipeline optimization, deployment automation, and infrastructure reliability.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a DevOps engineer specializing in CI/CD pipeline optimization, deployment automation, and infrastructure reliability.
 
 ## Focus Areas
@@ -482,7 +482,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 1500, y: 1360 },
     data: {
-      nodeType: 'expert', label: 'Expert DevOps', description: 'DevOps engineering expert for fast pipelines, safe rollbacks, and observable infrastructure.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert DevOps', description: 'DevOps engineering expert for fast pipelines, safe rollbacks, and observable infrastructure.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a DevOps engineering expert focused on automation, reliability, and developer experience. You design pipelines that are fast (parallelized, cached), safe (with rollback), and observable (with clear logs and failure notifications). You follow the principle of immutable infrastructure and reproducible builds.',
       specialty: 'DevOps engineering and automation',
     },
@@ -507,7 +507,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     position: { x: 2100, y: 1100 },
     data: {
       nodeType: 'subagent', label: 'Subagent Region/Integration', description: 'Integration specialist for external service connections, MCP servers, and region-specific configurations.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an integration specialist handling connections to external services, third-party APIs, and region-specific configurations.
 
 ## Responsibilities
@@ -537,7 +537,7 @@ Never implement code directly. Provide full context when delegating: file paths,
     type: 'expert',
     position: { x: 2100, y: 1600 },
     data: {
-      nodeType: 'expert', label: 'Expert Integrations', description: 'External service integration expert for resilient API clients with retry logic, circuit breakers, and fallbacks.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Integrations', description: 'External service integration expert for resilient API clients with retry logic, circuit breakers, and fallbacks.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an external service integration expert. You design resilient API clients with exponential backoff retry, circuit breaker patterns, and proper timeout handling. You validate external responses defensively, log integration failures with actionable context, and implement fallback behaviors for degraded service scenarios.',
       specialty: 'External service integrations',
     },
@@ -633,7 +633,7 @@ Report format: [Severity] [File:line] Description — Recommended fix. Group by 
     position: { x: 400, y: 280 },
     data: {
       nodeType: 'subagent', label: 'Subagent Review', description: 'Coordinates code reviews across security, performance, and style dimensions with consolidated findings.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You coordinate code reviews across three dimensions: security, performance, and code style. For each review task:
 
 1. Delegate to the Security expert for injection vulnerabilities, auth issues, and data exposure
@@ -651,7 +651,7 @@ Always provide exact file paths and line numbers. Only report real, actionable i
     type: 'expert',
     position: { x: 50, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Security', description: 'Security-focused reviewer for injection, auth, data exposure, input validation, and crypto vulnerabilities.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Security', description: 'Security-focused reviewer for injection, auth, data exposure, input validation, and crypto vulnerabilities.', model: 'claude-sonnet-4-6',
       systemPrompt: `You are a security-focused code reviewer. Analyze code for real, exploitable vulnerabilities:
 
 1. **Injection:** SQL injection (string concatenation in queries), command injection (unsanitized exec/spawn), template injection
@@ -669,7 +669,7 @@ For each finding: severity (Critical/High/Medium/Low), exact file:line, proof of
     type: 'expert',
     position: { x: 400, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Performance', description: 'Performance-focused reviewer for database N+1s, memory leaks, algorithmic inefficiency, and rendering issues.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Performance', description: 'Performance-focused reviewer for database N+1s, memory leaks, algorithmic inefficiency, and rendering issues.', model: 'claude-sonnet-4-6',
       systemPrompt: `You are a performance-focused code reviewer. Analyze code for:
 
 1. **Database:** N+1 queries (queries inside loops), missing indexes, unbounded result sets, SELECT * when specific columns suffice
@@ -687,7 +687,7 @@ For each finding: impact (High/Medium/Low), exact file:line, and specific fix wi
     type: 'expert',
     position: { x: 750, y: 560 },
     data: {
-      nodeType: 'expert', label: 'Expert Code Style', description: 'Code style reviewer for naming consistency, dead code, pattern deviations, and maintainability issues.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Code Style', description: 'Code style reviewer for naming consistency, dead code, pattern deviations, and maintainability issues.', model: 'claude-sonnet-4-6',
       systemPrompt: `You are a code style and consistency reviewer. Focus on issues that affect maintainability, not personal preferences:
 
 1. **Naming:** Mixed conventions (camelCase vs snake_case), unclear variable names, inconsistent patterns across files
@@ -813,7 +813,7 @@ Severity: Critical (RCE, SQLi, auth bypass — fix immediately), High (XSS, CSRF
     position: { x: 50, y: 300 },
     data: {
       nodeType: 'subagent', label: 'OWASP Auditor', description: 'Audits code for OWASP Top 10 vulnerabilities including SQL injection, command injection, and path traversal.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You audit code for OWASP Top 10 vulnerabilities with a focus on injection and input validation flaws.
 
 ## Search Patterns
@@ -834,7 +834,7 @@ For each finding provide: CWE ID, exact file:line, proof of concept showing how 
     position: { x: 400, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Auth Auditor', description: 'Audits authentication, authorization, and session management for privilege escalation and broken auth flaws.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You audit authentication, authorization, and session management for security flaws.
 
 ## Focus Areas
@@ -857,7 +857,7 @@ For each finding: severity, exact location, exploit scenario, and recommended fi
     position: { x: 750, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Dependency Auditor', description: 'Audits dependencies for known CVEs, outdated packages, typosquatting, and supply chain risks.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You audit project dependencies for known vulnerabilities and supply chain risks.
 
 ## Audit Tasks
@@ -878,7 +878,7 @@ Report each finding with: package name, current version, vulnerability descripti
     type: 'expert',
     position: { x: 50, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert XSS', description: 'Cross-site scripting specialist for reflected, stored, and DOM-based XSS with exploitability verification.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert XSS', description: 'Cross-site scripting specialist for reflected, stored, and DOM-based XSS with exploitability verification.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a cross-site scripting (XSS) specialist. You find reflected, stored, and DOM-based XSS by tracing user input through templates and innerHTML/dangerouslySetInnerHTML calls. You verify that output encoding is applied correctly for each context (HTML, attribute, JavaScript, URL). You provide specific payloads that demonstrate exploitability.',
       specialty: 'Cross-site scripting detection',
     },
@@ -888,7 +888,7 @@ Report each finding with: package name, current version, vulnerability descripti
     type: 'expert',
     position: { x: 750, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Crypto', description: 'Cryptography and secrets management expert for hashing, token generation, and data encryption at rest.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Crypto', description: 'Cryptography and secrets management expert for hashing, token generation, and data encryption at rest.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a cryptography and secrets management expert. You identify weak hashing (MD5/SHA1 for passwords — recommend bcrypt/argon2), insecure random generation (Math.random for tokens — use crypto.randomBytes), missing encryption for sensitive data at rest, and exposed secrets in source code, environment files, or logs.',
       specialty: 'Cryptography and secrets management',
     },
@@ -954,7 +954,7 @@ const docGenNodes: SerializedNode[] = [
     position: { x: 50, y: 300 },
     data: {
       nodeType: 'subagent', label: 'API Docs Generator', description: 'Generates API documentation from route handlers with schemas, auth requirements, and curl examples.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You generate comprehensive API documentation by reading the actual route handlers and service code.
 
 ## For Each Endpoint Document
@@ -977,7 +977,7 @@ Search for route definitions using Grep for router patterns (app.get, app.post, 
     position: { x: 400, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Architecture Docs', description: 'Generates architecture documentation with system overviews, dependency graphs, and ER diagrams in Mermaid.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You generate architecture documentation by analyzing the project's structure, modules, and data flow.
 
 ## Deliverables
@@ -999,7 +999,7 @@ Read the source code thoroughly — every diagram and description must reflect t
     position: { x: 750, y: 300 },
     data: {
       nodeType: 'subagent', label: 'User Guide Writer', description: 'Writes user-facing documentation including README, getting started guides, and configuration references.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You write user-facing documentation: README, getting started guides, contributing guides, and configuration references.
 
 ## README Structure
@@ -1025,7 +1025,7 @@ Read the source code thoroughly — every diagram and description must reflect t
     type: 'expert',
     position: { x: 250, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Mermaid', description: 'Mermaid diagram expert for flowcharts, sequence diagrams, ER diagrams, and class diagrams.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Mermaid', description: 'Mermaid diagram expert for flowcharts, sequence diagrams, ER diagrams, and class diagrams.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a Mermaid diagram expert. You create clear, well-structured diagrams: flowcharts for processes, sequence diagrams for API interactions, ER diagrams for database schemas, and class diagrams for module relationships. You use proper Mermaid syntax, meaningful labels, and keep diagrams focused on one concept each.',
       specialty: 'Mermaid diagrams and visual documentation',
     },
@@ -1035,7 +1035,7 @@ Read the source code thoroughly — every diagram and description must reflect t
     type: 'expert',
     position: { x: 600, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert OpenAPI', description: 'OpenAPI 3.x expert for machine-readable API specs with proper schemas, validations, and examples.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert OpenAPI', description: 'OpenAPI 3.x expert for machine-readable API specs with proper schemas, validations, and examples.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an OpenAPI 3.x specification expert. You create accurate, machine-readable API specs from source code. You define proper schemas with types, validations, examples, and descriptions. You ensure the spec can generate both documentation and client SDKs.',
       specialty: 'OpenAPI specifications',
     },
@@ -1087,7 +1087,7 @@ const migrationNodes: SerializedNode[] = [
     position: { x: 50, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Dependency Analyzer', description: 'Analyzes codebases to map migration scope, dependency chains, and recommended migration order.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You analyze codebases to map the full scope of a migration.
 
 ## Analysis Tasks
@@ -1110,7 +1110,7 @@ Output a structured migration scope report with file counts, risk areas, and rec
     position: { x: 400, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Code Transformer', description: 'Performs behavior-preserving code transformations for API upgrades, syntax changes, and import rewrites.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You perform code transformations for migrations: API upgrades, syntax changes, pattern replacements, and import rewrites.
 
 ## Transformation Rules
@@ -1132,7 +1132,7 @@ After each transformation batch, list all files modified and the specific patter
     position: { x: 750, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Migration Tester', description: 'Verifies migration correctness by running tests, checking for type errors, and detecting remaining old-version references.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You verify migrations are correct by running tests, checking for regressions, and validating behavior preservation.
 
 ## Verification Tasks
@@ -1153,7 +1153,7 @@ Report: pass/fail status, new type errors, deprecation warnings, and any remaini
     type: 'expert',
     position: { x: 50, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Frameworks', description: 'Framework migration expert for Vue 2-3, React class-hooks, Webpack-Vite, and JS-TypeScript upgrades.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Frameworks', description: 'Framework migration expert for Vue 2-3, React class-hooks, Webpack-Vite, and JS-TypeScript upgrades.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a framework migration expert familiar with major upgrade paths: Vue 2→3, React class→hooks, Express 4→5, Webpack→Vite, Jest→Vitest, JavaScript→TypeScript. You know the exact API changes, deprecations, and recommended replacement patterns for each migration path.',
       specialty: 'Framework upgrade paths and patterns',
     },
@@ -1163,7 +1163,7 @@ Report: pass/fail status, new type errors, deprecation warnings, and any remaini
     type: 'expert',
     position: { x: 750, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Compatibility', description: 'Backward compatibility expert for adapter layers, shims, and gradual migration using Strangler Fig patterns.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Compatibility', description: 'Backward compatibility expert for adapter layers, shims, and gradual migration using Strangler Fig patterns.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a backward compatibility expert. You design adapter layers, shims, and compatibility wrappers that allow gradual migration. You know when to use the Strangler Fig pattern (wrap old code, redirect to new implementation) vs. Branch by Abstraction (introduce interface, swap implementation).',
       specialty: 'Backward compatibility and adapter patterns',
     },
@@ -1224,7 +1224,7 @@ P0 (fix now): User-visible latency >3s, memory crashes, blocking event loop. P1 
     position: { x: 50, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Frontend Profiler', description: 'Profiles frontend for bundle size, rendering bottlenecks, lazy loading, and network waterfall issues.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You profile frontend applications for rendering performance, bundle size, and loading speed.
 
 ## Analysis Areas
@@ -1245,7 +1245,7 @@ For each finding: estimated impact, exact file:line, and specific optimization w
     position: { x: 400, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Backend Profiler', description: 'Profiles backend for API latency, memory leaks, event loop blocking, and caching opportunities.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You profile backend applications for API latency, throughput, and resource efficiency.
 
 ## Analysis Areas
@@ -1266,7 +1266,7 @@ For each finding: severity, quantified impact estimate, and specific fix.`,
     position: { x: 750, y: 300 },
     data: {
       nodeType: 'subagent', label: 'Database Optimizer', description: 'Optimizes database performance including N+1 queries, missing indexes, unbounded queries, and write patterns.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You optimize database performance: queries, indexes, schema design, and data access patterns.
 
 ## Analysis Areas
@@ -1287,7 +1287,7 @@ For each finding: quantified impact (e.g., "reduces O(n) queries to O(1)"), exac
     type: 'expert',
     position: { x: 50, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Bundle Size', description: 'JavaScript bundle optimization expert for tree-shaking, code splitting, and lighter dependency alternatives.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Bundle Size', description: 'JavaScript bundle optimization expert for tree-shaking, code splitting, and lighter dependency alternatives.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a JavaScript bundle optimization expert. You analyze import trees to find oversized dependencies, recommend lighter alternatives (date-fns vs moment, preact vs react for small apps), configure code splitting and dynamic imports, and ensure tree-shaking is working correctly. You know build tool configurations for Vite, Webpack, and esbuild.',
       specialty: 'JavaScript bundle size optimization',
     },
@@ -1297,7 +1297,7 @@ For each finding: quantified impact (e.g., "reduces O(n) queries to O(1)"), exac
     type: 'expert',
     position: { x: 750, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Query Optimization', description: 'SQL query optimization expert for execution plans, index strategies, and data access pattern design.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Query Optimization', description: 'SQL query optimization expert for execution plans, index strategies, and data access pattern design.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a SQL query optimization expert. You analyze query execution plans, recommend optimal index strategies (covering indexes, partial indexes, composite index column ordering), identify query anti-patterns (correlated subqueries, implicit type conversions), and design efficient data access patterns for common workloads.',
       specialty: 'SQL query and index optimization',
     },
@@ -1307,7 +1307,7 @@ For each finding: quantified impact (e.g., "reduces O(n) queries to O(1)"), exac
     type: 'expert',
     position: { x: 400, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Caching', description: 'Caching strategy expert for HTTP, application, database, and CDN caching with invalidation design.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Caching', description: 'Caching strategy expert for HTTP, application, database, and CDN caching with invalidation design.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a caching strategy expert. You identify opportunities for caching at every layer: HTTP response caching (Cache-Control, ETag), application-level memoization, database query caching, and CDN caching for static assets. You design cache invalidation strategies that prevent stale data while maximizing hit rates.',
       specialty: 'Caching strategies and invalidation',
     },
@@ -1362,7 +1362,7 @@ Design principles: Resource-oriented URLs (nouns, proper pluralization). HTTP me
     position: { x: 0, y: 300 },
     data: {
       nodeType: 'subagent', label: 'API Designer', description: 'Designs API contracts including resource modeling, endpoint patterns, request/response schemas, and versioning.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You design API contracts: resources, endpoints, request/response schemas, and error handling patterns.
 
 ## Design Process
@@ -1385,7 +1385,7 @@ Output: endpoint list with method, path, auth, request schema, response schema, 
     position: { x: 350, y: 300 },
     data: {
       nodeType: 'subagent', label: 'API Implementer', description: 'Implements API endpoints with route handlers, service layer, input validation, and proper error handling.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You implement API endpoints following the designed contracts with production-quality code.
 
 ## Implementation Standards
@@ -1408,7 +1408,7 @@ Follow the project's existing patterns for middleware, error handling, and respo
     position: { x: 700, y: 300 },
     data: {
       nodeType: 'subagent', label: 'API Documenter', description: 'Creates OpenAPI specs and human-readable API guides with endpoint references and curl examples.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You create API documentation from the implemented endpoints — both OpenAPI specs and human-readable guides.
 
 ## Documentation Output
@@ -1430,7 +1430,7 @@ Read the actual route handlers and service code to ensure documentation matches 
     position: { x: 1050, y: 300 },
     data: {
       nodeType: 'subagent', label: 'API Tester', description: 'Writes comprehensive API integration tests covering happy paths, validation errors, auth, and edge cases.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You write comprehensive API integration tests covering happy paths, error cases, and edge conditions.
 
 ## Test Coverage
@@ -1453,7 +1453,7 @@ Use descriptive test names: "POST /users - should return 400 when email is missi
     type: 'expert',
     position: { x: 0, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert REST', description: 'REST API design expert following the Richardson Maturity Model with proper resource hierarchies and idempotency.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert REST', description: 'REST API design expert following the Richardson Maturity Model with proper resource hierarchies and idempotency.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are a REST API design expert following the Richardson Maturity Model. You design proper resource hierarchies, use HATEOAS links where appropriate, implement content negotiation, and ensure idempotency for PUT/DELETE operations. You know when to use query parameters vs path parameters vs request body.',
       specialty: 'REST API design patterns',
     },
@@ -1463,7 +1463,7 @@ Use descriptive test names: "POST /users - should return 400 when email is missi
     type: 'expert',
     position: { x: 700, y: 570 },
     data: {
-      nodeType: 'expert', label: 'Expert Auth', description: 'API authentication and authorization expert for JWT, OAuth 2.0, API keys, and role-based access control.', model: 'claude-sonnet-4-5-20250929',
+      nodeType: 'expert', label: 'Expert Auth', description: 'API authentication and authorization expert for JWT, OAuth 2.0, API keys, and role-based access control.', model: 'claude-sonnet-4-6',
       systemPrompt: 'You are an API authentication and authorization expert. You implement JWT-based auth with proper token rotation, OAuth 2.0 flows for third-party integrations, API key management for machine-to-machine auth, and role-based access control (RBAC) with fine-grained permissions. You ensure tokens have appropriate expiration and refresh flows.',
       specialty: 'API authentication and authorization',
     },
@@ -1532,7 +1532,7 @@ const gameDevNodes: SerializedNode[] = [
     data: {
       nodeType: 'subagent', label: 'Game Logic',
       description: 'Implements game mechanics, state machines, physics systems, and entity component systems (ECS). Focuses on core gameplay programming.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a game logic programmer specializing in core gameplay systems: mechanics, state machines, physics, and entity component architecture.
 
 ## Responsibilities
@@ -1558,7 +1558,7 @@ const gameDevNodes: SerializedNode[] = [
     data: {
       nodeType: 'subagent', label: 'Art Pipeline',
       description: 'Manages the asset pipeline including sprite sheets, texture atlasing, asset optimization, and build-time asset processing.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an art pipeline specialist managing game asset workflows from source files to runtime-optimized formats.
 
 ## Responsibilities
@@ -1585,7 +1585,7 @@ const gameDevNodes: SerializedNode[] = [
     data: {
       nodeType: 'expert', label: 'Game Design',
       description: 'Specializes in game balancing, progression systems, reward loops, and player experience design. Analyzes game feel and iterates on mechanics.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a game design expert focusing on player experience, balancing, and progression systems.
 
 ## Expertise Areas
@@ -1607,7 +1607,7 @@ For each design recommendation: state the design goal, propose specific values w
     data: {
       nodeType: 'expert', label: 'Performance',
       description: 'Focuses on frame budget analysis, memory profiling, draw call optimization, and GPU/CPU bottleneck identification for games.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a game performance optimization expert analyzing and fixing frame rate, memory, and rendering bottlenecks.
 
 ## Expertise Areas
@@ -1657,13 +1657,10 @@ For each finding: report the frame time cost in milliseconds, the root cause, an
 const gameDevEdges: SerializedEdge[] = [
   edge('agent-game-director', 'sub-game-logic', 'delegation'),
   edge('agent-game-director', 'sub-art-pipeline', 'delegation'),
-  edge('agent-game-director', 'exp-game-design', 'delegation'),
-  edge('agent-game-director', 'exp-performance', 'delegation'),
-  edge('agent-game-director', 'skill-playtest', 'skill-usage'),
   edge('agent-game-director', 'rule-frame-budget', 'rule-constraint'),
   edge('sub-game-logic', 'exp-game-design', 'delegation'),
-  edge('sub-art-pipeline', 'exp-performance', 'delegation'),
   edge('sub-game-logic', 'skill-playtest', 'skill-usage'),
+  edge('sub-art-pipeline', 'exp-performance', 'delegation'),
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1695,7 +1692,7 @@ Scope limits: Maximum 3 core mechanics (ideally 1), maximum 5 entity types, one 
     data: {
       nodeType: 'subagent', label: 'Prototype Builder',
       description: 'Rapidly implements game mechanics and MVP features. Prioritizes speed and iteration over code quality for jam contexts.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a rapid prototyping specialist for game jams. Speed and iteration are your priorities — get something playable as fast as possible.
 
 ## Approach
@@ -1789,7 +1786,7 @@ const asset3dNodes: SerializedNode[] = [
     data: {
       nodeType: 'subagent', label: 'Modeling Specialist',
       description: 'Handles mesh topology, UV mapping, normal map baking, and retopology workflows for game-ready 3D models.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a 3D modeling specialist focused on creating game-ready meshes with optimal topology and UV layouts.
 
 ## Responsibilities
@@ -1817,7 +1814,7 @@ const asset3dNodes: SerializedNode[] = [
     data: {
       nodeType: 'subagent', label: 'Shader Writer',
       description: 'Creates PBR materials, writes shader code, and builds material graphs for physically accurate rendering.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a shader and material specialist creating PBR materials and custom shader effects for game engines.
 
 ## Responsibilities
@@ -1844,7 +1841,7 @@ const asset3dNodes: SerializedNode[] = [
     data: {
       nodeType: 'expert', label: 'Blender Python',
       description: 'Specializes in Blender Python scripting for automation, batch processing, and custom tool development.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a Blender Python scripting expert automating 3D workflows and building custom tools.
 
 ## Expertise Areas
@@ -1866,7 +1863,7 @@ Write Blender scripts that are version-aware (check bpy.app.version), handle edg
     data: {
       nodeType: 'expert', label: 'Optimization',
       description: 'Focuses on LOD generation, texture atlasing, draw call reduction, and mesh optimization for real-time rendering performance.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a 3D asset optimization expert ensuring assets meet real-time rendering performance targets.
 
 ## Expertise Areas
@@ -1917,9 +1914,6 @@ For each optimization: report the before/after metrics (polycount, draw calls, V
 const asset3dEdges: SerializedEdge[] = [
   edge('agent-3d-lead', 'sub-modeling', 'delegation'),
   edge('agent-3d-lead', 'sub-shader', 'delegation'),
-  edge('agent-3d-lead', 'exp-blender', 'delegation'),
-  edge('agent-3d-lead', 'exp-3d-optimization', 'delegation'),
-  edge('agent-3d-lead', 'skill-asset-audit', 'skill-usage'),
   edge('agent-3d-lead', 'rule-poly-budget', 'rule-constraint'),
   edge('sub-modeling', 'exp-blender', 'delegation'),
   edge('sub-modeling', 'skill-asset-audit', 'skill-usage'),
@@ -1953,7 +1947,7 @@ Art pipeline: Concept sketches → Color palette with accessibility checks → A
     data: {
       nodeType: 'subagent', label: 'Sprite Creator',
       description: 'Creates sprite sheets, animation frame sequences, pixel art, and tileset graphics for 2D games and applications.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a 2D sprite creation specialist producing sprite sheets, animations, pixel art, and tilesets.
 
 ## Responsibilities
@@ -1981,7 +1975,7 @@ Art pipeline: Concept sketches → Color palette with accessibility checks → A
     data: {
       nodeType: 'subagent', label: 'UI Designer',
       description: 'Designs user interface mockups, component systems, icon sets, and interaction patterns for games and applications.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a UI/UX designer specializing in game and application interfaces, component libraries, and icon systems.
 
 ## Responsibilities
@@ -2009,7 +2003,7 @@ Art pipeline: Concept sketches → Color palette with accessibility checks → A
     data: {
       nodeType: 'expert', label: 'Color Theory',
       description: 'Specializes in color palette creation, contrast ratios, color harmony, and accessibility compliance for visual designs.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a color theory expert specializing in palette design, visual accessibility, and harmonious color relationships for games and apps.
 
 ## Expertise Areas
@@ -2031,7 +2025,7 @@ For each palette recommendation: provide hex values, contrast ratios for text pa
     data: {
       nodeType: 'expert', label: 'SVG Specialist',
       description: 'Focuses on vector graphics creation, SVG optimization, icon system design, and scalable graphic workflows.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an SVG and vector graphics specialist creating optimized, scalable icons and illustrations.
 
 ## Expertise Areas
@@ -2071,12 +2065,9 @@ For each SVG deliverable: ensure it renders crisply at 16x16, 24x24, and 48x48, 
 const asset2dEdges: SerializedEdge[] = [
   edge('agent-art-director', 'sub-sprite-creator', 'delegation'),
   edge('agent-art-director', 'sub-ui-designer', 'delegation'),
-  edge('agent-art-director', 'exp-color-theory', 'delegation'),
-  edge('agent-art-director', 'exp-svg', 'delegation'),
-  edge('agent-art-director', 'skill-sprite-audit', 'skill-usage'),
   edge('sub-sprite-creator', 'exp-color-theory', 'delegation'),
-  edge('sub-ui-designer', 'exp-svg', 'delegation'),
   edge('sub-sprite-creator', 'skill-sprite-audit', 'skill-usage'),
+  edge('sub-ui-designer', 'exp-svg', 'delegation'),
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2108,7 +2099,7 @@ Deliverable: Executive summary, clause-by-clause analysis, risk matrix, recommen
     data: {
       nodeType: 'subagent', label: 'Contract Analyzer',
       description: 'Identifies and categorizes contract clauses, scores risk levels, and flags unusual or one-sided terms.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a contract analysis specialist who systematically identifies, categorizes, and risk-scores every clause in a contract.
 
 ## Analysis Framework
@@ -2132,7 +2123,7 @@ For each clause: section reference, category, risk score, plain-language summary
     data: {
       nodeType: 'subagent', label: 'Compliance Checker',
       description: 'Verifies contract compliance with GDPR, CCPA, and other regulatory frameworks. Identifies data protection gaps.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a regulatory compliance specialist checking contracts against applicable legal frameworks.
 
 ## Compliance Frameworks
@@ -2159,7 +2150,7 @@ For each clause: section reference, category, risk score, plain-language summary
     data: {
       nodeType: 'expert', label: 'Liability',
       description: 'Analyzes indemnification clauses, limitation of liability provisions, and insurance requirements in contracts.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a liability analysis expert specializing in indemnification clauses, limitation of liability provisions, and risk allocation in contracts.
 
 ## Analysis Areas
@@ -2181,7 +2172,7 @@ For each liability provision: assess fairness, compare to market standard, and r
     data: {
       nodeType: 'expert', label: 'IP Rights',
       description: 'Analyzes intellectual property terms including ownership, licensing, attribution requirements, and work-for-hire provisions.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an intellectual property rights expert analyzing IP provisions in contracts.
 
 ## Analysis Areas
@@ -2232,9 +2223,6 @@ For each IP provision: assess the scope of rights transferred, flag overly broad
 const contractReviewEdges: SerializedEdge[] = [
   edge('agent-legal-lead', 'sub-contract-analyzer', 'delegation'),
   edge('agent-legal-lead', 'sub-compliance', 'delegation'),
-  edge('agent-legal-lead', 'exp-liability', 'delegation'),
-  edge('agent-legal-lead', 'exp-ip-rights', 'delegation'),
-  edge('agent-legal-lead', 'skill-clause-extraction', 'skill-usage'),
   edge('agent-legal-lead', 'rule-confidentiality', 'rule-constraint'),
   edge('sub-contract-analyzer', 'exp-liability', 'delegation'),
   edge('sub-contract-analyzer', 'exp-ip-rights', 'delegation'),
@@ -2270,7 +2258,7 @@ Quality controls: Four-eye principle, complete audit trail, monthly bank reconci
     data: {
       nodeType: 'subagent', label: 'Bookkeeper',
       description: 'Handles transaction categorization, account reconciliation, journal entries, and maintains the general ledger.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a meticulous bookkeeper responsible for accurate transaction categorization, account reconciliation, and general ledger maintenance.
 
 ## Responsibilities
@@ -2298,7 +2286,7 @@ Quality controls: Four-eye principle, complete audit trail, monthly bank reconci
     data: {
       nodeType: 'subagent', label: 'Tax Analyst',
       description: 'Identifies tax deductions, ensures compliance with tax regulations, and optimizes tax positions across jurisdictions.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a tax analysis specialist focused on deduction identification, compliance verification, and tax optimization.
 
 ## Responsibilities
@@ -2326,7 +2314,7 @@ Quality controls: Four-eye principle, complete audit trail, monthly bank reconci
     data: {
       nodeType: 'expert', label: 'Financial Reporting',
       description: 'Specializes in preparing and analyzing P&L statements, balance sheets, cash flow statements, and financial KPIs.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a financial reporting expert producing accurate, insightful financial statements and analysis.
 
 ## Expertise Areas
@@ -2348,7 +2336,7 @@ For each report: provide clear narrative explaining the numbers, highlight conce
     data: {
       nodeType: 'expert', label: 'Tax Code',
       description: 'Deep expertise in jurisdiction-specific tax rules including federal, state, and international tax codes.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a tax code expert with deep knowledge of jurisdiction-specific tax regulations and their application.
 
 ## Expertise Areas
@@ -2388,9 +2376,6 @@ Cite specific IRC sections, regulations, and relevant case law when providing gu
 const financialEdges: SerializedEdge[] = [
   edge('agent-financial-controller', 'sub-bookkeeper', 'delegation'),
   edge('agent-financial-controller', 'sub-tax-analyst', 'delegation'),
-  edge('agent-financial-controller', 'exp-financial-reporting', 'delegation'),
-  edge('agent-financial-controller', 'exp-tax-code', 'delegation'),
-  edge('agent-financial-controller', 'skill-transaction-audit', 'skill-usage'),
   edge('sub-bookkeeper', 'exp-financial-reporting', 'delegation'),
   edge('sub-bookkeeper', 'skill-transaction-audit', 'skill-usage'),
   edge('sub-tax-analyst', 'exp-tax-code', 'delegation'),
@@ -2425,7 +2410,7 @@ Performance targets: Lighthouse >=90, LCP <2.5s, FID <100ms, CLS <0.1, mobile-fi
     data: {
       nodeType: 'subagent', label: 'Page Designer',
       description: 'Creates landing page layouts, section designs, and responsive breakpoints optimized for visual impact and user engagement.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a landing page design specialist creating visually compelling, conversion-optimized page layouts.
 
 ## Responsibilities
@@ -2453,7 +2438,7 @@ Performance targets: Lighthouse >=90, LCP <2.5s, FID <100ms, CLS <0.1, mobile-fi
     data: {
       nodeType: 'subagent', label: 'Content Writer',
       description: 'Writes conversion-focused copy, CTAs, and SEO-optimized text for landing pages and marketing content.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a conversion copywriter creating compelling, SEO-optimized content for landing pages.
 
 ## Copywriting Framework
@@ -2482,7 +2467,7 @@ Performance targets: Lighthouse >=90, LCP <2.5s, FID <100ms, CLS <0.1, mobile-fi
     data: {
       nodeType: 'expert', label: 'SEO',
       description: 'Specializes in technical SEO including meta tags, structured data, Core Web Vitals optimization, and search engine ranking factors.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a technical SEO expert optimizing pages for search engine visibility and Core Web Vitals performance.
 
 ## Expertise Areas
@@ -2504,7 +2489,7 @@ For each recommendation: state the expected SEO impact (high/medium/low), implem
     data: {
       nodeType: 'expert', label: 'Conversion',
       description: 'Focuses on CTA placement strategy, A/B testing design, conversion funnel optimization, and reducing user friction.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a conversion rate optimization (CRO) expert maximizing landing page conversion rates through data-driven strategies.
 
 ## Expertise Areas
@@ -2562,13 +2547,9 @@ For each recommendation: state the expected conversion lift (based on industry b
 const landingPageEdges: SerializedEdge[] = [
   edge('agent-web-lead', 'sub-page-designer', 'delegation'),
   edge('agent-web-lead', 'sub-content-writer', 'delegation'),
-  edge('agent-web-lead', 'exp-seo', 'delegation'),
-  edge('agent-web-lead', 'exp-conversion', 'delegation'),
-  edge('agent-web-lead', 'skill-seo-audit', 'skill-usage'),
-  edge('agent-web-lead', 'skill-lighthouse', 'skill-usage'),
   edge('sub-page-designer', 'exp-conversion', 'delegation'),
-  edge('sub-content-writer', 'exp-seo', 'delegation'),
   edge('sub-page-designer', 'skill-lighthouse', 'skill-usage'),
+  edge('sub-content-writer', 'exp-seo', 'delegation'),
   edge('sub-content-writer', 'skill-seo-audit', 'skill-usage'),
 ];
 
@@ -2599,7 +2580,7 @@ Key metrics: Cart abandonment <60%, checkout <3 minutes, product pages <2s load,
     data: {
       nodeType: 'subagent', label: 'Product Catalog',
       description: 'Designs product data schemas, category taxonomies, search functionality, and catalog browsing experiences.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a product catalog specialist designing data schemas, category systems, and search experiences for e-commerce.
 
 ## Responsibilities
@@ -2626,7 +2607,7 @@ Key metrics: Cart abandonment <60%, checkout <3 minutes, product pages <2s load,
     data: {
       nodeType: 'subagent', label: 'Cart & Checkout',
       description: 'Implements shopping cart logic, checkout flow, payment gateway integration, and order processing.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a cart and checkout specialist building the purchase flow from add-to-cart through order confirmation.
 
 ## Responsibilities
@@ -2653,7 +2634,7 @@ Key metrics: Cart abandonment <60%, checkout <3 minutes, product pages <2s load,
     data: {
       nodeType: 'expert', label: 'Payment Security',
       description: 'Specializes in PCI DSS compliance, payment tokenization, fraud prevention, and secure transaction processing.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a payment security expert ensuring PCI DSS compliance and secure transaction processing.
 
 ## Expertise Areas
@@ -2675,7 +2656,7 @@ For each recommendation: specify the PCI DSS requirement number, implementation 
     data: {
       nodeType: 'expert', label: 'UX Flows',
       description: 'Optimizes e-commerce checkout flows, reduces cart abandonment, and improves the overall purchase user experience.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are a UX flow optimization expert focused on reducing cart abandonment and improving checkout completion rates.
 
 ## Expertise Areas
@@ -2715,9 +2696,6 @@ For each recommendation: cite industry benchmark data, expected impact on conver
 const ecommerceEdges: SerializedEdge[] = [
   edge('agent-ecommerce', 'sub-product-catalog', 'delegation'),
   edge('agent-ecommerce', 'sub-cart-checkout', 'delegation'),
-  edge('agent-ecommerce', 'exp-payment-security', 'delegation'),
-  edge('agent-ecommerce', 'exp-ux-flows', 'delegation'),
-  edge('agent-ecommerce', 'skill-payment-audit', 'skill-usage'),
   edge('sub-cart-checkout', 'exp-payment-security', 'delegation'),
   edge('sub-cart-checkout', 'exp-ux-flows', 'delegation'),
   edge('sub-cart-checkout', 'skill-payment-audit', 'skill-usage'),
@@ -2750,7 +2728,7 @@ Use separate AWS accounts for dev, staging, prod. Blue-green or canary deploymen
     data: {
       nodeType: 'subagent', label: 'Infrastructure Coder',
       description: 'Writes Terraform/CloudFormation templates for AWS infrastructure including VPC design, IAM policies, and resource provisioning.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an AWS infrastructure-as-code specialist writing production-grade Terraform and CloudFormation templates.
 
 ## Responsibilities
@@ -2778,7 +2756,7 @@ Use separate AWS accounts for dev, staging, prod. Blue-green or canary deploymen
     data: {
       nodeType: 'subagent', label: 'Serverless Developer',
       description: 'Builds serverless applications using Lambda, API Gateway, DynamoDB, Step Functions, and event-driven architectures.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an AWS serverless development specialist building event-driven applications with Lambda, API Gateway, and DynamoDB.
 
 ## Responsibilities
@@ -2806,7 +2784,7 @@ Use separate AWS accounts for dev, staging, prod. Blue-green or canary deploymen
     data: {
       nodeType: 'expert', label: 'Cost Optimization',
       description: 'Analyzes AWS spending patterns and recommends cost savings through Reserved Instances, Savings Plans, and right-sizing.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an AWS cost optimization expert analyzing cloud spending and recommending savings strategies.
 
 ## Expertise Areas
@@ -2828,7 +2806,7 @@ For each recommendation: calculate monthly savings, implementation risk, and pay
     data: {
       nodeType: 'expert', label: 'Security',
       description: 'Reviews IAM policies, security group configurations, encryption settings, and AWS security best practices.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an AWS security expert ensuring cloud infrastructure follows security best practices and compliance requirements.
 
 ## Expertise Areas
@@ -2899,10 +2877,6 @@ For each finding: severity (Critical/High/Medium/Low), affected resources, speci
 const awsEdges: SerializedEdge[] = [
   edge('agent-aws-architect', 'sub-infra-coder', 'delegation'),
   edge('agent-aws-architect', 'sub-serverless', 'delegation'),
-  edge('agent-aws-architect', 'exp-cost', 'delegation'),
-  edge('agent-aws-architect', 'exp-aws-security', 'delegation'),
-  edge('agent-aws-architect', 'skill-aws-cost', 'skill-usage'),
-  edge('agent-aws-architect', 'skill-iam-audit', 'skill-usage'),
   edge('agent-aws-architect', 'rule-least-privilege', 'rule-constraint'),
   edge('sub-infra-coder', 'exp-aws-security', 'delegation'),
   edge('sub-infra-coder', 'skill-iam-audit', 'skill-usage'),
@@ -2937,7 +2911,7 @@ Separate resource groups per environment. Azure DevOps pipelines with environmen
     data: {
       nodeType: 'subagent', label: 'DevOps Engineer',
       description: 'Builds Azure DevOps pipelines, writes Bicep/ARM templates, and manages CI/CD workflows for Azure deployments.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an Azure DevOps engineer building CI/CD pipelines and infrastructure-as-code for Azure environments.
 
 ## Responsibilities
@@ -2965,7 +2939,7 @@ Separate resource groups per environment. Azure DevOps pipelines with environmen
     data: {
       nodeType: 'subagent', label: 'App Developer',
       description: 'Develops applications on Azure platform services including Functions, App Service, AKS, and Azure Container Apps.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an Azure application developer building cloud-native apps on Azure platform services.
 
 ## Responsibilities
@@ -2993,7 +2967,7 @@ Separate resource groups per environment. Azure DevOps pipelines with environmen
     data: {
       nodeType: 'expert', label: 'Identity',
       description: 'Specializes in Azure AD configuration, managed identities, RBAC role assignments, and conditional access policies.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an Azure identity and access management expert specializing in Azure AD, managed identities, and RBAC.
 
 ## Expertise Areas
@@ -3015,7 +2989,7 @@ For each identity recommendation: specify the security benefit, user experience 
     data: {
       nodeType: 'expert', label: 'Monitoring',
       description: 'Designs observability solutions using Application Insights, Log Analytics, Azure Monitor alerts, and dashboards.',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       systemPrompt: `You are an Azure monitoring and observability expert designing comprehensive monitoring solutions.
 
 ## Expertise Areas
@@ -3081,10 +3055,6 @@ For each monitoring recommendation: specify the KQL query or metric, alert thres
 const azureEdges: SerializedEdge[] = [
   edge('agent-azure-architect', 'sub-azure-devops', 'delegation'),
   edge('agent-azure-architect', 'sub-azure-dev', 'delegation'),
-  edge('agent-azure-architect', 'exp-identity', 'delegation'),
-  edge('agent-azure-architect', 'exp-monitoring', 'delegation'),
-  edge('agent-azure-architect', 'skill-azure-audit', 'skill-usage'),
-  edge('agent-azure-architect', 'skill-pipeline-optimize', 'skill-usage'),
   edge('sub-azure-devops', 'exp-identity', 'delegation'),
   edge('sub-azure-devops', 'skill-pipeline-optimize', 'skill-usage'),
   edge('sub-azure-dev', 'exp-monitoring', 'delegation'),

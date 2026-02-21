@@ -48,21 +48,27 @@ const answers = ref<Record<number, string[]>>({});
 const customInputs = ref<Record<number, string>>({});
 const useCustom = ref<Record<number, boolean>>({});
 
-// Auto-open when tool arrives and is pending
-watch(() => props.toolUse.status, (status) => {
-  if (status === 'pending' && questions.value.length > 0 && !props.toolUse.isInputStreaming) {
-    showModal.value = true;
-    currentStep.value = 0;
-  }
-}, { immediate: true });
-
-// Also open when input finishes streaming
-watch(() => props.toolUse.isInputStreaming, (streaming) => {
-  if (!streaming && props.toolUse.status === 'pending' && questions.value.length > 0) {
-    showModal.value = true;
-    currentStep.value = 0;
-  }
-});
+// Auto-open modal when all conditions are met:
+// 1. Tool status is 'pending' (not yet answered)
+// 2. Questions have been parsed (length > 0)
+// 3. Input is not still streaming
+// Using a multi-dependency watcher ensures the modal opens regardless of
+// which condition becomes true last (fixes race condition where tool_use,
+// tool_input_delta, and tool_input_complete arrive in quick succession).
+watch(
+  () => ({
+    status: props.toolUse.status,
+    questionCount: questions.value.length,
+    streaming: props.toolUse.isInputStreaming,
+  }),
+  ({ status, questionCount, streaming }) => {
+    if (status === 'pending' && questionCount > 0 && !streaming) {
+      showModal.value = true;
+      currentStep.value = 0;
+    }
+  },
+  { immediate: true },
+);
 
 const currentQuestion = computed(() => questions.value[currentStep.value]);
 const isLastStep = computed(() => currentStep.value === questions.value.length - 1);

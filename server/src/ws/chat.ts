@@ -4,7 +4,7 @@ import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
 
-const VALID_MODELS = ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'];
+const VALID_MODELS = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'];
 const VALID_PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 
 /** Validate and normalize a cwd path — must be absolute with no traversal. */

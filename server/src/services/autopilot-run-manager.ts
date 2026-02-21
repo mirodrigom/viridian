@@ -123,8 +123,8 @@ export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext 
     agentBProfile,
     agentASessionId: null,
     agentBSessionId: null,
-    agentAModel: config.agentAModel || agentAProfile.model || 'claude-sonnet-4-20250514',
-    agentBModel: config.agentBModel || agentBProfile.model || 'claude-sonnet-4-20250514',
+    agentAModel: config.agentAModel || agentAProfile.model || 'claude-sonnet-4-6',
+    agentBModel: config.agentBModel || agentBProfile.model || 'claude-sonnet-4-6',
     allowedPaths: config.allowedPaths,
     cycleCount: 0,
     maxIterations: config.maxIterations,
@@ -238,8 +238,8 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
   if (!agentAProfile || !agentBProfile) throw new Error('Agent profile not found');
 
   // Determine models from config if available, else profile, else default
-  let agentAModel = agentAProfile.model || 'claude-sonnet-4-20250514';
-  let agentBModel = agentBProfile.model || 'claude-sonnet-4-20250514';
+  let agentAModel = agentAProfile.model || 'claude-sonnet-4-6';
+  let agentBModel = agentBProfile.model || 'claude-sonnet-4-6';
   let maxIterations = 50;
   let maxTokens = 500000;
   let allowedPaths: string[] = [];

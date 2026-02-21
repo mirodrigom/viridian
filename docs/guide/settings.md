@@ -18,7 +18,7 @@ Choose which Claude model powers the conversation. The selector appears in the s
 
 | Model | Description |
 |---|---|
-| **Claude Sonnet 4.5** | Fast and capable -- best balance of speed and quality |
+| **Claude Sonnet 4.6** | Fast and capable -- best balance of speed and quality |
 | **Claude Opus 4.6** | Most powerful -- deep reasoning and complex tasks |
 | **Claude Haiku 4.5** | Fastest -- quick tasks with lower cost |
 

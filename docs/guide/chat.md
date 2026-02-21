@@ -87,7 +87,7 @@ Type `/` to open the command palette. Commands execute locally and produce syste
 | Command | Description |
 |---------|-------------|
 | `/clear` | Clear the current conversation's message history. |
-| `/model` | Cycle to the next available model (Sonnet 4.5 -> Opus 4.6 -> Haiku 4.5). |
+| `/model` | Cycle to the next available model (Sonnet 4.6 -> Opus 4.6 -> Haiku 4.5). |
 | `/think` | Cycle to the next thinking mode (Standard -> Think -> Think Hard -> Think Harder -> Ultrathink). |
 | `/permission` | Cycle the permission mode (Full Auto -> Accept Edits -> Plan Mode -> Ask Every Time). |
 | `/status` | Display current session info: model, thinking mode, permission mode, message count, context usage, and cost. |

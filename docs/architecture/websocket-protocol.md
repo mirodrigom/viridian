@@ -146,7 +146,7 @@ The chat endpoint streams Claude CLI output to the browser and accepts user mess
 
 The server validates these values before passing them to the Claude CLI:
 
-- **Models:** `claude-sonnet-4-5-20250929`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`
+- **Models:** `claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`
 - **Permission modes:** `default`, `acceptEdits`, `plan`, `bypassPermissions`
 
 ## Shell WebSocket (`/ws/shell`)

@@ -48,7 +48,7 @@ describe('useSettingsStore', () => {
         darkMode: false,
         fontSize: 16,
         permissionMode: 'default',
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-sonnet-4-6',
         thinkingMode: 'think_hard',
         maxTokens: 100000,
         maxOutputTokens: 8192,
@@ -63,7 +63,7 @@ describe('useSettingsStore', () => {
       expect(store.darkMode).toBe(false)
       expect(store.fontSize).toBe(16)
       expect(store.permissionMode).toBe('default')
-      expect(store.model).toBe('claude-sonnet-4-5-20250929')
+      expect(store.model).toBe('claude-sonnet-4-6')
       expect(store.thinkingMode).toBe('think_hard')
       expect(store.maxTokens).toBe(100000)
       expect(store.maxOutputTokens).toBe(8192)
@@ -190,8 +190,8 @@ describe('useSettingsStore', () => {
       store.model = 'claude-opus-4-6'
       expect(store.modelLabel).toBe('Claude Opus 4.6')
 
-      store.model = 'claude-sonnet-4-5-20250929'
-      expect(store.modelLabel).toBe('Claude Sonnet 4.5')
+      store.model = 'claude-sonnet-4-6'
+      expect(store.modelLabel).toBe('Claude Sonnet 4.6')
 
       store.model = 'claude-haiku-4-5-20251001'
       expect(store.modelLabel).toBe('Claude Haiku 4.5')

@@ -41,7 +41,7 @@ export interface ExportedFile {
 
 const MODEL_MAP: Record<string, string> = {
   'claude-opus-4-6': 'opus',
-  'claude-sonnet-4-5-20250929': 'sonnet',
+  'claude-sonnet-4-6': 'sonnet',
   'claude-haiku-4-5-20251001': 'haiku',
 };
 

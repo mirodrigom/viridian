@@ -219,12 +219,19 @@ export function useClaudeStream() {
 
       chat.finishStreaming();
 
-      // If we reconnected mid-stream, we likely missed tool events and intermediate
-      // messages. Do a full reload from disk to get the complete conversation.
+      // Reconcile messages after stream ends to catch any events lost during
+      // brief WebSocket disruptions (e.g. WS in CLOSING state, kernel buffer
+      // full, or reconnection during which events were emitted by the server).
       const reloadId = chat.claudeSessionId || chat.sessionId;
-      if (reconnectedMidStream && reloadId && chat.activeProjectDir) {
-        reconnectedMidStream = false;
-        reloadSession(reloadId, chat.activeProjectDir);
+      if (reloadId && chat.activeProjectDir) {
+        if (reconnectedMidStream) {
+          // Full reload — we likely missed many events during reconnection
+          reconnectedMidStream = false;
+          reloadSession(reloadId, chat.activeProjectDir);
+        } else {
+          // Quick check — fetch only messages after our last known index
+          fetchMissedMessages(reloadId, chat.activeProjectDir);
+        }
       }
     });
 
@@ -254,7 +261,16 @@ export function useClaudeStream() {
       const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
       if (lastAssistant) lastAssistant.isStreaming = false;
 
-      // Handle ExitPlanMode plan text capture
+      // Determine initial tool status.
+      // EnterPlanMode is an internal tool that never needs approval.
+      // ExitPlanMode requires user approval (plan review) in non-bypassPermissions modes.
+      // In bypassPermissions (Full Auto) mode, ALL tools are auto-approved.
+      // In other modes, tools start as 'pending' until the server auto-approves
+      // or forwards a control_request for user approval.
+      const INTERNAL_TOOLS = ['EnterPlanMode'];
+      const autoApproved = INTERNAL_TOOLS.includes(d.tool) || settings.permissionMode === 'bypassPermissions';
+
+      // Handle ExitPlanMode plan text capture + plan review activation
       if (d.tool === 'ExitPlanMode') {
 
         // Capture plan text: prefer the Write tool call that targets .claude/plans/,
@@ -267,9 +283,9 @@ export function useClaudeStream() {
             break;
           }
         }
+        let planText = '';
         if (enterIdx >= 0) {
           // Look for the Write tool that wrote the plan file
-          let planText = '';
           for (let i = enterIdx + 1; i < msgs.length; i++) {
             if (msgs[i].toolUse?.tool === 'ExitPlanMode') break;
             const tu = msgs[i].toolUse;
@@ -290,20 +306,13 @@ export function useClaudeStream() {
               }
             }
           }
-          if (planText.trim()) {
-            chat.activatePlanReview(planText.trim());
-          }
+        }
+        // Only activate plan review when the tool needs user approval.
+        // In bypassPermissions mode, the server auto-approves and stream continues.
+        if (!autoApproved) {
+          chat.activatePlanReview(planText.trim() || '(Plan text not captured)', d.requestId);
         }
       }
-
-      // Determine initial tool status.
-      // The server handles auto-approval based on the user's permission mode.
-      // EnterPlanMode/ExitPlanMode are internal tools that never need approval.
-      // In bypassPermissions (Full Auto) mode, ALL tools are auto-approved.
-      // In other modes, tools start as 'pending' until the server auto-approves
-      // or forwards a control_request for user approval.
-      const INTERNAL_TOOLS = ['EnterPlanMode', 'ExitPlanMode'];
-      const autoApproved = INTERNAL_TOOLS.includes(d.tool) || settings.permissionMode === 'bypassPermissions';
       const msg: ChatMessage = {
         id: uuid(),
         role: 'system',

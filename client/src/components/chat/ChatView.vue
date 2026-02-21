@@ -38,17 +38,34 @@ const hasTodos = computed(() => chat.latestTodos.length > 0);
 const hasRightPanel = computed(() => chat.isPlanReviewActive || hasTodos.value);
 
 function handlePlanApprove() {
+  const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
-  sendMessage('Proceed with the plan.');
+  if (requestId) {
+    // Active control_request from ExitPlanMode — respond via CLI protocol
+    respondToTool(requestId, true);
+  } else {
+    // No active control_request (e.g. session loaded from history) — use chat message
+    sendMessage('Proceed with the plan.');
+  }
 }
 
 function handlePlanDeny() {
+  const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
-  sendMessage('Cancel this plan. Do not proceed.');
+  if (requestId) {
+    respondToTool(requestId, false);
+  } else {
+    sendMessage('Cancel this plan. Do not proceed.');
+  }
 }
 
 function handlePlanChange(feedback: string) {
+  const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
+  if (requestId) {
+    // Deny the current plan, then send feedback for revision
+    respondToTool(requestId, false);
+  }
   sendMessage(`I'd like changes to the plan: ${feedback}`);
 }
 

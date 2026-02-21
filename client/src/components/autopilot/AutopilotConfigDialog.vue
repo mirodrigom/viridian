@@ -34,8 +34,8 @@ const showConfig = inject<import('vue').Ref<boolean>>('showAutopilotConfig', ref
 const goalPrompt = ref('');
 const agentAProfileId = ref('analyst');
 const agentBProfileId = ref('feature_creator');
-const agentAModel = ref('claude-sonnet-4-20250514');
-const agentBModel = ref('claude-sonnet-4-20250514');
+const agentAModel = ref('claude-sonnet-4-6');
+const agentBModel = ref('claude-sonnet-4-6');
 const maxIterations = ref(20);
 const scopePath = ref('');
 const allowedPaths = ref<string[]>([]);
@@ -49,7 +49,7 @@ const scheduleStartTime = ref('22:00');
 const scheduleEndTime = ref('10:00');
 
 const models = [
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
 ];

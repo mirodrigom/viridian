@@ -224,7 +224,7 @@ Select one profile for each agent:
 
 - **Agent A (Thinker)** -- choose from thinker profiles grouped by category. This agent analyzes the codebase and suggests improvements.
 - **Agent B (Executor)** -- choose from executor profiles (and optionally read-only profiles). This agent implements the changes.
-- **Model** -- select the Claude model for each agent independently. Available options include Claude Sonnet 4, Claude Opus 4.6, and Claude Haiku 4.5.
+- **Model** -- select the Claude model for each agent independently. Available options include Claude Sonnet 4.6, Claude Opus 4.6, and Claude Haiku 4.5.
 
 #### 3. Scope Tab
 
@@ -243,8 +243,8 @@ Select one profile for each agent:
 | `goalPrompt` | string | required | What the autopilot should work on |
 | `agentAProfileId` | string | `analyst` | Profile ID for Agent A |
 | `agentBProfileId` | string | `feature_creator` | Profile ID for Agent B |
-| `agentAModel` | string | `claude-sonnet-4-20250514` | Model for Agent A |
-| `agentBModel` | string | `claude-sonnet-4-20250514` | Model for Agent B |
+| `agentAModel` | string | `claude-sonnet-4-6` | Model for Agent A |
+| `agentBModel` | string | `claude-sonnet-4-6` | Model for Agent B |
 | `cwd` | string | required | Project working directory (must be a git repo) |
 | `allowedPaths` | string[] | `[]` | Glob patterns for scope restriction |
 | `maxIterations` | number | `20` | Maximum cycles before auto-stop |

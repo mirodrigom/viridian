@@ -553,7 +553,7 @@ function createDefaultNodeData(type: GraphNodeType): NodeData {
     case 'subagent':
       return {
         nodeType: 'subagent', label: 'Subagent', description: '',
-        model: 'claude-sonnet-4-5-20250929', systemPrompt: '',
+        model: 'claude-sonnet-4-6', systemPrompt: '',
         permissionMode: 'bypassPermissions', taskDescription: '',
       };
     case 'expert':

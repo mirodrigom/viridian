@@ -107,7 +107,7 @@ The top-level orchestrator. An Agent node is typically the root of a graph -- th
 
 | Property | Description |
 |----------|-------------|
-| **Model** | Claude model to use (Opus 4.6, Sonnet 4.5, Haiku 4.5) |
+| **Model** | Claude model to use (Opus 4.6, Sonnet 4.6, Haiku 4.5) |
 | **System Prompt** | Instructions that define the agent's behavior and role |
 | **Permission Mode** | Tool permission level: Default, Accept Edits, Plan Mode, or Full Auto |
 | **Max Tokens** | Maximum token budget for the entire graph run |

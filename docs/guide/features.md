@@ -186,7 +186,7 @@ All preferences and integrations, accessible from the top bar.
 
 | Area | What it controls |
 |------|-----------------|
-| **Model selection** | Sonnet 4.5, Opus 4.6, or Haiku 4.5 — switchable mid-conversation from the status bar |
+| **Model selection** | Sonnet 4.6, Opus 4.6, or Haiku 4.5 — switchable mid-conversation from the status bar |
 | **Thinking mode** | Five levels from Standard to Ultrathink — inline selector in status bar |
 | **Permission mode** | Full Auto, Accept Edits, Plan Mode, Ask Every Time — inline selector |
 | **Tool permissions** | Allowed/disallowed tool patterns with quick-add buttons (e.g., `Bash(git:*)`, `Read`, `Write`) |

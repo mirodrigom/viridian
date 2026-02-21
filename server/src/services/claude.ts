@@ -16,7 +16,7 @@ interface ClaudeSession {
   accumulatedText: string;
   /** Write function for stdin bidirectional communication (permission responses). */
   stdinWrite?: (data: string) => void;
-  /** Buffered events while waiting for user to answer AskUserQuestion. null = not buffering. */
+  /** Buffered events while waiting for user to respond to AskUserQuestion or ExitPlanMode. null = not buffering. */
   pendingQuestionBuffer: { event: string; data: unknown }[] | null;
   /** Last activity timestamp for idle session cleanup. */
   lastActivity: number;
@@ -226,7 +226,7 @@ const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoW
 function shouldAutoApprove(session: ClaudeSession, toolName: string): boolean {
   const mode = session.userPermissionMode || 'default';
   if (mode === 'bypassPermissions') return true;
-  if (toolName === 'AskUserQuestion') return false;
+  if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false;
   if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true;
   if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true;
   return false;
@@ -299,10 +299,11 @@ function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
     }
   }
 
-  // Start buffering as soon as we see AskUserQuestion tool_use since text can
-  // stream between tool_use and control_request.
-  // Skip in bypassPermissions mode — AskUserQuestion is auto-approved there.
-  if (msg.type === 'tool_use' && msg.tool === 'AskUserQuestion' && session.userPermissionMode !== 'bypassPermissions') {
+  // Start buffering as soon as we see AskUserQuestion or ExitPlanMode tool_use
+  // since text can stream between tool_use and control_request.
+  // Skip in bypassPermissions mode — these tools are auto-approved there.
+  const BLOCKING_TOOLS = ['AskUserQuestion', 'ExitPlanMode'];
+  if (msg.type === 'tool_use' && BLOCKING_TOOLS.includes(msg.tool) && session.userPermissionMode !== 'bypassPermissions') {
     session.pendingQuestionBuffer = [];
   }
 

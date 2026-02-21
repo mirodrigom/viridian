@@ -294,7 +294,7 @@ describe('useClaudeStream', () => {
       expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
     })
 
-    it('should auto-approve internal tools regardless of permission mode', () => {
+    it('should auto-approve EnterPlanMode regardless of permission mode', () => {
       settingsStore.permissionMode = 'default'
       const { init } = useClaudeStream()
       init()
@@ -309,6 +309,23 @@ describe('useClaudeStream', () => {
       })
 
       expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
+    })
+
+    it('should set ExitPlanMode as pending (requires plan review)', () => {
+      settingsStore.permissionMode = 'default'
+      const { init } = useClaudeStream()
+      init()
+
+      const toolUseHandler = vi.mocked(mockWebSocket.on).mock.calls
+        .find(call => call[0] === 'tool_use')?.[1] as Function
+
+      toolUseHandler({
+        tool: 'ExitPlanMode',
+        input: {},
+        requestId: 'req-123',
+      })
+
+      expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
     })
 
     it('should track plan mode transitions', () => {

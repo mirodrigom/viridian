@@ -14,6 +14,7 @@ export function useChatUI() {
   // Plan review — activated when ExitPlanMode captures the plan text
   const planReviewText = ref<string | null>(null);
   const isPlanReviewActive = ref(false);
+  const planReviewRequestId = ref<string | null>(null);
 
   // Rate limit — timestamp (ms) until which the user is blocked
   const rateLimitedUntil = ref<number | null>(null);
@@ -48,14 +49,16 @@ export function useChatUI() {
     }
   }
 
-  function activatePlanReview(planText: string) {
+  function activatePlanReview(planText: string, requestId?: string) {
     planReviewText.value = planText;
     isPlanReviewActive.value = true;
+    planReviewRequestId.value = requestId || null;
   }
 
   function dismissPlanReview() {
     planReviewText.value = null;
     isPlanReviewActive.value = false;
+    planReviewRequestId.value = null;
   }
 
   /** Scan messages for EnterPlanMode / ExitPlanMode tool calls to restore plan mode state. */
@@ -75,6 +78,7 @@ export function useChatUI() {
     inPlanMode.value = false;
     planReviewText.value = null;
     isPlanReviewActive.value = false;
+    planReviewRequestId.value = null;
     clearRateLimit();
   }
 
@@ -90,6 +94,7 @@ export function useChatUI() {
     inPlanMode,
     planReviewText,
     isPlanReviewActive,
+    planReviewRequestId,
     rateLimitedUntil,
 
     // Computed

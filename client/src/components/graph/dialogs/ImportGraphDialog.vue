@@ -174,7 +174,7 @@ function buildNodeData(exported: ExportedNode): NodeData {
         nodeType: 'subagent',
         label: exported.label,
         description: exported.description,
-        model: exported.model || 'claude-sonnet-4-5-20250929',
+        model: exported.model || 'claude-sonnet-4-6',
         systemPrompt: exported.systemPrompt || '',
         permissionMode: exported.permissionMode || 'bypassPermissions',
         taskDescription: exported.taskDescription || '',
