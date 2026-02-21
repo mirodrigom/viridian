@@ -90,6 +90,7 @@ export function setupAutopilotWs(server: Server) {
           const {
             goalPrompt, agentAProfileId, agentBProfileId,
             agentAModel, agentBModel,
+            agentAProvider, agentBProvider,
             cwd, allowedPaths, maxIterations, runTestVerification,
           } = data as Record<string, unknown>;
 
@@ -109,6 +110,8 @@ export function setupAutopilotWs(server: Server) {
             agentBProfileId: agentBProfileId as string,
             agentAModel: (agentAModel as string) || undefined,
             agentBModel: (agentBModel as string) || undefined,
+            agentAProvider: (agentAProvider as AutopilotRunConfig['agentAProvider']) || undefined,
+            agentBProvider: (agentBProvider as AutopilotRunConfig['agentBProvider']) || undefined,
             allowedPaths: (allowedPaths as string[]) || [],
             maxIterations: (maxIterations as number) || 50,
             runTestVerification: runTestVerification !== false,
@@ -153,6 +156,8 @@ export function setupAutopilotWs(server: Server) {
             agentBProfileId: row.agent_b_profile as string,
             agentAModel: row.agent_a_model as string,
             agentBModel: row.agent_b_model as string,
+            agentAProvider: (row.agent_a_provider as AutopilotRunConfig['agentAProvider']) || undefined,
+            agentBProvider: (row.agent_b_provider as AutopilotRunConfig['agentBProvider']) || undefined,
             allowedPaths: safeJsonParse<string[]>(row.allowed_paths as string, []),
             maxIterations: row.max_iterations as number,
             maxTokensPerSession: row.max_tokens_per_session as number,

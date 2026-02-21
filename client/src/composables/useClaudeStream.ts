@@ -2,6 +2,7 @@ import { watch } from 'vue';
 import { useChatStore, type ChatMessage } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
+import { useProviderStore } from '@/stores/provider';
 import { useWebSocket } from './useWebSocket';
 import { useRouter } from 'vue-router';
 import { uuid } from '@/lib/utils';
@@ -11,6 +12,7 @@ export function useClaudeStream() {
   const chat = useChatStore();
   const settings = useSettingsStore();
   const auth = useAuthStore();
+  const providerStore = useProviderStore();
   const router = useRouter();
   const { connected, connect, send, on, disconnect } = useWebSocket('/ws/chat');
 
@@ -491,6 +493,7 @@ export function useClaudeStream() {
       sessionId: chat.sessionId,
       claudeSessionId: chat.claudeSessionId,
       cwd: chat.projectPath,
+      provider: providerStore.activeProviderId,
       model: settings.model,
       permissionMode: settings.permissionMode,
       allowedTools: settings.allowedTools,

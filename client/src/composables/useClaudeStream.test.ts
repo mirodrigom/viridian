@@ -4,6 +4,7 @@ import { useClaudeStream } from './useClaudeStream'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
+import { useProviderStore } from '@/stores/provider'
 import { setupTestPinia, createMockMessage, nextTick, wait } from '@/test/utils'
 
 // Mock the stores
@@ -13,6 +14,10 @@ vi.mock('@/stores/settings', () => ({
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: vi.fn(),
+}))
+
+vi.mock('@/stores/provider', () => ({
+  useProviderStore: vi.fn(),
 }))
 
 // Mock useWebSocket
@@ -36,6 +41,7 @@ describe('useClaudeStream', () => {
   let chatStore: ReturnType<typeof useChatStore>
   let settingsStore: any
   let authStore: any
+  let providerStoreInstance: any
 
   beforeEach(() => {
     setupTestPinia()
@@ -57,9 +63,14 @@ describe('useClaudeStream', () => {
       token: 'mock-auth-token',
     }
 
+    providerStoreInstance = {
+      activeProviderId: 'claude',
+    }
+
     // Setup store mocks
     ;(useSettingsStore as any).mockReturnValue(settingsStore)
     ;(useAuthStore as any).mockReturnValue(authStore)
+    ;(useProviderStore as any).mockReturnValue(providerStoreInstance)
 
     // Reset WebSocket mock
     mockWebSocket.connected.value = false
@@ -562,6 +573,7 @@ describe('useClaudeStream', () => {
         sessionId: 'test-session',
         claudeSessionId: 'claude-session',
         cwd: '/test/project',
+        provider: 'claude',
         model: 'claude-3-5-sonnet-20241022',
         permissionMode: 'ask',
         allowedTools: [],

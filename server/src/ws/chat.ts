@@ -3,9 +3,8 @@ import path from 'path';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
-
-const VALID_MODELS = ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'];
-const VALID_PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+import type { ProviderId } from '../providers/types.js';
+import { getProvider, getAllProviders } from '../providers/registry.js';
 
 /** Validate and normalize a cwd path — must be absolute with no traversal. */
 function validateCwd(cwd: unknown): string | null {
@@ -138,29 +137,52 @@ export function setupChatWs(server: Server) {
         const data = JSON.parse(raw.toString());
 
         if (data.type === 'chat') {
-          const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools } = data;
+          const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools, provider: requestedProvider } = data;
 
           if (typeof prompt !== 'string' || !prompt.trim()) {
             safeSend(ws, { type: 'error', error: 'Missing or invalid prompt' });
             return;
           }
 
+          // Resolve provider — validate requested provider, default to 'claude'
+          let providerId: ProviderId = 'claude';
+          if (typeof requestedProvider === 'string') {
+            try {
+              getProvider(requestedProvider as ProviderId);
+              providerId = requestedProvider as ProviderId;
+            } catch {
+              safeSend(ws, { type: 'error', error: `Unknown provider: ${requestedProvider}` });
+              return;
+            }
+          }
+
+          const providerInstance = getProvider(providerId);
+
           const projectDir = validateCwd(cwd) || process.env.HOME || '/home';
 
           let session = sessionId ? getSession(sessionId) : null;
+          // If the session exists but the client switched to a different provider,
+          // create a new session (can't switch providers mid-conversation)
+          if (session && session.providerId !== providerId) {
+            session = null;
+          }
           if (!session) {
-            session = createSession(projectDir, claudeSessionId || undefined);
+            session = createSession(projectDir, claudeSessionId || undefined, providerId);
           }
           currentSessionId = session.id;
 
           if (cleanupListeners) cleanupListeners();
           cleanupListeners = wireEmitter(ws, session.emitter, session.id);
 
+          // Validate model against the provider's available models
+          const validModels = providerInstance.models.map(m => m.id);
+          const validPermissionModes = providerInstance.capabilities.supportedPermissionModes;
+
           const msgOptions: SendMessageOptions = {};
-          if (typeof model === 'string' && VALID_MODELS.includes(model)) {
+          if (typeof model === 'string' && validModels.includes(model)) {
             msgOptions.model = model;
           }
-          if (typeof permissionMode === 'string' && VALID_PERMISSION_MODES.includes(permissionMode)) {
+          if (typeof permissionMode === 'string' && validPermissionModes.includes(permissionMode)) {
             msgOptions.permissionMode = permissionMode;
           }
           if (images && Array.isArray(images)) {

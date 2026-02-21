@@ -7,6 +7,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { useSettingsStore } from '@/stores/settings';
+import { useProviderStore } from '@/stores/provider';
 import { useChatStore } from '@/stores/chat';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
@@ -18,6 +19,7 @@ import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 
 const settings = useSettingsStore();
+const providerStore = useProviderStore();
 const chat = useChatStore();
 const graphStore = useGraphStore();
 const autopilotStore = useAutopilotStore();
@@ -95,6 +97,7 @@ function checkMobile() {
 
 onMounted(() => {
   settings.init();
+  providerStore.fetchProviders();
   checkMobile();
   window.addEventListener('resize', checkMobile);
 });
@@ -109,7 +112,7 @@ function toggleTerminal() {
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col overflow-hidden bg-background">
+  <div class="flex h-full flex-col overflow-hidden bg-background">
     <TopBar
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"

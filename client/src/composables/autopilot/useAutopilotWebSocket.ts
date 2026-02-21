@@ -30,6 +30,8 @@ export function useAutopilotWebSocket() {
     agentBProfileId: string;
     agentAModel?: string;
     agentBModel?: string;
+    agentAProvider?: string;
+    agentBProvider?: string;
     cwd: string;
     allowedPaths: string[];
     maxIterations: number;

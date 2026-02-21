@@ -32,7 +32,7 @@ function logout() {
 
 <template>
   <TooltipProvider :delay-duration="300">
-    <header class="flex h-11 items-center justify-between border-b border-border bg-card/50 px-2 md:px-3">
+    <header class="flex h-11 shrink-0 items-center justify-between border-b border-border bg-card/50 px-2 md:px-3">
       <!-- Left: Logo + Project -->
       <div class="flex min-w-0 items-center gap-1.5 md:gap-2">
         <div class="flex shrink-0 items-center gap-1.5">

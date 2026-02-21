@@ -4,7 +4,7 @@
  * Handles individual agent execution with streaming, token tracking, and budget management.
  */
 
-import { claudeQuery } from './claude-sdk.js';
+import { getProvider } from '../providers/registry.js';
 import { getDb } from '../db/database.js';
 import { type AutopilotContext } from './autopilot-run-manager.js';
 import { isOverTokenBudget } from './autopilot-validators.js';
@@ -27,6 +27,8 @@ export async function runAgent(
   const profile = agent === 'a' ? ctx.agentAProfile : ctx.agentBProfile;
   const model = agent === 'a' ? ctx.agentAModel : ctx.agentBModel;
   const sessionId = agent === 'a' ? ctx.agentASessionId : ctx.agentBSessionId;
+  const providerId = agent === 'a' ? ctx.agentAProvider : ctx.agentBProvider;
+  const provider = getProvider(providerId || 'claude');
 
   const scopeInstructions = ctx.allowedPaths.length > 0
     ? `\n\n## SCOPE RESTRICTION\nYou may ONLY read and modify files within these paths:\n${ctx.allowedPaths.map(p => `- ${p}`).join('\n')}\nDo NOT access files outside this scope.`
@@ -81,8 +83,8 @@ export async function runAgent(
   const thinkEndEvent = agent === 'a' ? 'agent_a_thinking_end' : 'agent_b_thinking_end';
   const toolUseEvent = agent === 'a' ? 'agent_a_tool_use' : 'agent_b_tool_use';
 
-  // Stream Claude CLI execution
-  for await (const msg of claudeQuery({
+  // Stream provider CLI execution
+  for await (const msg of provider.query({
     prompt,
     cwd: ctx.cwd,
     model,
@@ -90,8 +92,8 @@ export async function runAgent(
     appendSystemPrompt: appendPrompt,
     allowedTools: profile.allowedTools.length > 0 ? profile.allowedTools : undefined,
     disallowedTools: profile.disallowedTools.length > 0 ? profile.disallowedTools : undefined,
-    agents: Object.keys(agents).length > 0 ? agents : undefined,
-    sessionId: sessionId || undefined,
+    agents: provider.capabilities.supportsSubagents && Object.keys(agents).length > 0 ? agents : undefined,
+    sessionId: provider.capabilities.supportsResume ? (sessionId || undefined) : undefined,
     abortSignal: ctx.abortController.signal,
     permissionMode: profile.permissionMode || 'bypassPermissions',
   })) {
@@ -152,18 +154,18 @@ export async function runAgent(
         break;
 
       case 'result':
-        // Capture session ID for --resume
-        if (msg.sessionId) {
+        // Capture session ID for --resume (only meaningful for providers that support it)
+        if (msg.sessionId && provider.capabilities.supportsResume) {
           if (agent === 'a') {
             ctx.agentASessionId = msg.sessionId;
             const db = getDb();
-            db.prepare('UPDATE autopilot_runs SET agent_a_claude_session_id = ? WHERE id = ?')
-              .run(msg.sessionId, ctx.runId);
+            db.prepare('UPDATE autopilot_runs SET agent_a_claude_session_id = ?, agent_a_provider_session_id = ? WHERE id = ?')
+              .run(msg.sessionId, msg.sessionId, ctx.runId);
           } else {
             ctx.agentBSessionId = msg.sessionId;
             const db = getDb();
-            db.prepare('UPDATE autopilot_runs SET agent_b_claude_session_id = ? WHERE id = ?')
-              .run(msg.sessionId, ctx.runId);
+            db.prepare('UPDATE autopilot_runs SET agent_b_claude_session_id = ?, agent_b_provider_session_id = ? WHERE id = ?')
+              .run(msg.sessionId, msg.sessionId, ctx.runId);
           }
         }
         break;

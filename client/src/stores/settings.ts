@@ -2,10 +2,12 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
-export type ClaudeModel = 'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-haiku-4-5-20251001';
+/** @deprecated Use provider store's activeModels instead. Kept for backward compatibility. */
+export type ClaudeModel = string;
 export type ThinkingMode = 'standard' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
 
-export const MODEL_OPTIONS: { value: ClaudeModel; label: string; description: string }[] = [
+/** @deprecated Use provider store's activeModels instead. Static fallback for Claude. */
+export const MODEL_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Fast and capable — best balance of speed and quality' },
   { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', description: 'Most powerful — deep reasoning and complex tasks' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Fastest — quick tasks with lower cost' },
@@ -41,7 +43,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const darkMode = ref(true);
   const fontSize = ref(13);
   const permissionMode = ref<PermissionMode>('bypassPermissions');
-  const model = ref<ClaudeModel>('claude-opus-4-6');
+  const model = ref<string>('claude-opus-4-6');
   const thinkingMode = ref<ThinkingMode>('standard');
   const maxTokens = ref(200000);
   const maxOutputTokens = ref(16384);

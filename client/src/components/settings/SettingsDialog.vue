@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import McpSettingsDialog from './McpSettingsDialog.vue';
+import ProviderSelector from './ProviderSelector.vue';
 import { Server } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -68,6 +69,11 @@ async function saveGitConfig() {
       </DialogHeader>
 
       <div class="space-y-5 py-4">
+        <!-- AI Provider -->
+        <ProviderSelector />
+
+        <Separator />
+
         <!-- MCP Servers -->
         <div>
           <h4 class="mb-3 text-xs font-medium uppercase text-muted-foreground">Integrations</h4>

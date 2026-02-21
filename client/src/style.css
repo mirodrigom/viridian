@@ -173,6 +173,10 @@ html.dark .chat-mode-default {
 }
 
 /* ─── Safe area insets for notched devices (iPad, iPhone) ─── */
+#app {
+  height: 100dvh;
+  overflow: hidden;
+}
 @supports (padding: env(safe-area-inset-top)) {
   #app {
     padding-top: env(safe-area-inset-top);

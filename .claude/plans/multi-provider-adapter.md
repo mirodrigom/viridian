@@ -1,15 +1,61 @@
 # Multi-Provider Adapter System
 
 ## Goal
-Add a provider abstraction layer so users can switch between AI CLI backends (Claude, Gemini, Codex, Aider, Cline) per session, with a global default and graceful feature degradation.
+Add a provider abstraction layer so users can switch between AI CLI backends (Claude, Gemini, Codex, Aider, Kiro, Qwen Code, OpenCode) per session, with a global default and graceful feature degradation.
 
 ---
 
-## Phase 1: Provider Abstraction Layer (Server)
+## Implementation Status
 
-### 1.1 Define Core Interfaces
+| # | Task | Status |
+|---|------|--------|
+| 1 | `server/src/providers/types.ts` — Core interfaces | DONE |
+| 2 | `server/src/providers/registry.ts` — Provider registry | DONE |
+| 3 | `server/src/providers/claude.ts` — Claude adapter | DONE |
+| 4 | `server/src/providers/gemini.ts` — Gemini adapter | DONE |
+| 5 | `server/src/providers/codex.ts` — Codex adapter | DONE |
+| 6 | `server/src/providers/registry.test.ts` — Registry unit tests (24/24) | DONE |
+| 7 | `server/src/routes/providers.ts` — REST API (GET /api/providers, /:id, /:id/status) | DONE |
+| 8 | `client/src/types/provider.ts` — Client-side types | DONE |
+| 9 | `client/src/stores/provider.ts` — Provider Pinia store | DONE |
+| 10 | `client/src/stores/provider.test.ts` — Provider store unit tests (22/22) | DONE |
+| 11 | `client/src/components/icons/CodexLogo.vue` — Codex logo | DONE |
+| 12 | `client/src/components/icons/GeminiLogo.vue` — Gemini logo | DONE |
+| 13 | `client/src/components/icons/AiderLogo.vue` — Aider logo | DONE |
+| 14 | `client/src/components/icons/ClineLogo.vue` — Cline logo | DONE |
+| 15 | `client/src/components/settings/ProviderSelector.vue` — Provider grid UI | DONE |
+| 16 | `client/src/composables/useProviderLogo.ts` — Logo composable | DONE |
+| 17 | `client/src/stores/settings.ts` — Dynamic models from provider store | DONE |
+| 18 | `client/src/composables/useClaudeStream.ts` — Sends provider field via WS | DONE |
+| 19 | `client/src/components/chat/ChatInput.vue` — Dynamic models + provider logo | DONE |
+| 20 | `client/src/components/chat/MessageBubble.vue` — Dynamic provider logo/name | DONE |
+| 21 | `client/src/components/chat/MessageList.vue` — Dynamic empty state | DONE |
+| 22 | `client/src/components/settings/SettingsDialog.vue` — ProviderSelector integrated | DONE |
+| 23 | `client/src/components/layout/TopBar.vue` — Provider-aware | DONE |
+| 24 | `server/src/services/claude.ts` — Provider-agnostic session manager | DONE |
+| 25 | `server/src/ws/chat.ts` — Accepts `provider` field, dynamic validation | DONE |
+| 26 | `server/src/db/database.ts` — Provider column migrations | DONE |
+| 27 | `server/src/services/autopilot-agent-runner.ts` — Provider per agent | DONE |
+| 28 | `server/src/services/autopilot-run-manager.ts` — Provider context | DONE |
+| 29 | `server/src/ws/autopilot.ts` — Provider in WS events | DONE |
+| 30 | `client/src/stores/autopilot.ts` — Provider fields | DONE |
+| 31 | `client/src/composables/autopilot/useAutopilotWebSocket.ts` — Provider support | DONE |
+| 32 | `client/src/components/autopilot/AutopilotConfigDialog.vue` — Provider per agent | DONE |
+| 33 | `server/src/providers/aider.ts` — Aider adapter | DONE |
+| 34 | `server/src/providers/kiro.ts` — Kiro adapter | DONE |
+| 35 | `client/src/components/icons/KiroLogo.vue` — Kiro logo | DONE |
+| 36 | `server/src/providers/qwen.ts` — Qwen Code adapter | DONE |
+| 37 | `client/src/components/icons/QwenLogo.vue` — Qwen logo | DONE |
+| 38 | `server/src/providers/opencode.ts` — OpenCode adapter | DONE |
+| 39 | `client/src/components/icons/OpenCodeLogo.vue` — OpenCode logo | DONE |
 
-**New file: `server/src/providers/types.ts`**
+---
+
+## Phase 1: Provider Abstraction Layer (Server) — COMPLETE
+
+### 1.1 Define Core Interfaces — DONE
+
+**File: `server/src/providers/types.ts`**
 
 ```typescript
 // ─── Provider Identity ──────────────────────────────────────────────────
@@ -48,476 +94,257 @@ export interface ProviderCapabilities {
 }
 
 // ─── Query Interface ─────────────────────────────────────────────────────
-// Reuse existing SDKMessage as the universal event format.
-// Each provider adapter normalizes its native events → SDKMessage.
-
-export interface ProviderQueryOptions {
-  prompt: string;
-  cwd: string;
-  model?: string;
-  permissionMode?: string;
-  maxOutputTokens?: number;
-  tools?: string[];
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  images?: { name: string; dataUrl: string }[];
-  sessionId?: string;              // Provider-specific session ID for resume
-  abortSignal?: AbortSignal;
-  onStdinReady?: (write: (data: string) => void) => void;
-  noTools?: boolean;
-  disableSlashCommands?: boolean;
-  systemPrompt?: string;
-  appendSystemPrompt?: string;
-  agents?: Record<string, {
-    description: string;
-    prompt: string;
-    tools?: string[];
-    disallowedTools?: string[];
-    model?: string;
-    permissionMode?: string;
-    maxTurns?: number;
-  }>;
-}
+export interface ProviderQueryOptions { ... }
 
 // ─── Provider Interface ──────────────────────────────────────────────────
-export interface IProvider {
-  readonly info: ProviderInfo;
-  readonly models: ProviderModel[];
-  readonly capabilities: ProviderCapabilities;
-
-  /** Check if the CLI binary is available. */
-  isAvailable(): boolean;
-
-  /** Find and return the binary path, or throw. */
-  findBinary(): string;
-
-  /** Execute a query — returns the same SDKMessage stream all consumers expect. */
-  query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined>;
-
-  /** Build a control_response payload for stdin (for providers that support it). */
-  buildControlResponse(requestId: string, approved: boolean, extra?: {
-    updatedInput?: unknown;
-    message?: string;
-  }): string | null;  // null if provider doesn't support control responses
-
-  /** Get the session directory where this provider stores history files. */
-  getSessionDir(): string | null;   // e.g. ~/.claude/projects/, null if N/A
-
-  /** Parse a session history file into normalized messages (for sidebar/load). */
-  parseSessionFile?(filePath: string): Promise<ParsedSessionMessage[]>;
-}
-
-export interface ParsedSessionMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp?: number;
-  toolUse?: { tool: string; input: Record<string, unknown> };
-  thinking?: string;
-}
+export interface IProvider { ... }
+export interface ParsedSessionMessage { ... }
+export interface ProviderInfoDTO { ... }
 ```
 
-### 1.2 Provider Registry
+### 1.2 Provider Registry — DONE
 
-**New file: `server/src/providers/registry.ts`**
-
-```typescript
-// Singleton registry — providers register at import time.
-// Exposes: getProvider(id), getAvailableProviders(), getDefaultProvider()
-```
+**File: `server/src/providers/registry.ts`**
 
 - `registerProvider(provider: IProvider)` — called by each adapter on module load
 - `getProvider(id: ProviderId): IProvider` — throws if not registered
 - `getAvailableProviders(): IProvider[]` — returns only providers whose binary is found
 - `getDefaultProvider(): IProvider` — returns Claude (fallback if not available: first available)
-- **REST endpoint**: `GET /api/providers` — returns `{ id, name, icon, models, capabilities, available }[]`
+- `getProviderDTOs(): ProviderInfoDTO[]` — serializes for REST API
 
-### 1.3 Claude Adapter (Refactor, not rewrite)
+### 1.3 Claude Adapter — DONE
 
-**New file: `server/src/providers/claude.ts`**
+**File: `server/src/providers/claude.ts`**
 
-- **Implements `IProvider`** by wrapping the existing `claude-sdk.ts` functions
-- `claude-sdk.ts` remains unchanged — it's the low-level spawn logic
-- `claude.ts` (the adapter) delegates to `claudeQuery()` and maps to the interface
-- `findBinary()` → delegates to existing `findClaudeBinary()`
-- `query()` → delegates to existing `claudeQuery()`
-- `buildControlResponse()` → extracts the JSON building logic from `claude.ts:respondToPermission()`
-- `capabilities`: all true (supportsThinking, supportsToolUse, supportsControlRequests, etc.)
-- Auto-registers in registry on import
+- Wraps `claude-sdk.ts` (`findClaudeBinary()`, `claudeQuery()`)
+- All capabilities = true
+- Models: claude-sonnet-4-6 (default), claude-opus-4-6, claude-haiku-4-5
+- Auto-registers on import
 
-### 1.4 Gemini Adapter
+### 1.4 Gemini Adapter — DONE
 
-**New file: `server/src/providers/gemini.ts`**
+**File: `server/src/providers/gemini.ts`**
 
-- `findBinary()` → looks for `gemini` in PATH, or `GEMINI_PATH` env var
-- `query()` → spawns `gemini -p "<prompt>" --output-format json` and normalizes output to SDKMessage
-- Gemini JSON events → SDKMessage mapping:
-  - Text output → `text_delta`
-  - Tool calls → `tool_use` (if Gemini supports MCP tools)
-  - Errors → `error`
-  - Completion → `result`
-- `capabilities`:
-  - `supportsThinking: false` (no extended thinking protocol)
-  - `supportsToolUse: true` (via MCP)
-  - `supportsControlRequests: false` (no permission protocol — always auto-approve)
-  - `supportsResume: false` (no --resume equivalent)
-  - `supportsImages: true`
-  - `supportsPlanMode: false`
-  - `supportsSubagents: false`
+- Spawns `gemini -p "prompt" --output-format json`
+- Normalizes 5 JSON output patterns to SDKMessage
+- Capabilities: no thinking, no control requests, no resume, no subagents
+- Models: gemini-2.5-pro (default), gemini-2.5-flash, gemini-2.0-flash
+- Auto-registers on import
 
-### 1.5 Future Adapters (Phase 3+)
+### 1.5 Codex Adapter — DONE
 
-Documented interface but not implemented yet:
-- `server/src/providers/codex.ts` — OpenAI Codex CLI
-- `server/src/providers/aider.ts` — Aider
-- `server/src/providers/cline.ts` — Cline CLI 2.0
+**File: `server/src/providers/codex.ts`**
 
----
+- Spawns `codex exec --json [permission-flags] [--model X] [resume SESSION_ID] "prompt"`
+- JSONL event normalization:
+  - `thread.started` → `system` (captures `thread_id` as sessionId for resume)
+  - `item.completed` + `agent_message` → `text_delta`
+  - `item.completed` + `reasoning` → `thinking_start/delta/end`
+  - `item.completed` + `command_execution` → `tool_use` (Bash)
+  - `item.completed` + `file_change` → `tool_use` (Edit)
+  - `item.completed` + `mcp_tool_call` → `tool_use`
+  - `item.completed` + `web_search` → `tool_use` (WebSearch)
+  - `turn.completed` → `message_start/delta` (token usage)
+  - `turn.failed` / `error` → `error`
+- Permission mapping: `bypassPermissions` → `--full-auto`, `default` → `--ask-for-approval on-request`
+- Capabilities: resume=yes, images=yes, permissionModes=yes, controlRequests=no, thinking=no, subagents=no, planMode=no
+- Models: gpt-5.3-codex (default), gpt-5.3-codex-spark, gpt-5.2-codex, gpt-5.2, gpt-5.1-codex, gpt-5
+- Auto-registers on import
 
-## Phase 2: Session Layer Refactor (Server)
+### 1.6 Aider Adapter — DONE
 
-### 2.1 Make Session Manager Provider-Agnostic
+**File: `server/src/providers/aider.ts`**
 
-**Modify: `server/src/services/claude.ts` → rename to `server/src/services/session-manager.ts`**
+- Spawns `aider --message "prompt" --yes-always --no-auto-commits --no-pretty --no-suggest-shell-commands`
+- Plain text output (no JSON mode) — streams stdout as `text_delta` events
+- Post-process: extracts SEARCH/REPLACE edit blocks from full output → `tool_use` (Edit)
+- Session resume via `--restore-chat-history` + `--chat-history-file`
+- Capabilities: resume=yes, streaming=yes, toolUse=yes, images=no, controlRequests=no, thinking=no, subagents=no, planMode=no
+- Models: claude-sonnet-4-6 (default), claude-opus-4-6, gpt-5.3, gpt-5.2, gemini-2.5-pro, deepseek-r1
+- Auto-registers on import
 
-Keep the old filename as a re-export for backward compatibility during migration.
+### 1.8 Kiro Adapter — DONE
 
-Key changes to `ClaudeSession` → `ProviderSession`:
+**File: `server/src/providers/kiro.ts`**
 
-```typescript
-interface ProviderSession {
-  id: string;
-  providerId: ProviderId;           // NEW: which provider this session uses
-  providerSessionId?: string;       // renamed from claudeSessionId
-  process: ChildProcess | null;
-  cwd: string;
-  emitter: EventEmitter;
-  abortController?: AbortController;
-  usage: { inputTokens: number; outputTokens: number };
-  isStreaming: boolean;
-  accumulatedText: string;
-  stdinWrite?: (data: string) => void;
-  pendingQuestionBuffer: { event: string; data: unknown }[] | null;
-  lastActivity: number;
-  userPermissionMode?: string;
-  streamGeneration: number;
-}
-```
+- Spawns `kiro-cli chat --no-interactive [--trust-all-tools | --trust-tools ...] "prompt"`
+- Plain text output (no JSON mode) — streams stdout as `text_delta` events
+- Session resume via `--resume` flag
+- Permission mapping: `bypassPermissions` → `--trust-all-tools`, `default` → `--trust-tools read,glob,grep,...`
+- Capabilities: resume=yes, streaming=yes, toolUse=yes, thinking=yes, subagents=yes, images=no, controlRequests=no, planMode=no
+- Models: claude-sonnet-4-6 (default), claude-opus-4-6, claude-haiku-4-5 (all via Bedrock)
+- Custom features: steering, custom_agents, knowledge_base, mcp, tangent_mode
+- Auto-registers on import
 
-Changes to `sendMessage()`:
-```typescript
-// Before:
-const stream = claudeQuery({ ... });
+### 1.9 Qwen Code Adapter — DONE
 
-// After:
-const provider = getProvider(session.providerId);
-const stream = provider.query({ ... });
-```
+**File: `server/src/providers/qwen.ts`**
 
-Changes to `respondToPermission()`:
-```typescript
-// Before: hardcoded JSON structure for control_response
-// After:
-const provider = getProvider(session.providerId);
-const response = provider.buildControlResponse(requestId, approved, { updatedInput });
-if (response && session.stdinWrite) {
-  session.stdinWrite(response);
-}
-```
+- Spawns `qwen -p "prompt" --output-format stream-json [--model X] [--continue]`
+- Stream-JSON output — normalizes Gemini-style events (based on Gemini CLI codebase)
+- Session resume via `--continue` flag
+- Capabilities: resume=yes, streaming=yes, toolUse=yes, subagents=yes, images=no, controlRequests=no, thinking=no, planMode=no
+- Models: qwen3-coder-plus (default), qwen3.5-plus, qwen3-coder
+- Custom features: skills, subagents, 256k_context, multi_model
+- Auto-registers on import
 
-Changes to `shouldAutoApprove()`:
-```typescript
-// If provider doesn't support control requests, always auto-approve
-const provider = getProvider(session.providerId);
-if (!provider.capabilities.supportsControlRequests) return true;
-// ... rest of existing logic
-```
+### 1.10 OpenCode Adapter — DONE
 
-### 2.2 Update WebSocket Handler
+**File: `server/src/providers/opencode.ts`**
 
-**Modify: `server/src/ws/chat.ts`**
+- Spawns `opencode run --format json [--model provider/model] [--session ID] "prompt"`
+- Newline-delimited JSON events with structured types:
+  - `message.part.updated` + `text` → `text_delta`
+  - `message.part.updated` + `thinking` → `thinking_start/delta/end`
+  - `message.part.updated` + `tool-invocation` → `tool_use`
+  - `message.completed` → `message_start/delta` (token usage)
+  - `session.created` / `session.resumed` → `system` (sessionId)
+- Session resume via `--session <id>` or `--continue`
+- Model format: `provider/model` (e.g., `anthropic/claude-sonnet-4-6`)
+- Capabilities: resume=yes, streaming=yes, toolUse=yes, thinking=yes, permissionModes=yes, images=no, subagents=no, planMode=no
+- Custom features: multi_provider, lsp_integration, server_mode, session_sharing
+- Auto-registers on import
 
-- Remove hardcoded `VALID_MODELS` → fetch from provider registry dynamically
-- Remove hardcoded `VALID_PERMISSION_MODES` → fetch from provider capabilities
-- Accept `provider` field in `chat` message type:
-  ```typescript
-  { type: 'chat', prompt, provider: 'gemini', model: 'gemini-2.5-pro', ... }
-  ```
-- Pass `provider` to `createSession()`:
-  ```typescript
-  session = createSession(projectDir, claudeSessionId, provider || 'claude');
-  ```
-- Model validation becomes dynamic:
-  ```typescript
-  const providerInstance = getProvider(provider);
-  const validModels = providerInstance.models.map(m => m.id);
-  if (model && !validModels.includes(model)) { /* error */ }
-  ```
+### 1.11 Unit Tests — DONE
 
-### 2.3 Database Migration
-
-**Modify: `server/src/db/database.ts`**
-
-Add migration (SQLite ALTER TABLE):
-
-```sql
--- Sessions table
-ALTER TABLE sessions ADD COLUMN provider TEXT DEFAULT 'claude';
-
--- Autopilot runs
-ALTER TABLE autopilot_runs ADD COLUMN agent_a_provider TEXT DEFAULT 'claude';
-ALTER TABLE autopilot_runs ADD COLUMN agent_b_provider TEXT DEFAULT 'claude';
--- Rename columns (SQLite doesn't support RENAME COLUMN in older versions,
--- so we add new columns and keep old ones for backward compat)
-ALTER TABLE autopilot_runs ADD COLUMN agent_a_provider_session_id TEXT;
-ALTER TABLE autopilot_runs ADD COLUMN agent_b_provider_session_id TEXT;
-
--- Autopilot profiles
-ALTER TABLE autopilot_profiles ADD COLUMN provider TEXT DEFAULT 'claude';
-
--- Autopilot configs
-ALTER TABLE autopilot_configs ADD COLUMN agent_a_provider TEXT DEFAULT 'claude';
-ALTER TABLE autopilot_configs ADD COLUMN agent_b_provider TEXT DEFAULT 'claude';
-
--- Graph runs
-ALTER TABLE graph_runs ADD COLUMN provider TEXT DEFAULT 'claude';
-
--- Session cache
-ALTER TABLE session_cache ADD COLUMN provider TEXT DEFAULT 'claude';
-```
-
-### 2.4 REST API for Providers
-
-**New file: `server/src/routes/providers.ts`**
-
-```
-GET /api/providers
-  → [{ id, name, icon, description, models, capabilities, available }]
-
-GET /api/providers/:id
-  → { id, name, icon, description, models, capabilities, available }
-
-GET /api/providers/:id/status
-  → { available, binaryPath?, version?, error? }
-```
+- `server/src/providers/registry.test.ts` — 24 tests covering register, getProvider, getAllProviders, getAvailableProviders, getDefaultProvider, getProviderDTOs
+- `client/src/stores/provider.test.ts` — 22 tests covering defaults, activeProviderId, activeProvider, activeModels, defaultModel, availableProviders, fetchProviders, setDefaultProvider, isValidModel
 
 ---
 
-## Phase 3: Client-Side Provider Support
+## Phase 2: Session Layer Refactor (Server) — COMPLETE
 
-### 3.1 Provider Store
+### 2.1 Provider-Agnostic Session Manager — DONE
 
-**New file: `client/src/stores/provider.ts`** (Pinia store)
+**Modified: `server/src/services/claude.ts`**
 
-```typescript
-// State:
-//   providers: ProviderInfo[]         — fetched from GET /api/providers on init
-//   defaultProvider: ProviderId       — persisted to localStorage
-//   sessionProvider: ProviderId|null  — per-session override (null = use default)
-//
-// Getters:
-//   activeProvider: computed           — sessionProvider || defaultProvider
-//   activeModels: computed             — models for activeProvider
-//   activeCapabilities: computed       — capabilities for activeProvider
-//   availableProviders: computed       — only providers with available=true
-//
-// Actions:
-//   fetchProviders()                   — GET /api/providers
-//   setDefaultProvider(id)             — saves to localStorage, shows toast warning
-//   setSessionProvider(id)             — sets for current session only
-```
+- `createSession()` accepts `providerId` parameter
+- `sendMessage()` uses `provider.query()` instead of hardcoded `claudeQuery()`
+- `respondToPermission()` uses `provider.buildControlResponse()`
+- `shouldAutoApprove()` checks `provider.capabilities.supportsControlRequests`
 
-### 3.2 Settings Store Updates
+### 2.2 WebSocket Handler — DONE
 
-**Modify: `client/src/stores/settings.ts`**
+**Modified: `server/src/ws/chat.ts`**
 
-- Remove hardcoded `ClaudeModel` type → dynamic from provider store
-- Remove hardcoded `MODEL_OPTIONS` → computed from `providerStore.activeModels`
-- Keep `PERMISSION_OPTIONS` but filter by `providerStore.activeCapabilities.supportedPermissionModes`
-- Keep `THINKING_OPTIONS` but conditionally hide if `!capabilities.supportsThinking`
-- Add `defaultProvider: ProviderId` to saved settings
-- Type `model` as `string` instead of `ClaudeModel` union
+- Accepts `provider` field in chat messages
+- Dynamic model validation from provider registry
+- Passes provider to `createSession()`
 
-### 3.3 Chat Store & Stream Updates
+### 2.3 Database Migration — DONE
 
-**Modify: `client/src/stores/chat.ts`**
+**Modified: `server/src/db/database.ts`**
 
-- Rename `claudeSessionId` → `providerSessionId` (keep alias for backward compat)
-- Add `provider: ProviderId` field
+- `sessions.provider` column
+- `autopilot_runs.agent_a_provider`, `agent_b_provider` columns
+- `autopilot_profiles.provider` column
+- `autopilot_configs.agent_a_provider`, `agent_b_provider` columns
 
-**Modify: `client/src/composables/useClaudeStream.ts` → rename to `useProviderStream.ts`**
+### 2.4 REST API — DONE
 
-- Keep old file as re-export
-- `sendMessage()` includes `provider` and `model` from provider store:
-  ```typescript
-  const payload = {
-    type: 'chat',
-    provider: providerStore.activeProvider,
-    model: settings.model,
-    ...
-  };
-  ```
-- Conditional handling for provider-specific events (e.g., skip thinking events if provider doesn't support it)
+**File: `server/src/routes/providers.ts`**
 
-### 3.4 UI Component Updates
-
-**Modify: `client/src/components/chat/MessageBubble.vue`**
-
-- Replace hardcoded `ClaudeLogo` + "Claude" text with dynamic provider info:
-  ```vue
-  <component :is="providerLogo" />  <!-- dynamic component based on provider -->
-  <p>{{ providerName }}</p>
-  ```
-- Use provider store for logo/name
-
-**Modify: `client/src/components/chat/ChatInput.vue`**
-
-- Model selector reads from `providerStore.activeModels` instead of hardcoded `MODEL_OPTIONS`
-- Add provider selector (compact dropdown/icon next to model selector)
-- Placeholder text: `'Ask ${providerStore.activeProviderName} to help with your code...'`
-- Hide thinking mode selector when `!capabilities.supportsThinking`
-
-**Modify: `client/src/components/chat/MessageList.vue`**
-
-- Dynamic logo in empty state based on active provider
-- Dynamic welcome text
-
-**New file: `client/src/components/settings/ProviderSelector.vue`**
-
-- Grid of available providers with logos
-- Current default highlighted
-- Click to change default → toast: "Default provider changed to X. This applies to new sessions only."
-- Show availability status (green dot if binary found, red if missing)
-- Link to installation instructions for unavailable providers
-
-**Modify: `client/src/components/settings/SettingsDialog.vue`**
-
-- Add "Provider" section at the top with `ProviderSelector`
-- Model selector becomes dynamic based on selected provider
-
-**New file: `client/src/components/icons/` — Provider logos**
-
-- `GeminiLogo.vue`
-- `CodexLogo.vue`
-- `AiderLogo.vue`
-- `ClineLogo.vue`
-- (ClaudeLogo.vue already exists)
-
-### 3.5 Autopilot Provider Support
-
-**Modify: `client/src/components/autopilot/AutopilotConfigDialog.vue`**
-
-- Add provider selector per agent (Agent A provider, Agent B provider)
-- Model dropdown filters based on selected provider
-- Warning if mixing providers: "Agents use different providers — responses may vary in format"
-
-**Modify: `server/src/services/autopilot-agent-runner.ts`**
-
-- Accept provider from config:
-  ```typescript
-  const providerId = agent === 'a' ? ctx.agentAProvider : ctx.agentBProvider;
-  const provider = getProvider(providerId);
-  for await (const msg of provider.query({ ... })) { ... }
-  ```
+- `GET /api/providers` — List all providers with availability
+- `GET /api/providers/:id` — Single provider details
+- `GET /api/providers/:id/status` — Binary availability check
 
 ---
 
-## Phase 4: Graceful Degradation
+## Phase 3: Client-Side Provider Support — COMPLETE
+
+### 3.1 Provider Store — DONE
+### 3.2 Settings Store Updates — DONE
+### 3.3 Chat Store & Stream Updates — DONE
+### 3.4 UI Component Updates — DONE
+
+- ProviderSelector.vue — grid with logos, availability dots
+- MessageBubble.vue — dynamic provider logo/name
+- ChatInput.vue — dynamic model selector from provider
+- MessageList.vue — dynamic empty state
+- SettingsDialog.vue — integrated ProviderSelector
+- TopBar.vue — provider-aware
+- Logo components: GeminiLogo, CodexLogo, AiderLogo, ClineLogo
+
+### 3.5 Autopilot Provider Support — DONE
+
+- AutopilotConfigDialog.vue — provider per agent
+- autopilot-agent-runner.ts — uses provider.query()
+- autopilot-run-manager.ts — provider context
+- autopilot.ts store & WS — provider fields
+
+---
+
+## Phase 4: Graceful Degradation — DONE (built into capabilities system)
 
 ### Feature Availability Matrix
 
-| Feature               | Claude | Gemini | Codex | Aider | Cline |
-|-----------------------|--------|--------|-------|-------|-------|
-| Text streaming        | Yes    | Yes    | Yes   | Yes   | Yes   |
-| Extended thinking     | Yes    | No     | No    | No    | No    |
-| Tool use (file ops)   | Yes    | MCP    | Yes   | Yes   | Yes   |
-| Permission modes      | 4      | 1*     | 1*    | 0*    | 1*    |
-| Session resume        | Yes    | No     | TBD   | No    | TBD   |
-| Control requests      | Yes    | No     | No    | No    | No    |
-| Image input           | Yes    | Yes    | Yes   | No    | Yes   |
-| Sub-agents            | Yes    | No     | No    | No    | No    |
-| Plan mode             | Yes    | No     | No    | No    | No    |
+| Feature               | Claude | Gemini | Codex | Aider | Kiro  | Qwen  | OpenCode |
+|-----------------------|--------|--------|-------|-------|-------|-------|----------|
+| Text streaming        | Yes    | Yes    | Yes   | Yes   | Yes   | Yes   | Yes      |
+| Extended thinking     | Yes    | No     | No    | No    | Yes‡  | No    | Yes      |
+| Tool use (file ops)   | Yes    | MCP    | Yes   | Yes   | Yes   | Yes   | Yes      |
+| Permission modes      | 4      | 1*     | 2     | 1*    | 2     | 1*    | 2        |
+| Session resume        | Yes    | No     | Yes   | Yes†  | Yes   | Yes   | Yes      |
+| Control requests      | Yes    | No     | No    | No    | No    | No    | No       |
+| Image input           | Yes    | Yes    | Yes   | No    | No    | No    | No       |
+| Sub-agents            | Yes    | No     | No    | No    | Yes   | Yes   | No       |
+| Plan mode             | Yes    | No     | No    | No    | No    | No    | No       |
 
 *\* = always runs in bypass/auto mode*
-
-### UI Degradation Rules
-
-1. **Thinking toggle**: Hidden when `!supportsThinking`
-2. **Permission mode selector**: Hidden when `!supportsPermissionModes`, default to bypass
-3. **Plan mode**: Tool events for EnterPlanMode/ExitPlanMode silently ignored
-4. **Control requests**: If provider doesn't support them, all tools auto-approve
-5. **Session resume**: If `!supportsResume`, every chat starts fresh (no --resume)
-6. **Sub-agent bubbles**: If no sub-agents, never show nested tool views
-7. **Image attach**: Hidden when `!supportsImages`
-8. **Tool sidebar**: Shows whatever tools the provider reports, no hardcoded list
+*† = via chat history file, not native session ID*
+*‡ = experimental thinking tool, not native protocol*
 
 ---
 
-## File Structure Summary
+## Remaining Work
+
+### Graph Runner
+- Provider per graph node (currently hardcoded to Claude)
+
+---
+
+## File Structure
 
 ```
 server/src/
 ├── providers/
 │   ├── types.ts           # IProvider, ProviderCapabilities, etc.
 │   ├── registry.ts        # Provider registry singleton
+│   ├── registry.test.ts   # 24 unit tests
 │   ├── claude.ts          # Claude adapter (wraps claude-sdk.ts)
 │   ├── gemini.ts          # Gemini adapter
-│   ├── codex.ts           # Codex adapter (stub)
-│   ├── aider.ts           # Aider adapter (stub)
-│   └── cline.ts           # Cline adapter (stub)
+│   ├── codex.ts           # Codex adapter
+│   ├── aider.ts           # Aider adapter
+│   ├── kiro.ts            # Kiro adapter (AWS Bedrock)
+│   ├── qwen.ts            # Qwen Code adapter (Alibaba)
+│   └── opencode.ts        # OpenCode adapter (multi-provider)
 ├── services/
 │   ├── claude-sdk.ts      # UNCHANGED — low-level Claude CLI spawn
-│   ├── claude.ts          # Re-export from session-manager.ts (backward compat)
-│   └── session-manager.ts # Refactored provider-agnostic session manager
+│   └── claude.ts          # Provider-agnostic session manager
 ├── routes/
 │   └── providers.ts       # GET /api/providers endpoints
 └── ws/
-    └── chat.ts            # Updated: dynamic model/provider validation
+    └── chat.ts            # Dynamic model/provider validation
 
 client/src/
 ├── stores/
-│   ├── provider.ts        # NEW: provider state management
-│   └── settings.ts        # Updated: dynamic model options
+│   ├── provider.ts        # Provider state management
+│   ├── provider.test.ts   # 22 unit tests
+│   └── settings.ts        # Dynamic model options from provider
 ├── composables/
-│   ├── useProviderStream.ts  # Renamed from useClaudeStream.ts
-│   └── useClaudeStream.ts    # Re-export (backward compat)
+│   ├── useClaudeStream.ts # Sends provider field via WS
+│   └── useProviderLogo.ts # Logo component resolver
 ├── components/
 │   ├── icons/
 │   │   ├── GeminiLogo.vue
 │   │   ├── CodexLogo.vue
-│   │   └── ...
+│   │   ├── AiderLogo.vue
+│   │   ├── ClineLogo.vue
+│   │   ├── KiroLogo.vue
+│   │   ├── QwenLogo.vue
+│   │   └── OpenCodeLogo.vue
 │   └── settings/
 │       └── ProviderSelector.vue  # Provider switching UI
 └── types/
-    └── provider.ts        # Client-side provider types (mirrors server types)
+    └── provider.ts        # Client-side provider types
 ```
-
----
-
-## Implementation Order
-
-1. **`server/src/providers/types.ts`** — Define all interfaces
-2. **`server/src/providers/registry.ts`** — Provider registry
-3. **`server/src/providers/claude.ts`** — Claude adapter (wraps existing code)
-4. **`server/src/services/session-manager.ts`** — Refactor from claude.ts
-5. **`server/src/ws/chat.ts`** — Accept `provider` field, dynamic validation
-6. **`server/src/routes/providers.ts`** — REST API
-7. **`server/src/db/database.ts`** — Migration
-8. **`client/src/types/provider.ts`** — Client types
-9. **`client/src/stores/provider.ts`** — Provider store
-10. **`client/src/stores/settings.ts`** — Remove hardcoded models
-11. **`client/src/composables/useProviderStream.ts`** — Rename + provider field
-12. **`client/src/components/settings/ProviderSelector.vue`** — UI
-13. **UI updates** — MessageBubble, ChatInput, MessageList, etc.
-14. **`server/src/providers/gemini.ts`** — Gemini adapter
-15. **Autopilot updates** — agent-runner + config dialog
-16. **Graph runner updates** — provider per node
-
----
-
-## Default Provider UX
-
-- Settings dialog has a prominent "Default Provider" section (top of dialog)
-- Changing default shows toast: "Default provider set to Gemini. New sessions will use Gemini."
-- Active sessions keep their current provider (no mid-session switching)
-- Per-session override via provider icon in ChatInput (next to model selector)
-- URL doesn't encode provider (it's session metadata, not routing)

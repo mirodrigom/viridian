@@ -2,7 +2,8 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
-import { useSettingsStore, MODEL_OPTIONS, PERMISSION_OPTIONS, THINKING_OPTIONS, type ClaudeModel, type PermissionMode, type ThinkingMode } from '@/stores/settings';
+import { useSettingsStore, PERMISSION_OPTIONS, THINKING_OPTIONS, type PermissionMode, type ThinkingMode } from '@/stores/settings';
+import { useProviderStore } from '@/stores/provider';
 import { uuid } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -22,6 +23,7 @@ const MAX_IMAGES = 5;
 const chat = useChatStore();
 const auth = useAuthStore();
 const settings = useSettingsStore();
+const providerStore = useProviderStore();
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const imageInput = ref<HTMLInputElement | null>(null);
@@ -430,9 +432,9 @@ interface SlashCommand {
 const slashCommands: SlashCommand[] = [
   { name: '/clear', description: 'Clear current conversation', action: () => { chat.clearMessages(); input.value = ''; } },
   { name: '/model', description: 'Switch to next model', action: () => {
-    const models = MODEL_OPTIONS.map(m => m.value);
+    const models = providerStore.activeModels.map(m => m.id);
     const idx = models.indexOf(settings.model);
-    settings.model = models[(idx + 1) % models.length] as ClaudeModel;
+    settings.model = models[(idx + 1) % models.length]!;
     settings.save();
     chat.addMessage({ id: uuid(), role: 'system', content: `Model switched to ${settings.modelLabel}`, timestamp: Date.now() });
     input.value = '';
@@ -831,7 +833,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
             <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="m in MODEL_OPTIONS" :key="m.value" :value="m.value">
+            <SelectItem v-for="m in providerStore.activeModels" :key="m.id" :value="m.id">
               <div>
                 <div class="text-sm">{{ m.label }}</div>
                 <div class="text-xs text-muted-foreground">{{ m.description }}</div>

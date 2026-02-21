@@ -21,12 +21,14 @@ import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
+import { useProviderStore } from '@/stores/provider';
 import { GOAL_PRESETS } from '@/data/goalPresets';
 import type { AutopilotProfile, ProfileCategory } from '@/types/autopilot';
 
 const store = useAutopilotStore();
 const chatStore = useChatStore();
 const settings = useSettingsStore();
+const providerStore = useProviderStore();
 
 const showConfig = inject<import('vue').Ref<boolean>>('showAutopilotConfig', ref(false));
 
@@ -34,6 +36,8 @@ const showConfig = inject<import('vue').Ref<boolean>>('showAutopilotConfig', ref
 const goalPrompt = ref('');
 const agentAProfileId = ref('analyst');
 const agentBProfileId = ref('feature_creator');
+const agentAProvider = ref(providerStore.activeProviderId);
+const agentBProvider = ref(providerStore.activeProviderId);
 const agentAModel = ref('claude-sonnet-4-6');
 const agentBModel = ref('claude-sonnet-4-6');
 const maxIterations = ref(20);
@@ -48,11 +52,33 @@ const scheduleEnabled = ref(false);
 const scheduleStartTime = ref('22:00');
 const scheduleEndTime = ref('10:00');
 
-const models = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-];
+// Dynamic models based on selected provider per agent
+const agentAModels = computed(() => {
+  const provider = providerStore.providers.find(p => p.id === agentAProvider.value);
+  return provider?.models.map(m => ({ value: m.id, label: m.label })) || [];
+});
+
+const agentBModels = computed(() => {
+  const provider = providerStore.providers.find(p => p.id === agentBProvider.value);
+  return provider?.models.map(m => ({ value: m.id, label: m.label })) || [];
+});
+
+// Reset model when provider changes
+watch(agentAProvider, () => {
+  const models = agentAModels.value;
+  const defaultModel = models.find(m => m.value.includes('sonnet')) || models[0];
+  if (defaultModel && !models.some(m => m.value === agentAModel.value)) {
+    agentAModel.value = defaultModel.value;
+  }
+});
+
+watch(agentBProvider, () => {
+  const models = agentBModels.value;
+  const defaultModel = models.find(m => m.value.includes('sonnet')) || models[0];
+  if (defaultModel && !models.some(m => m.value === agentBModel.value)) {
+    agentBModel.value = defaultModel.value;
+  }
+});
 
 // Category labels for display
 const categoryLabels: Record<ProfileCategory, string> = {
@@ -70,6 +96,7 @@ const categoryOrder: ProfileCategory[] = ['general', 'development', 'testing', '
 watch(showConfig, (open) => {
   if (open) {
     if (store.profiles.length === 0) store.fetchProfiles();
+    if (providerStore.providers.length === 0) providerStore.fetchProviders();
     if (!cwdOverride.value && chatStore.projectPath) {
       cwdOverride.value = chatStore.projectPath;
     }
@@ -147,6 +174,8 @@ function startRun() {
     agentBProfileId: agentBProfileId.value,
     agentAModel: agentAModel.value,
     agentBModel: agentBModel.value,
+    agentAProvider: agentAProvider.value,
+    agentBProvider: agentBProvider.value,
     cwd,
     allowedPaths: allowedPaths.value,
     maxIterations: maxIterations.value,
@@ -169,7 +198,7 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
       <DialogHeader>
         <DialogTitle>Configure Autopilot</DialogTitle>
         <DialogDescription>
-          Set up two Claude instances to collaborate autonomously on your project.
+          Set up two AI agents to collaborate autonomously on your project.
         </DialogDescription>
       </DialogHeader>
 
@@ -271,14 +300,29 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
                 />
               </div>
             </template>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <Label class="text-xs text-muted-foreground">Provider:</Label>
+              <Select v-model="agentAProvider">
+                <SelectTrigger class="h-8 w-full max-w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="p in providerStore.availableProviders"
+                    :key="p.id"
+                    :value="p.id"
+                  >
+                    {{ p.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               <Label class="text-xs text-muted-foreground">Model:</Label>
               <Select v-model="agentAModel">
                 <SelectTrigger class="h-8 w-full max-w-56 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="m in models" :key="m.value" :value="m.value">
+                  <SelectItem v-for="m in agentAModels" :key="m.value" :value="m.value">
                     {{ m.label }}
                   </SelectItem>
                 </SelectContent>
@@ -321,14 +365,29 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
                 />
               </div>
             </template>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <Label class="text-xs text-muted-foreground">Provider:</Label>
+              <Select v-model="agentBProvider">
+                <SelectTrigger class="h-8 w-full max-w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="p in providerStore.availableProviders"
+                    :key="p.id"
+                    :value="p.id"
+                  >
+                    {{ p.name }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               <Label class="text-xs text-muted-foreground">Model:</Label>
               <Select v-model="agentBModel">
                 <SelectTrigger class="h-8 w-full max-w-56 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="m in models" :key="m.value" :value="m.value">
+                  <SelectItem v-for="m in agentBModels" :key="m.value" :value="m.value">
                     {{ m.label }}
                   </SelectItem>
                 </SelectContent>

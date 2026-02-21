@@ -16,6 +16,7 @@ import tasksRoutes from './routes/tasks.js';
 import graphsRoutes from './routes/graphs.js';
 import graphRunsRoutes from './routes/graph-runs.js';
 import autopilotRoutes from './routes/autopilot.js';
+import providersRoutes from './routes/providers.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
@@ -46,6 +47,7 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/graphs', graphsRoutes);
 app.use('/api/graph-runs', graphRunsRoutes);
 app.use('/api/autopilot', autopilotRoutes);
+app.use('/api/providers', providersRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

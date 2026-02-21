@@ -18,6 +18,7 @@ import {
   isRateLimitError,
   parseRateLimitReset
 } from './autopilot-validators.js';
+import type { ProviderId } from '../providers/types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ export interface AutopilotRunConfig {
   agentBProfileId: string;
   agentAModel?: string;
   agentBModel?: string;
+  agentAProvider?: ProviderId;
+  agentBProvider?: ProviderId;
   allowedPaths: string[];
   maxIterations: number;
   maxTokensPerSession?: number;
@@ -48,10 +51,12 @@ export interface AutopilotContext {
   // Agent state
   agentAProfile: AutopilotProfile;
   agentBProfile: AutopilotProfile;
-  agentASessionId: string | null;  // Claude CLI session ID for --resume
+  agentASessionId: string | null;  // CLI session ID for --resume
   agentBSessionId: string | null;
   agentAModel: string;
   agentBModel: string;
+  agentAProvider: ProviderId;
+  agentBProvider: ProviderId;
 
   // Scope
   allowedPaths: string[];
@@ -125,6 +130,8 @@ export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext 
     agentBSessionId: null,
     agentAModel: config.agentAModel || agentAProfile.model || 'claude-sonnet-4-6',
     agentBModel: config.agentBModel || agentBProfile.model || 'claude-sonnet-4-6',
+    agentAProvider: config.agentAProvider || 'claude',
+    agentBProvider: config.agentBProvider || 'claude',
     allowedPaths: config.allowedPaths,
     cycleCount: 0,
     maxIterations: config.maxIterations,
@@ -147,9 +154,9 @@ export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext 
   // Persist run record
   const db = getDb();
   db.prepare(`
-    INSERT INTO autopilot_runs (id, config_id, user_id, project_path, status, agent_a_profile_id, agent_b_profile_id, goal_prompt)
-    VALUES (?, ?, ?, ?, 'running', ?, ?, ?)
-  `).run(ctx.runId, ctx.configId, config.userId, config.projectPath, config.agentAProfileId, config.agentBProfileId, config.goalPrompt);
+    INSERT INTO autopilot_runs (id, config_id, user_id, project_path, status, agent_a_profile_id, agent_b_profile_id, goal_prompt, agent_a_provider, agent_b_provider)
+    VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
+  `).run(ctx.runId, ctx.configId, config.userId, config.projectPath, config.agentAProfileId, config.agentBProfileId, config.goalPrompt, ctx.agentAProvider, ctx.agentBProvider);
 
   // Start the async loop (fire and forget — events communicate progress)
   runLoop(ctx, config).catch((err) => {
@@ -221,6 +228,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     agent_b_input_tokens: number; agent_b_output_tokens: number;
     agent_a_claude_session_id: string | null; agent_b_claude_session_id: string | null;
     agent_a_profile_id: string | null; agent_b_profile_id: string | null;
+    agent_a_provider: string | null; agent_b_provider: string | null;
     goal_prompt: string;
   }
 
@@ -237,9 +245,11 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
   const agentBProfile = getProfile(row.agent_b_profile_id || '');
   if (!agentAProfile || !agentBProfile) throw new Error('Agent profile not found');
 
-  // Determine models from config if available, else profile, else default
+  // Determine models and providers from config if available, else profile, else default
   let agentAModel = agentAProfile.model || 'claude-sonnet-4-6';
   let agentBModel = agentBProfile.model || 'claude-sonnet-4-6';
+  let agentAProvider: ProviderId = (row.agent_a_provider as ProviderId) || 'claude';
+  let agentBProvider: ProviderId = (row.agent_b_provider as ProviderId) || 'claude';
   let maxIterations = 50;
   let maxTokens = 500000;
   let allowedPaths: string[] = [];
@@ -251,6 +261,8 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     if (cfg) {
       agentAModel = (cfg.agent_a_model as string) || agentAModel;
       agentBModel = (cfg.agent_b_model as string) || agentBModel;
+      if (cfg.agent_a_provider) agentAProvider = cfg.agent_a_provider as ProviderId;
+      if (cfg.agent_b_provider) agentBProvider = cfg.agent_b_provider as ProviderId;
       maxIterations = (cfg.max_iterations as number) || maxIterations;
       maxTokens = (cfg.max_tokens_per_session as number) || maxTokens;
       allowedPaths = safeJsonParse<string[]>(cfg.allowed_paths as string, []);
@@ -272,6 +284,8 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     agentBSessionId: row.agent_b_claude_session_id,
     agentAModel,
     agentBModel,
+    agentAProvider,
+    agentBProvider,
     allowedPaths,
     cycleCount: row.cycle_count || 0,
     maxIterations,

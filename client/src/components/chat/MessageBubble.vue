@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import { useProviderLogo } from '@/composables/useProviderLogo';
 import ToolView from './tools/ToolView.vue';
 import {
   ChevronRight, Check, X, AlertCircle, Brain,
@@ -33,6 +33,7 @@ const emit = defineEmits<{
   rejectTool: [requestId: string];
 }>();
 
+const { activeLogo, activeName } = useProviderLogo();
 const thinkingOpen = ref(false);
 const contextSummaryOpen = ref(false);
 
@@ -137,13 +138,13 @@ function formatTime(ts: number) {
       <!-- Avatar: visible on group start, invisible spacer on continuation -->
       <Avatar v-if="isGroupStart" class="h-8 w-8 shrink-0 border border-primary/20 hidden sm:flex">
         <AvatarFallback class="bg-primary/10 p-1">
-          <ClaudeLogo :size="16" class="text-primary" />
+          <component :is="activeLogo" :size="16" class="text-primary" />
         </AvatarFallback>
       </Avatar>
       <div v-else class="hidden sm:block w-8 shrink-0" />
 
       <div class="min-w-0 flex-1">
-        <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">Claude</p>
+        <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">{{ activeName }}</p>
 
         <!-- Thinking block (collapsible) -->
         <Collapsible v-if="message.thinking || message.isThinking" v-model:open="thinkingOpen">

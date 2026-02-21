@@ -224,4 +224,16 @@ function runMigrations(db: Database.Database) {
   // ── Autopilot: test verification cycle support ──
   safeAddColumn('autopilot_cycles', 'is_test_verification', "INTEGER DEFAULT 0");
   safeAddColumn('autopilot_configs', 'run_test_verification', "INTEGER DEFAULT 1");
+
+  // ── Multi-provider support ──
+  safeAddColumn('sessions', 'provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('session_cache', 'provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('graph_runs', 'provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_profiles', 'provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_configs', 'agent_a_provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_configs', 'agent_b_provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_runs', 'agent_a_provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_runs', 'agent_b_provider', "TEXT DEFAULT 'claude'");
+  safeAddColumn('autopilot_runs', 'agent_a_provider_session_id', "TEXT");
+  safeAddColumn('autopilot_runs', 'agent_b_provider_session_id', "TEXT");
 }

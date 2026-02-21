@@ -235,6 +235,11 @@ function connectSessionsWs() {
   const url = `${protocol}//${location.host}/ws/sessions?token=${encodeURIComponent(auth.token)}`;
   sessionsWs = new WebSocket(url);
 
+  sessionsWs.onopen = () => {
+    // Re-fetch sessions on (re)connect — catches data missed during server restarts
+    fetchSessions();
+  };
+
   sessionsWs.onmessage = (ev) => {
     try {
       const data = JSON.parse(ev.data);

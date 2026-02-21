@@ -1,10 +1,27 @@
+/**
+ * Provider-agnostic session manager.
+ *
+ * Manages active sessions, routes queries through the provider registry,
+ * handles permission auto-approval, and emits events to WebSocket clients.
+ *
+ * Kept as claude.ts for backward-compatible imports from chat.ts, sessions.ts, agent.ts.
+ */
+
 import { type ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
-import { claudeQuery, type SDKMessage } from './claude-sdk.js';
+import type { SDKMessage } from './claude-sdk.js';
+import type { ProviderId } from '../providers/types.js';
+import { getProvider } from '../providers/registry.js';
 
-interface ClaudeSession {
+// Ensure providers are registered (side-effect imports)
+import '../providers/claude.js';
+import '../providers/gemini.js';
+
+interface ProviderSession {
   id: string;
+  providerId: ProviderId;
+  /** Provider-specific session ID (e.g. Claude JSONL filename for --resume). */
   claudeSessionId?: string;
   process: ChildProcess | null;
   cwd: string;
@@ -27,7 +44,10 @@ interface ClaudeSession {
   streamGeneration: number;
 }
 
-const activeSessions = new Map<string, ClaudeSession>();
+// Keep the old type name exported for backward compat with any external consumers
+export type { ProviderSession as ClaudeSession };
+
+const activeSessions = new Map<string, ProviderSession>();
 
 // Clean up idle non-streaming sessions every 5 minutes
 const SESSION_IDLE_TIMEOUT = 30 * 60_000; // 30 minutes
@@ -41,9 +61,10 @@ setInterval(() => {
   }
 }, 5 * 60_000).unref();
 
-export function createSession(cwd: string, claudeSessionId?: string): ClaudeSession {
-  const session: ClaudeSession = {
+export function createSession(cwd: string, claudeSessionId?: string, providerId: ProviderId = 'claude'): ProviderSession {
+  const session: ProviderSession = {
     id: uuid(),
+    providerId,
     claudeSessionId,
     process: null,
     cwd,
@@ -59,11 +80,11 @@ export function createSession(cwd: string, claudeSessionId?: string): ClaudeSess
   return session;
 }
 
-export function getSession(id: string): ClaudeSession | undefined {
+export function getSession(id: string): ProviderSession | undefined {
   // First try direct lookup by server UUID
   const direct = activeSessions.get(id);
   if (direct) return direct;
-  // Fall back to lookup by claudeSessionId (for clients that only know the JSONL filename)
+  // Fall back to lookup by claudeSessionId (for clients that only know the provider session ID)
   for (const session of activeSessions.values()) {
     if (session.claudeSessionId === id) return session;
   }
@@ -82,6 +103,8 @@ export interface SendMessageOptions {
 export function sendMessage(sessionId: string, prompt: string, options?: SendMessageOptions) {
   const session = activeSessions.get(sessionId);
   if (!session) throw new Error('Session not found');
+
+  const provider = getProvider(session.providerId);
 
   // Abort any previous stream still running on this session so its stale
   // async generator doesn't emit a stream_end that kills the new stream.
@@ -102,20 +125,25 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   session.emitter.emit('stream_start');
 
   // Store user's permission mode for server-side auto-approval of control_requests.
-  // We always pass 'default' to the CLI so it sends control_request for every tool
-  // (including AskUserQuestion), which ensures the CLI blocks until we respond.
-  // The server auto-approves tools based on the user's mode, except AskUserQuestion
-  // which always requires user input.
+  // For providers that support control requests (like Claude), we pass 'default' to the CLI
+  // so it sends control_request for every tool, and the server auto-approves based on user's mode.
+  // For providers without control request support, permission mode is irrelevant (always auto).
   session.userPermissionMode = options?.permissionMode || 'bypassPermissions';
 
-  // Run the SDK generator in the background
+  // For providers that support control requests, force 'default' mode so every tool
+  // sends a control_request. We handle auto-approval server-side.
+  const effectivePermissionMode = provider.capabilities.supportsControlRequests
+    ? 'default'
+    : (options?.permissionMode || 'bypassPermissions');
+
+  // Run the provider query in the background
   (async () => {
     try {
-      const stream = claudeQuery({
+      const stream = provider.query({
         prompt,
         cwd: session.cwd,
         model: options?.model,
-        permissionMode: 'default',
+        permissionMode: effectivePermissionMode,
         maxOutputTokens: options?.maxOutputTokens,
         allowedTools: options?.allowedTools,
         disallowedTools: options?.disallowedTools,
@@ -137,12 +165,13 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       // swallowed the stream_end). Force-emit stream_end so the client isn't left hanging.
       // Only if this is still the current generation — a newer sendMessage may have started.
       if (session.isStreaming && session.streamGeneration === generation) {
-        console.warn(`[Claude] stream generator finished but session ${session.id} still marked as streaming — forcing stream_end`);
+        console.warn(`[SessionManager] stream generator finished but session ${session.id} still marked as streaming — forcing stream_end`);
         session.isStreaming = false;
         session.lastActivity = Date.now();
         session.emitter.emit('stream_end', {
           sessionId: session.id,
           claudeSessionId: session.claudeSessionId,
+          providerId: session.providerId,
           usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
         });
       }
@@ -156,6 +185,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       session.emitter.emit('stream_end', {
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
+        providerId: session.providerId,
         usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
       });
     }
@@ -167,7 +197,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
  * Also applies side-effects on `session` (e.g. accumulating text, tracking usage).
  * Returns null for messages that are side-effect-only (system, message_start, message_delta).
  */
-function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: string; data: unknown } | null {
+function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: string; data: unknown } | null {
   switch (msg.type) {
     case 'text_delta':
       session.accumulatedText += msg.text;
@@ -207,7 +237,16 @@ function buildEmitEvent(session: ClaudeSession, msg: SDKMessage): { event: strin
       session.isStreaming = false;
       session.lastActivity = Date.now();
       session.stdinWrite = undefined;
-      return { event: 'stream_end', data: { sessionId: session.id, claudeSessionId: session.claudeSessionId, exitCode: msg.exitCode, usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens } } };
+      return {
+        event: 'stream_end',
+        data: {
+          sessionId: session.id,
+          claudeSessionId: session.claudeSessionId,
+          providerId: session.providerId,
+          exitCode: msg.exitCode,
+          usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
+        },
+      };
     default:
       return null;
   }
@@ -220,10 +259,15 @@ const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'TodoW
  * Check whether a tool should be auto-approved server-side based on the user's permission mode.
  * Returns true if the tool should be auto-approved (send control_response immediately),
  * false if it needs user approval (forward control_request to client).
- * In bypassPermissions (Full Auto) mode, ALL tools are auto-approved including AskUserQuestion.
- * In other modes, AskUserQuestion always requires user input.
+ *
+ * For providers that don't support control requests, this always returns true
+ * (they never send control_request events, so this is just a safety fallback).
  */
-function shouldAutoApprove(session: ClaudeSession, toolName: string): boolean {
+function shouldAutoApprove(session: ProviderSession, toolName: string): boolean {
+  // If the provider doesn't support control requests, always auto-approve
+  const provider = getProvider(session.providerId);
+  if (!provider.capabilities.supportsControlRequests) return true;
+
   const mode = session.userPermissionMode || 'default';
   if (mode === 'bypassPermissions') return true;
   if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false;
@@ -232,18 +276,16 @@ function shouldAutoApprove(session: ClaudeSession, toolName: string): boolean {
   return false;
 }
 
-/** Send an auto-approval control_response to the CLI via stdin and notify the client. */
-function autoApproveControlRequest(session: ClaudeSession, requestId: string, toolUseId?: string) {
+/** Send an auto-approval control_response via the provider's protocol and notify the client. */
+function autoApproveControlRequest(session: ProviderSession, requestId: string, toolUseId?: string) {
   if (!session.stdinWrite) return;
-  const response = {
-    type: 'control_response',
-    response: {
-      subtype: 'success',
-      request_id: requestId,
-      response: { behavior: 'allow' },
-    },
-  };
-  session.stdinWrite(JSON.stringify(response));
+
+  const provider = getProvider(session.providerId);
+  const response = provider.buildControlResponse(requestId, true);
+  if (response) {
+    session.stdinWrite(response);
+  }
+
   // Notify client so it can update the tool status from 'pending' to 'approved'
   if (toolUseId) {
     session.emitter.emit('tool_approved', { toolUseId });
@@ -251,7 +293,7 @@ function autoApproveControlRequest(session: ClaudeSession, requestId: string, to
 }
 
 /** Map SDK messages → EventEmitter events, with buffering while awaiting tool approval. */
-function emitSDKMessage(session: ClaudeSession, msg: SDKMessage) {
+function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
   // When buffering (waiting for user to Allow/Deny a tool), queue events instead of emitting.
   // Allow through: control_request (so client shows Allow/Deny buttons) and tool_input events
   // for the pending tool itself (so input streams to the client).
@@ -320,32 +362,17 @@ export function respondToPermission(
   const session = activeSessions.get(sessionId);
   if (!session) return;
 
-  // Send control_response to CLI if stdin is still open
+  // Send control_response via the provider's protocol
   if (session.stdinWrite) {
-    let response;
-    if (approved) {
-      // For AskUserQuestion: include updatedInput with questions + answers
-      const updatedInput = answers ? { questions: questions || [], answers } : undefined;
-      response = {
-        type: 'control_response',
-        response: {
-          subtype: 'success',
-          request_id: requestId,
-          response: { behavior: 'allow', updatedInput },
-        },
-      };
-    } else {
-      response = {
-        type: 'control_response',
-        response: {
-          subtype: 'success',
-          request_id: requestId,
-          response: { behavior: 'deny', message: 'User denied the tool request' },
-        },
-      };
+    const provider = getProvider(session.providerId);
+    const updatedInput = answers ? { questions: questions || [], answers } : undefined;
+    const response = provider.buildControlResponse(requestId, approved, {
+      updatedInput: approved ? updatedInput : undefined,
+      message: approved ? undefined : 'User denied the tool request',
+    });
+    if (response) {
+      session.stdinWrite(response);
     }
-
-    session.stdinWrite(JSON.stringify(response));
   }
 
   // Flush buffered events (held back while waiting for tool approval)
@@ -370,15 +397,9 @@ export function abortSession(sessionId: string) {
   }
   if (session.process) {
     session.process.kill('SIGTERM');
-    // Don't null out session.process — let proc.on('close') handle cleanup
-    // and emit the result/stream_end naturally through the generator.
-    // Set a safety timeout in case the process doesn't exit cleanly.
     const proc = session.process;
     setTimeout(() => {
-      // If still alive after 3s, force-kill and emit stream_end
       try { proc.kill('SIGKILL'); } catch { /* already dead */ }
-      // Only emit stream_end if the same generation is still active
-      // (a new sendMessage may have started a new stream in the meantime)
       if (session.isStreaming && session.streamGeneration === generation) {
         session.isStreaming = false;
         session.process = null;
@@ -387,17 +408,18 @@ export function abortSession(sessionId: string) {
         session.emitter.emit('stream_end', {
           sessionId: session.id,
           claudeSessionId: session.claudeSessionId,
+          providerId: session.providerId,
           usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
         });
       }
     }, 3000);
   } else if (wasStreaming) {
-    // No process but was streaming — force stream_end so client isn't stuck
     session.isStreaming = false;
     session.lastActivity = Date.now();
     session.emitter.emit('stream_end', {
       sessionId: session.id,
       claudeSessionId: session.claudeSessionId,
+      providerId: session.providerId,
       usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
     });
   }
@@ -413,7 +435,7 @@ export function getSessionAccumulatedText(sessionId: string): string {
   return session?.accumulatedText ?? '';
 }
 
-/** Returns the set of claudeSessionIds (= JSONL filenames) that are currently streaming. */
+/** Returns the set of provider session IDs that are currently streaming. */
 export function getStreamingClaudeSessionIds(): Set<string> {
   const ids = new Set<string>();
   for (const session of activeSessions.values()) {

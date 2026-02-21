@@ -4,13 +4,14 @@ import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import { useProviderLogo } from '@/composables/useProviderLogo';
 import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2, CheckCircle2, Bug, Code2, Sparkles } from 'lucide-vue-next';
 import MessageBubble from './MessageBubble.vue';
 import { playResponseCompleteSound } from '@/composables/useNotificationSound';
 
 const chat = useChatStore();
 const auth = useAuthStore();
+const { activeLogo, activeName } = useProviderLogo();
 const scrollContainer = ref<any>(null);
 const showScrollBtn = ref(false);
 const isLoadingSession = ref(false); // Prevents handleScroll from overriding autoScroll during session load
@@ -447,11 +448,11 @@ onUnmounted(() => {
       <div v-if="chat.messages.length === 0 && !chat.isLoadingSession" class="flex h-full items-center justify-center p-8">
         <div class="text-center">
           <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-            <ClaudeLogo :size="32" class="text-primary" />
+            <component :is="activeLogo" :size="32" class="text-primary" />
           </div>
           <h2 class="mb-1 text-lg font-semibold text-foreground">Start a conversation</h2>
           <p class="mb-4 text-sm text-muted-foreground">
-            Ask Claude to help with your code, debug issues, or build features.
+            Ask {{ activeName }} to help with your code, debug issues, or build features.
           </p>
           <div class="flex flex-wrap justify-center gap-2">
             <button
