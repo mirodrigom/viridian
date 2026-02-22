@@ -235,6 +235,11 @@ export function setupChatWs(server: Server) {
               currentSessionId = session.id;
               if (cleanupListeners) cleanupListeners();
               cleanupListeners = wireEmitter(ws, session.emitter, session.id, session.providerId);
+              // Re-deliver any control_request that was pending when the WS disconnected.
+              // Without this, the client won't have the controlRequestId and can't respond correctly.
+              if (session.pendingControlRequest && session.pendingQuestionBuffer !== null) {
+                safeSend(ws, { type: 'control_request', ...session.pendingControlRequest, sessionId: session.id });
+              }
             }
           }
         }

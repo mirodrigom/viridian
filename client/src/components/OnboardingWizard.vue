@@ -5,7 +5,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import {
   ArrowRight, ArrowLeft, Check, FolderOpen, Search,
@@ -59,7 +59,7 @@ function onDirSelect(path: string) {
         <DialogHeader>
           <div class="mb-2 flex justify-center">
             <div class="rounded-2xl bg-primary/10 p-3">
-              <ClaudeLogo :size="36" class="text-primary" />
+              <ViridianLogo :size="36" />
             </div>
           </div>
           <DialogTitle class="text-center text-xl">Welcome to Viridian</DialogTitle>

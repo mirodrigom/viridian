@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import DirectoryPicker from '@/components/DirectoryPicker.vue';
 import OnboardingWizard from '@/components/OnboardingWizard.vue';
 import {
@@ -154,7 +154,7 @@ function logout() {
     <!-- Mini top bar -->
     <header class="flex h-11 items-center justify-between border-b border-border px-4">
       <div class="flex items-center gap-2">
-        <ClaudeLogo :size="18" class="text-primary" />
+        <ViridianLogo :size="18" />
         <span class="text-sm font-medium text-foreground">Viridian</span>
       </div>
       <div class="flex items-center gap-1">
@@ -175,7 +175,7 @@ function logout() {
         <div class="text-center">
           <div class="mb-4 flex justify-center">
             <div class="rounded-2xl bg-primary/10 p-4">
-              <ClaudeLogo :size="48" class="text-primary" />
+              <ViridianLogo :size="48" />
             </div>
           </div>
           <h1 class="text-3xl font-bold tracking-tight text-foreground">

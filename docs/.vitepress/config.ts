@@ -5,11 +5,11 @@ export default defineConfig({
   description: 'Documentation for Viridian — a full-featured web UI for Claude Code',
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
   ],
 
   themeConfig: {
-    logo: '/logo.svg',
+    logo: '/logo.png',
     siteTitle: 'Viridian',
 
     nav: [

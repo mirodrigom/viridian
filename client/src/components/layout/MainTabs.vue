@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
-import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen } from 'lucide-vue-next';
+import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
 import EditorView from '@/components/editor/EditorView.vue';
@@ -15,6 +15,7 @@ import GitView from '@/components/git/GitView.vue';
 import TaskBoard from '@/components/tasks/TaskBoard.vue';
 import GraphEditor from '@/components/graph/GraphEditor.vue';
 import AutopilotView from '@/components/autopilot/AutopilotView.vue';
+import ManagementView from '@/components/management/ManagementView.vue';
 import FileSidebar from '@/components/layout/FileSidebar.vue';
 import {
   ResizablePanelGroup,
@@ -24,6 +25,7 @@ import {
 import { useTasksStore } from '@/stores/tasks';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
+import { useManagementStore } from '@/stores/management';
 
 // Mobile responsive
 const isMobile = ref(false);
@@ -50,6 +52,7 @@ const git = useGitStore();
 const tasks = useTasksStore();
 const graphStore = useGraphStore();
 const autopilot = useAutopilotStore();
+const managementStore = useManagementStore();
 
 // Auto-switch to editor when a file is opened or diff is opened
 watch(() => files.activeFile, (val) => {
@@ -68,6 +71,7 @@ const tabs = [
   { value: 'chat', label: 'Chat', icon: MessageSquare },
   { value: 'editor', label: 'Editor', icon: Code },
   { value: 'git', label: 'Git', icon: GitBranch },
+  { value: 'management', label: 'Management', icon: LayoutDashboard },
   { value: 'tasks', label: 'Tasks', icon: ClipboardList },
   { value: 'graph', label: 'Graph', icon: Workflow },
   { value: 'autopilot', label: 'Autopilot', icon: Bot },
@@ -78,6 +82,7 @@ function badgeFor(tab: string): number | null {
   if (tab === 'git' && gitChanges.value > 0) return gitChanges.value;
   if (tab === 'tasks' && tasks.stats.total > 0) return tasks.stats.total - tasks.stats.done || null;
   if (tab === 'graph' && graphStore.nodeCount > 0) return graphStore.nodeCount;
+  if (tab === 'management' && managementStore.runningCount > 0) return managementStore.runningCount;
   return null;
 }
 </script>
@@ -187,6 +192,9 @@ function badgeFor(tab: string): number | null {
     </TabsContent>
     <TabsContent value="autopilot" class="mt-0 flex-1 overflow-hidden">
       <AutopilotView />
+    </TabsContent>
+    <TabsContent value="management" class="mt-0 flex-1 overflow-hidden">
+      <ManagementView />
     </TabsContent>
   </Tabs>
 </template>

@@ -49,6 +49,7 @@ const TAB_ROUTES: Record<string, string> = {
   editor: 'editor',
   git: 'git',
   tasks: 'tasks',
+  management: 'management',
   graph: 'graph',
   autopilot: 'autopilot',
 };

@@ -77,6 +77,12 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'autopilot' },
     },
+    {
+      path: '/management',
+      name: 'management',
+      component: ProjectPage,
+      meta: { tab: 'management' },
+    },
   ],
 });
 

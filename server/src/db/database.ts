@@ -109,6 +109,29 @@ function runMigrations(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_session_cache_active ON session_cache(last_active DESC);
 
+    -- ─── Management tables ────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS management_services (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      cwd TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_management_services_user ON management_services(user_id);
+
+    CREATE TABLE IF NOT EXISTS management_scripts (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      cwd TEXT DEFAULT '',
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_management_scripts_user ON management_scripts(user_id);
+
     -- ─── Autopilot tables ───────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS autopilot_profiles (
       id TEXT PRIMARY KEY,

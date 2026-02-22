@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import { Loader2, User, Lock, UserPlus, LogIn } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -58,7 +58,7 @@ async function handleSubmit() {
       <div class="text-center">
         <div class="mb-4 flex justify-center">
           <div class="rounded-2xl bg-primary/10 p-3">
-            <ClaudeLogo :size="40" class="text-primary" />
+            <ViridianLogo :size="40" />
           </div>
         </div>
         <h1 class="text-2xl font-bold tracking-tight text-foreground">Viridian</h1>

@@ -36,6 +36,9 @@ interface ProviderSession {
   stdinWrite?: (data: string) => void;
   /** Buffered events while waiting for user to respond to AskUserQuestion or ExitPlanMode. null = not buffering. */
   pendingQuestionBuffer: { event: string; data: unknown }[] | null;
+  /** The most recent control_request forwarded to the client that is still awaiting a response.
+   *  Stored so it can be re-sent when the WebSocket reconnects mid-approval. */
+  pendingControlRequest: { requestId: string; toolName: string; toolInput: unknown; toolUseId: string } | null;
   /** Last activity timestamp for idle session cleanup. */
   lastActivity: number;
   /** User's requested permission mode (used for server-side auto-approval of control_requests). */
@@ -74,6 +77,7 @@ export function createSession(cwd: string, claudeSessionId?: string, providerId:
     isStreaming: false,
     accumulatedText: '',
     pendingQuestionBuffer: null,
+    pendingControlRequest: null,
     lastActivity: Date.now(),
     streamGeneration: 0,
   };
@@ -118,6 +122,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   session.isStreaming = true;
   session.lastActivity = Date.now();
   session.pendingQuestionBuffer = null;
+  session.pendingControlRequest = null;
 
   // Bump the generation counter — stale generators check this before emitting.
   const generation = ++session.streamGeneration;
@@ -361,6 +366,12 @@ function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
     }
   }
 
+  // Track the pending control_request so it can be re-sent when the WS reconnects
+  // (e.g. the client disconnected between tool_input_complete and control_request)
+  if (evt.event === 'control_request') {
+    session.pendingControlRequest = evt.data as { requestId: string; toolName: string; toolInput: unknown; toolUseId: string };
+  }
+
   session.emitter.emit(evt.event, evt.data);
 }
 
@@ -388,6 +399,7 @@ export function respondToPermission(
   }
 
   // Flush buffered events (held back while waiting for tool approval)
+  session.pendingControlRequest = null;
   if (session.pendingQuestionBuffer) {
     const buffered = session.pendingQuestionBuffer;
     session.pendingQuestionBuffer = null;
@@ -403,6 +415,7 @@ export function abortSession(sessionId: string) {
   const wasStreaming = session.isStreaming;
   const generation = session.streamGeneration;
   session.pendingQuestionBuffer = null;
+  session.pendingControlRequest = null;
   if (session.abortController) {
     session.abortController.abort();
     session.abortController = undefined;

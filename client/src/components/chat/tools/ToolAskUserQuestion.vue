@@ -48,6 +48,14 @@ const answers = ref<Record<number, string[]>>({});
 const customInputs = ref<Record<number, string>>({});
 const useCustom = ref<Record<number, boolean>>({});
 
+// Close modal if the tool status changes from pending (e.g. user sent a new
+// message which marked it as 'rejected' to bypass the question)
+watch(() => props.toolUse.status, (status) => {
+  if (status !== 'pending') {
+    showModal.value = false;
+  }
+});
+
 // Auto-open modal when all conditions are met:
 // 1. Tool status is 'pending' (not yet answered)
 // 2. Questions have been parsed (length > 0)

@@ -136,6 +136,11 @@ export function useClaudeStream() {
       // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
       if (d.sessionId) {
         activeSessionId = d.sessionId;
+        // Persist server UUID immediately so page reload can send check_session
+        // to reconnect to an ongoing stream (stream_end may not have fired yet)
+        if (!chat.sessionId) {
+          chat.sessionId = d.sessionId;
+        }
       }
       // Lift the guard — this is a legitimate new stream for the current session
       awaitingNewSession = false;
@@ -519,6 +524,14 @@ export function useClaudeStream() {
   };
 
   function sendMessage(prompt: string, images?: { name: string; dataUrl: string }[]) {
+    // Reject any pending AskUserQuestion tools so their modals close before
+    // the new stream starts (user is bypassing the question by typing directly)
+    for (const msg of chat.messages) {
+      if (msg.toolUse?.tool === 'AskUserQuestion' && msg.toolUse.status === 'pending') {
+        msg.toolUse.status = 'rejected';
+      }
+    }
+
     chat.addMessage({
       id: uuid(),
       role: 'user',

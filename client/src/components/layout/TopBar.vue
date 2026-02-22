@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import ClaudeLogo from '@/components/icons/ClaudeLogo.vue';
+import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import {
   TerminalSquare, Settings, LogOut, FolderOpen,
   Loader2, Moon, Sun, Wrench,
@@ -36,7 +36,7 @@ function logout() {
       <!-- Left: Logo + Project -->
       <div class="flex min-w-0 items-center gap-1.5 md:gap-2">
         <div class="flex shrink-0 items-center gap-1.5">
-          <ClaudeLogo :size="20" class="text-primary" />
+          <ViridianLogo :size="20" />
           <span class="hidden text-sm font-semibold text-foreground sm:inline">Viridian</span>
         </div>
 
