@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useSettingsStore, PERMISSION_OPTIONS, THINKING_OPTIONS, type PermissionMode, type ThinkingMode } from '@/stores/settings';
 import { useProviderStore } from '@/stores/provider';
 import { uuid } from '@/lib/utils';
@@ -21,7 +21,6 @@ import { exportSession } from '@/composables/useKeyboardShortcuts';
 const MAX_IMAGES = 5;
 
 const chat = useChatStore();
-const auth = useAuthStore();
 const settings = useSettingsStore();
 const providerStore = useProviderStore();
 const input = ref('');
@@ -543,9 +542,8 @@ watch(mentionQuery, (mq) => {
   fileSearchTimer = setTimeout(async () => {
     if (!chat.projectPath) return;
     try {
-      const res = await window.fetch(
+      const res = await apiFetch(
         `/api/files/search?root=${encodeURIComponent(chat.projectPath)}&q=${encodeURIComponent(mq.query)}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (!res.ok) return;
       const data = await res.json();

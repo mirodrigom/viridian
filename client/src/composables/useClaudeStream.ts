@@ -1,7 +1,7 @@
 import { watch } from 'vue';
 import { useChatStore, type ChatMessage } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useProviderStore } from '@/stores/provider';
 import { useWebSocket } from './useWebSocket';
 import { useRouter } from 'vue-router';
@@ -11,7 +11,6 @@ import { playToolApprovalSound } from './useNotificationSound';
 export function useClaudeStream() {
   const chat = useChatStore();
   const settings = useSettingsStore();
-  const auth = useAuthStore();
   const providerStore = useProviderStore();
   const router = useRouter();
   const { connected, connect, send, on, disconnect } = useWebSocket('/ws/chat');
@@ -293,7 +292,10 @@ export function useClaudeStream() {
       // In other modes, tools start as 'pending' until the server auto-approves
       // or forwards a control_request for user approval.
       const INTERNAL_TOOLS = ['EnterPlanMode'];
-      const autoApproved = INTERNAL_TOOLS.includes(d.tool) || settings.permissionMode === 'bypassPermissions';
+      // AskUserQuestion always requires user interaction, regardless of permission mode
+      const USER_INPUT_TOOLS = ['AskUserQuestion'];
+      const autoApproved = INTERNAL_TOOLS.includes(d.tool) ||
+        (!USER_INPUT_TOOLS.includes(d.tool) && settings.permissionMode === 'bypassPermissions');
 
       // Handle ExitPlanMode plan text capture + plan review activation
       if (d.tool === 'ExitPlanMode') {
@@ -412,6 +414,7 @@ export function useClaudeStream() {
       const d = data as {
         sessionId: string;
         serverSessionId?: string;
+        claudeSessionId?: string;
         isStreaming: boolean;
         accumulatedText?: string;
       };
@@ -428,6 +431,11 @@ export function useClaudeStream() {
         // persisted to sessionStorage and used for URL routing).
         if (d.serverSessionId) {
           activeSessionId = d.serverSessionId;
+        }
+        // Save claudeSessionId so reloadSession (called from stream_end) can
+        // fetch the correct JSONL file even if stream_end claudeSessionId is missing.
+        if (d.claudeSessionId && !chat.claudeSessionId) {
+          chat.claudeSessionId = d.claudeSessionId;
         }
         if (!chat.isStreaming) {
           chat.startStreaming();
@@ -458,8 +466,17 @@ export function useClaudeStream() {
         if (chat.isStreaming) {
           chat.finishStreaming();
         }
-        if (d.sessionId && chat.activeProjectDir) {
-          fetchMissedMessages(d.sessionId, chat.activeProjectDir);
+        // Use claudeSessionId (JSONL filename) for the REST lookup — the server UUID
+        // won't match any file. Fall back to projectPath if activeProjectDir wasn't set
+        // yet (e.g. stream_end never arrived to set it).
+        const fetchId = d.claudeSessionId || chat.claudeSessionId || d.sessionId;
+        const projectDir = chat.activeProjectDir || chat.projectPath;
+        if (fetchId && projectDir) {
+          // Ensure activeProjectDir is persisted so future fetches work too
+          if (!chat.activeProjectDir && projectDir) {
+            chat.activeProjectDir = projectDir;
+          }
+          fetchMissedMessages(fetchId, projectDir);
         }
         // Mark as idle so the UI shows a "Response complete" indicator
         // for sessions loaded from disk (only when last msg is from assistant/system)
@@ -574,9 +591,8 @@ export function useClaudeStream() {
   async function fetchMissedMessages(sessionId: string, projectDir: string) {
     try {
       const afterIndex = chat.messages.length + chat.oldestLoadedIndex;
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&after=${afterIndex}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -597,9 +613,8 @@ export function useClaudeStream() {
   /** Full reload of session messages (used after mid-stream reconnect to get accurate state). */
   async function reloadSession(sessionId: string, projectDir: string) {
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&limit=50`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (!res.ok) return;
       const data = await res.json();

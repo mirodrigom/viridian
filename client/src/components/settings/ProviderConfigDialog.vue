@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useProviderStore } from '@/stores/provider';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -27,7 +27,6 @@ const props = defineProps<{ provider: ProviderInfo | null }>();
 const emit = defineEmits<{ configured: [anySuccess: boolean, failedModelIds: string[]] }>();
 
 const open = defineModel<boolean>('open', { default: false });
-const auth = useAuthStore();
 const providerStore = useProviderStore();
 
 const apiKey = ref('');
@@ -210,9 +209,7 @@ const hasAnyConfiguredKey = computed(() => Object.keys(configuredKeys.value).len
 async function fetchConfiguredKeys() {
   if (!props.provider) return;
   try {
-    const res = await fetch(`/api/providers/${props.provider.id}/config`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
+    const res = await apiFetch(`/api/providers/${props.provider.id}/config`);
     if (res.ok) {
       const keys = await res.json() as Record<string, string>;
       configuredKeys.value = keys;
@@ -263,11 +260,10 @@ async function deleteKey(envVarName: string) {
   if (!props.provider || deleting.value) return;
   deleting.value = envVarName;
   try {
-    const res = await fetch(`/api/providers/${props.provider.id}/config`, {
+    const res = await apiFetch(`/api/providers/${props.provider.id}/config`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ envVarName }),
     });
@@ -319,11 +315,10 @@ async function runTests(
     if (backend.envVarName) testBody.envVarName = backend.envVarName;
 
     try {
-      const testRes = await fetch(`/api/providers/${providerId}/test`, {
+      const testRes = await apiFetch(`/api/providers/${providerId}/test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.token}`,
         },
         body: JSON.stringify(testBody),
       });
@@ -399,11 +394,10 @@ async function save() {
     const body: Record<string, string> = { apiKey: apiKey.value.trim() };
     if (setup.value?.envVarOptions) body.envVarName = activeEnvVarOption.value.name;
 
-    const res = await fetch(`/api/providers/${providerId}/configure`, {
+    const res = await apiFetch(`/api/providers/${providerId}/configure`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify(body),
     });

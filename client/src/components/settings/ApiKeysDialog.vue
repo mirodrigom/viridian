@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Key, Plus, Trash2, Copy, Check, Loader2, AlertTriangle } from 'lucide-vue-next';
 
-const auth = useAuthStore();
 const open = defineModel<boolean>('open', { default: false });
 
 interface ApiKey {
@@ -35,9 +34,7 @@ async function fetchKeys() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await fetch('/api/keys', {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
+    const res = await apiFetch('/api/keys');
     if (!res.ok) throw new Error('Failed to load');
     const data = await res.json();
     keys.value = data.keys || [];
@@ -51,11 +48,10 @@ async function createKey() {
   if (!newKeyName.value.trim()) return;
   creating.value = true;
   try {
-    const res = await fetch('/api/keys', {
+    const res = await apiFetch('/api/keys', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ name: newKeyName.value.trim() }),
     });
@@ -78,9 +74,8 @@ async function createKey() {
 async function revokeKey(id: number) {
   revokingId.value = id;
   try {
-    const res = await fetch(`/api/keys/${id}`, {
+    const res = await apiFetch(`/api/keys/${id}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     if (!res.ok) {
       const data = await res.json();

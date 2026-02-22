@@ -10,9 +10,9 @@ echo "Stopping running instances..."
 
 kill_procs() {
   # Kill by process name patterns
-  pkill -f 'vite.*claude-code-web' 2>/dev/null || true
-  pkill -f 'tsx.*claude-code-web' 2>/dev/null || true
-  pkill -f 'concurrently.*claude-code-web' 2>/dev/null || true
+  pkill -f 'vite.*viridian' 2>/dev/null || true
+  pkill -f 'tsx.*viridian' 2>/dev/null || true
+  pkill -f 'concurrently.*viridian' 2>/dev/null || true
 
   # Kill anything still holding the ports
   fuser -k "${PORT}/tcp" 2>/dev/null || true

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from './auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useChatStore } from './chat';
 import { useFilesStore } from './files';
 
@@ -39,12 +39,6 @@ export const useGitStore = defineStore('git', () => {
   const generatingMessage = ref(false);
   const operationLoading = ref(false);
   const selectedFiles = ref<Set<string>>(new Set());
-
-  function authHeaders() {
-    const auth = useAuthStore();
-    return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' };
-  }
-
   function cwd() {
     return useChatStore().projectPath || '';
   }
@@ -53,8 +47,8 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     loading.value = true;
     try {
-      const res = await fetch(`/api/git/status?cwd=${encodeURIComponent(cwd())}`, {
-        headers: authHeaders(),
+      const res = await apiFetch(`/api/git/status?cwd=${encodeURIComponent(cwd())}`, {
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
         toast.error('Failed to fetch git status');
@@ -79,8 +73,8 @@ export const useGitStore = defineStore('git', () => {
     showStagedDiff.value = isStagedDiff;
     selectedFile.value = null;
     try {
-      const res = await fetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
-        headers: authHeaders(),
+      const res = await apiFetch(`/api/git/diff?cwd=${encodeURIComponent(cwd())}&staged=${isStagedDiff}`, {
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
@@ -94,9 +88,8 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     selectedFile.value = filePath;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/git/file-diff?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
-        { headers: authHeaders() },
       );
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
@@ -110,9 +103,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      const res = await fetch('/api/git/stage', {
+      const res = await apiFetch('/api/git/stage', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), files }),
       });
       if (!res.ok) throw new Error('HTTP error');
@@ -128,9 +121,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      const res = await fetch('/api/git/unstage', {
+      const res = await apiFetch('/api/git/unstage', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), files }),
       });
       if (!res.ok) throw new Error('HTTP error');
@@ -146,9 +139,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd() || !commitMessage.value.trim()) return;
     operationLoading.value = true;
     try {
-      const res = await fetch('/api/git/commit', {
+      const res = await apiFetch('/api/git/commit', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), message: commitMessage.value }),
       });
       if (!res.ok) {
@@ -169,9 +162,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      const res = await fetch('/api/git/discard', {
+      const res = await apiFetch('/api/git/discard', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), file: filePath }),
       });
       if (!res.ok) throw new Error('HTTP error');
@@ -186,8 +179,8 @@ export const useGitStore = defineStore('git', () => {
   async function fetchLog() {
     if (!cwd()) return;
     try {
-      const res = await fetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
-        headers: authHeaders(),
+      const res = await apiFetch(`/api/git/log?cwd=${encodeURIComponent(cwd())}`, {
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
@@ -200,8 +193,8 @@ export const useGitStore = defineStore('git', () => {
   async function fetchBranches() {
     if (!cwd()) return;
     try {
-      const res = await fetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
-        headers: authHeaders(),
+      const res = await apiFetch(`/api/git/branches?cwd=${encodeURIComponent(cwd())}`, {
+        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
@@ -223,9 +216,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/checkout', {
+      await apiFetch('/api/git/checkout', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), branch: branchName }),
       });
       await fetchStatus();
@@ -241,9 +234,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      await fetch('/api/git/create-branch', {
+      await apiFetch('/api/git/create-branch', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), branch: branchName }),
       });
       await fetchStatus();
@@ -259,9 +252,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     operationLoading.value = true;
     try {
-      const res = await fetch('/api/git/branch', {
+      const res = await apiFetch('/api/git/branch', {
         method: 'DELETE',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd(), branch: branchName, force }),
       });
       if (!res.ok) {
@@ -282,9 +275,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     remoteLoading.value = true;
     try {
-      const res = await fetch('/api/git/pull', {
+      const res = await apiFetch('/api/git/pull', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd() }),
       });
       if (!res.ok) {
@@ -304,9 +297,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     remoteLoading.value = true;
     try {
-      const res = await fetch('/api/git/push', {
+      const res = await apiFetch('/api/git/push', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd() }),
       });
       if (!res.ok) {
@@ -326,9 +319,9 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     remoteLoading.value = true;
     try {
-      await fetch('/api/git/fetch', {
+      await apiFetch('/api/git/fetch', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd() }),
       });
     } catch {
@@ -343,9 +336,9 @@ export const useGitStore = defineStore('git', () => {
     generatingMessage.value = true;
     commitMessage.value = '';
     try {
-      const res = await fetch('/api/git/generate-commit-message', {
+      const res = await apiFetch('/api/git/generate-commit-message', {
         method: 'POST',
-        headers: authHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: cwd() }),
       });
 
@@ -395,9 +388,8 @@ export const useGitStore = defineStore('git', () => {
   async function showCommit(hash: string) {
     if (!cwd()) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/git/show?cwd=${encodeURIComponent(cwd())}&hash=${encodeURIComponent(hash)}`,
-        { headers: authHeaders() },
       );
       if (!res.ok) throw new Error('HTTP error');
       const data = await res.json();
@@ -436,9 +428,8 @@ export const useGitStore = defineStore('git', () => {
 
   async function openDiffInEditor(filePath: string) {
     if (!cwd()) return;
-    const res = await window.fetch(
+    const res = await apiFetch(
       `/api/git/file-versions?cwd=${encodeURIComponent(cwd())}&file=${encodeURIComponent(filePath)}&staged=${showStagedDiff.value}`,
-      { headers: authHeaders() },
     );
     if (!res.ok) return;
     const data = await res.json();

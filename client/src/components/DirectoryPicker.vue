@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { useAuthStore } from '@/stores/auth';
+import { ref, watch, computed } from 'vue';
+import { apiFetch } from '@/lib/apiFetch';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -14,7 +14,6 @@ interface DirEntry {
   type: 'file' | 'directory';
 }
 
-const auth = useAuthStore();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ select: [path: string] }>();
 
@@ -27,26 +26,35 @@ const props = withDefaults(defineProps<{
 const currentPath = ref(props.initialPath);
 const directories = ref<DirEntry[]>([]);
 const isLoading = ref(false);
+const fetchError = ref('');
 watch(open, (isOpen) => {
   if (isOpen) {
     currentPath.value = props.initialPath;
+    fetchError.value = '';
     fetchDir(currentPath.value);
   }
 });
 
 async function fetchDir(path: string) {
   isLoading.value = true;
+  fetchError.value = '';
   try {
-    const res = await fetch(
-      `/api/files/tree?path=${encodeURIComponent(path)}&depth=1`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
-    );
-    if (!res.ok) return;
+    const res = await apiFetch(`/api/files/tree?path=${encodeURIComponent(path)}&depth=1`);
+    if (!res.ok) {
+      // 401 is handled globally by apiFetch (redirects to login)
+      if (res.status !== 401) {
+        fetchError.value = `Failed to load directory (${res.status})`;
+      }
+      return;
+    }
     const data = await res.json();
     directories.value = (data.tree || []).filter((e: DirEntry) => e.type === 'directory');
     currentPath.value = path;
-  } catch { /* ignore */ }
-  isLoading.value = false;
+  } catch {
+    fetchError.value = 'Could not connect to server';
+  } finally {
+    isLoading.value = false;
+  }
 }
 
 function navigateTo(dir: DirEntry) {
@@ -68,6 +76,8 @@ function selectCurrent() {
   open.value = false;
 }
 
+const isAtRoot = computed(() => currentPath.value === '/');
+
 const breadcrumbs = computed(() => {
   const parts = currentPath.value.split('/').filter(Boolean);
   return parts.map((part, idx) => ({
@@ -77,13 +87,9 @@ const breadcrumbs = computed(() => {
 });
 </script>
 
-<script lang="ts">
-import { computed } from 'vue';
-</script>
-
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-lg">
+    <DialogContent class="w-[90vw] sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <FolderOpen class="h-5 w-5" />
@@ -116,16 +122,14 @@ import { computed } from 'vue';
       </div>
 
       <!-- Directory listing -->
-      <ScrollArea class="h-64 rounded-md border border-border">
+      <ScrollArea class="h-72 rounded-md border border-border">
         <div v-if="isLoading" class="flex items-center justify-center py-8">
           <span class="text-sm text-muted-foreground">Loading...</span>
         </div>
-        <div v-else-if="directories.length === 0" class="flex items-center justify-center py-8">
-          <span class="text-sm text-muted-foreground">No subdirectories</span>
-        </div>
         <div v-else class="p-1">
-          <!-- Parent directory -->
+          <!-- Parent directory (always visible unless at root) -->
           <button
+            v-if="!isAtRoot"
             class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
             @click="goUp"
           >
@@ -137,19 +141,26 @@ import { computed } from 'vue';
             v-for="dir in directories"
             :key="dir.name"
             class="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
-            @dblclick="navigateTo(dir)"
             @click="navigateTo(dir)"
           >
             <FolderOpen class="h-4 w-4 shrink-0 text-primary/70" />
             <span class="truncate text-foreground">{{ dir.name }}</span>
           </button>
+          <!-- Error or empty state (after ".." so user can still go up) -->
+          <div v-if="fetchError" class="flex flex-col items-center justify-center gap-2 py-6">
+            <span class="text-sm text-destructive">{{ fetchError }}</span>
+            <Button variant="outline" size="sm" @click="fetchDir(currentPath)">Retry</Button>
+          </div>
+          <div v-else-if="directories.length === 0" class="flex items-center justify-center py-6">
+            <span class="text-sm text-muted-foreground">No subdirectories</span>
+          </div>
         </div>
       </ScrollArea>
 
       <DialogFooter>
-        <div class="flex w-full items-center justify-between">
-          <span class="truncate text-xs text-muted-foreground">{{ currentPath }}</span>
-          <Button @click="selectCurrent" class="gap-1.5">
+        <div class="flex w-full items-center justify-between gap-3">
+          <span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ currentPath }}</span>
+          <Button @click="selectCurrent" class="shrink-0 gap-1.5">
             <FolderOpen class="h-4 w-4" />
             Select This Directory
           </Button>

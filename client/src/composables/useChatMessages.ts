@@ -45,15 +45,21 @@ export function useChatMessages() {
   const lastMessage = computed(() => messages.value[messages.value.length - 1]);
 
   // Latest TodoWrite todos — extracted from the most recent TodoWrite tool call
-  // When streaming ends, in_progress tasks are auto-marked as completed
+  // that has valid (non-empty) todos data. Falls back to an older TodoWrite when
+  // the newest one is still streaming its input (input = {}), so the panel doesn't
+  // flash to empty while tool_input_delta events are in flight.
+  // When streaming ends, in_progress tasks are auto-marked as completed.
   const latestTodos = computed(() => {
-    const lastTodoMsg = messages.value.findLast(m => m.toolUse?.tool === 'TodoWrite');
-    if (!lastTodoMsg?.toolUse?.input.todos) return [];
-    const todos = lastTodoMsg.toolUse.input.todos;
-    if (!Array.isArray(todos)) return [];
-    const typed = todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
-    if (isStreaming.value) return typed;
-    return typed.map(t => t.status === 'in_progress' ? { ...t, status: 'completed' as const } : t);
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const msg = messages.value[i];
+      if (msg?.toolUse?.tool !== 'TodoWrite') continue;
+      const todos = msg.toolUse.input.todos;
+      if (!Array.isArray(todos) || todos.length === 0) continue;
+      const typed = todos as { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }[];
+      if (isStreaming.value) return typed;
+      return typed.map(t => t.status === 'in_progress' ? { ...t, status: 'completed' as const } : t);
+    }
+    return [];
   });
 
   function addMessage(msg: ChatMessage) {

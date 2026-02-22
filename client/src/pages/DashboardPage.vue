@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
 import { useRouter } from 'vue-router';
@@ -45,11 +46,10 @@ async function cloneRepo() {
   cloneError.value = '';
 
   try {
-    const res = await fetch('/api/files/clone', {
+    const res = await apiFetch('/api/files/clone', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ url, targetDir: settings.projectsDir }),
     });
@@ -142,7 +142,7 @@ function logout() {
         <span class="text-muted-foreground">(current: {{ currentVersion }})</span>
       </span>
       <a
-        :href="`https://github.com/mirodrigom/claude-code-web/releases/tag/v${latestVersion}`"
+        :href="`https://github.com/mirodrigom/viridian/releases/tag/v${latestVersion}`"
         target="_blank"
         class="ml-1 text-primary underline hover:text-primary/80"
       >View release</a>

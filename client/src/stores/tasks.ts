@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { useAuthStore } from './auth';
+import { apiFetch } from '@/lib/apiFetch';
 
 export interface Task {
   id: string;
@@ -114,12 +114,9 @@ export const useTasksStore = defineStore('tasks', () => {
   });
 
   async function fetchTasks(projectPath: string) {
-    const auth = useAuthStore();
     loading.value = true;
     try {
-      const res = await fetch(`/api/tasks?project=${encodeURIComponent(projectPath)}`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(`/api/tasks?project=${encodeURIComponent(projectPath)}`);
       if (!res.ok) throw new Error('Failed to fetch tasks');
       const data = await res.json();
       tasks.value = data.tasks;
@@ -129,10 +126,9 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function createTask(projectPath: string, task: { title: string; description?: string; details?: string; priority?: TaskPriority; parentId?: string }) {
-    const auth = useAuthStore();
-    const res = await fetch('/api/tasks', {
+    const res = await apiFetch('/api/tasks', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...task, project: projectPath }),
     });
     if (!res.ok) throw new Error('Failed to create task');
@@ -142,10 +138,9 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function updateTask(id: string, updates: Partial<Pick<Task, 'title' | 'description' | 'details' | 'status' | 'priority' | 'parentId' | 'dependencyIds' | 'sortOrder'>>) {
-    const auth = useAuthStore();
-    const res = await fetch(`/api/tasks/${id}`, {
+    const res = await apiFetch(`/api/tasks/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Failed to update task');
@@ -166,23 +161,20 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function deleteTask(id: string) {
-    const auth = useAuthStore();
-    const res = await fetch(`/api/tasks/${id}`, {
+    const res = await apiFetch(`/api/tasks/${id}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     if (!res.ok) throw new Error('Failed to delete task');
     tasks.value = tasks.value.filter(t => t.id !== id && t.parentId !== id);
   }
 
   async function parsePrd(projectPath: string, prdText: string, onDelta?: (text: string) => void): Promise<Task[]> {
-    const auth = useAuthStore();
     prdParsing.value = true;
 
     try {
-      const res = await fetch('/api/tasks/parse-prd', {
+      const res = await apiFetch('/api/tasks/parse-prd', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prd: prdText, project: projectPath }),
       });
 
@@ -230,11 +222,10 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function expandTask(taskId: string, onDelta?: (text: string) => void): Promise<Task[]> {
-    const auth = useAuthStore();
 
-    const res = await fetch(`/api/tasks/${taskId}/expand`, {
+    const res = await apiFetch(`/api/tasks/${taskId}/expand`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!res.ok) throw new Error('Failed to expand task');
@@ -275,10 +266,9 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function reorderTasks(taskIds: string[]) {
-    const auth = useAuthStore();
-    await fetch('/api/tasks/reorder', {
+    await apiFetch('/api/tasks/reorder', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskIds }),
     });
     taskIds.forEach((id, index) => {

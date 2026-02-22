@@ -19,7 +19,7 @@ function getJwtSecret(env: { JWT_SECRET?: string; NODE_ENV?: string }): string {
   }
 
   if (isDevelopment && !secret) {
-    return 'claude-code-web-dev-secret-change-in-production'
+    return 'viridian-dev-secret-change-in-production'
   }
 
   if (secret && secret.length < 32) {
@@ -50,12 +50,12 @@ describe('getJwtSecret', () => {
 
   it('returns default secret in development without JWT_SECRET', () => {
     const secret = getJwtSecret({ NODE_ENV: 'development' })
-    expect(secret).toBe('claude-code-web-dev-secret-change-in-production')
+    expect(secret).toBe('viridian-dev-secret-change-in-production')
   })
 
   it('returns default secret when NODE_ENV is unset (treated as development)', () => {
     const secret = getJwtSecret({})
-    expect(secret).toBe('claude-code-web-dev-secret-change-in-production')
+    expect(secret).toBe('viridian-dev-secret-change-in-production')
   })
 
   it('returns the provided secret when long enough', () => {

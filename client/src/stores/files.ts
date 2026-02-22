@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from './auth';
+import { apiFetch } from '@/lib/apiFetch';
 
 export interface FileNode {
   name: string;
@@ -34,13 +34,10 @@ export const useFilesStore = defineStore('files', () => {
   const diffData = ref<DiffData | null>(null);
 
   async function fetchTree(path?: string) {
-    const auth = useAuthStore();
     loading.value = true;
     try {
       const url = path ? `/api/files/tree?path=${encodeURIComponent(path)}` : '/api/files/tree';
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(url);
       if (!res.ok) {
         toast.error('Failed to load file tree');
         return;
@@ -57,7 +54,6 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   async function expandFolder(folderPath: string) {
-    const auth = useAuthStore();
 
     function findNode(nodes: FileNode[], path: string): (FileNode & { _loaded?: boolean }) | null {
       for (const node of nodes) {
@@ -74,9 +70,8 @@ export const useFilesStore = defineStore('files', () => {
     if (!node || node.type !== 'directory' || node._loaded) return;
 
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/files/tree/children?root=${encodeURIComponent(rootPath.value)}&path=${encodeURIComponent(folderPath)}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -95,11 +90,9 @@ export const useFilesStore = defineStore('files', () => {
       return;
     }
 
-    const auth = useAuthStore();
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/files/content?root=${encodeURIComponent(rootPath.value)}&path=${encodeURIComponent(filePath)}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (!res.ok) {
         toast.error('Failed to open file');
@@ -124,13 +117,11 @@ export const useFilesStore = defineStore('files', () => {
     const file = openFiles.value.find(f => f.path === filePath);
     if (!file) return;
 
-    const auth = useAuthStore();
     try {
-      const res = await fetch('/api/files/content', {
+      const res = await apiFetch('/api/files/content', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.token}`,
         },
         body: JSON.stringify({
           root: rootPath.value,

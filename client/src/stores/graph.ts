@@ -8,7 +8,7 @@ import type {
 } from '@/types/graph';
 import { CONNECTION_RULES } from '@/types/graph';
 import type { GraphTemplate } from '@/data/graphTemplates';
-import { useAuthStore } from './auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { uuid } from '@/lib/utils';
 
 export const useGraphStore = defineStore('graph', () => {
@@ -327,12 +327,9 @@ export const useGraphStore = defineStore('graph', () => {
   // ─── Persistence ──────────────────────────────────────────────────
 
   async function fetchGraphList(projectPath: string) {
-    const auth = useAuthStore();
     loading.value = true;
     try {
-      const res = await fetch(`/api/graphs?project=${encodeURIComponent(projectPath)}`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(`/api/graphs?project=${encodeURIComponent(projectPath)}`);
       if (!res.ok) throw new Error('Failed to fetch graphs');
       const data = await res.json();
       graphList.value = data.graphs;
@@ -342,12 +339,9 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   async function loadGraph(id: string) {
-    const auth = useAuthStore();
     loading.value = true;
     try {
-      const res = await fetch(`/api/graphs/${id}`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(`/api/graphs/${id}`);
       if (!res.ok) throw new Error('Failed to load graph');
       const config: GraphConfig = await res.json();
       deserialize(config);
@@ -357,14 +351,13 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   async function saveGraph(projectPath: string, viewport?: { x: number; y: number; zoom: number }) {
-    const auth = useAuthStore();
     const graphData = serialize(viewport);
     const method = currentGraphId.value ? 'PUT' : 'POST';
     const url = currentGraphId.value ? `/api/graphs/${currentGraphId.value}` : '/api/graphs';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: currentGraphName.value,
         project: projectPath,
@@ -380,10 +373,8 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   async function deleteGraph(id: string) {
-    const auth = useAuthStore();
-    const res = await fetch(`/api/graphs/${id}`, {
+    const res = await apiFetch(`/api/graphs/${id}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     if (!res.ok) throw new Error('Failed to delete graph');
     graphList.value = graphList.value.filter(g => g.id !== id);
@@ -420,8 +411,6 @@ export const useGraphStore = defineStore('graph', () => {
   async function generatePrompt(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId);
     if (!node) return;
-
-    const auth = useAuthStore();
     const data = node.data as NodeData;
 
     const promptField =
@@ -464,9 +453,9 @@ export const useGraphStore = defineStore('graph', () => {
         payload.scope = (data as RuleNodeData).scope;
       }
 
-      const res = await fetch('/api/graphs/generate-prompt', {
+      const res = await apiFetch('/api/graphs/generate-prompt', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 

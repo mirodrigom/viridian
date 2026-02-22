@@ -100,7 +100,7 @@ packages:
 ```
 
 ```
-claude-code-web/
+viridian/
 ├── package.json              # Root — shared scripts (dev, build)
 ├── pnpm-workspace.yaml       # Workspace definition
 ├── pnpm-lock.yaml

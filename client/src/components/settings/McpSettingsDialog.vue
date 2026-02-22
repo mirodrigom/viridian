@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/select';
 import { Plus, Trash2, Server, Terminal, Globe, Loader2, ChevronDown, ChevronRight } from 'lucide-vue-next';
 
-const auth = useAuthStore();
 const open = defineModel<boolean>('open', { default: false });
 
 type ServerType = 'stdio' | 'sse' | 'http';
@@ -64,9 +63,7 @@ async function fetchServers() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await fetch('/api/mcp/servers', {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
+    const res = await apiFetch('/api/mcp/servers');
     if (!res.ok) throw new Error('Failed to load');
     const data = await res.json();
     servers.value = data.servers || {};
@@ -104,11 +101,10 @@ async function addServer() {
 
   addingServer.value = true;
   try {
-    const res = await fetch('/api/mcp/servers', {
+    const res = await apiFetch('/api/mcp/servers', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ name: s.name.trim(), config }),
     });
@@ -131,9 +127,8 @@ async function addServer() {
 async function removeServer(name: string) {
   removingServer.value = name;
   try {
-    const res = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
+    const res = await apiFetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     if (!res.ok) {
       const data = await res.json();

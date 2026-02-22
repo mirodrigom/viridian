@@ -23,7 +23,7 @@ function getJwtSecret(): string {
       '⚠️  WARNING: Using default JWT secret for development. ' +
       'Set JWT_SECRET environment variable for security.'
     );
-    return 'claude-code-web-dev-secret-change-in-production';
+    return 'viridian-dev-secret-change-in-production';
   }
 
   // Validate secret length (minimum 32 characters for security)

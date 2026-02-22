@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useGraphStore } from '@/stores/graph';
 import { createStoreWebSocket } from '@/lib/storeWebSocket';
 import type {
@@ -513,12 +513,9 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   // ─── Run History Actions ─────────────────────────────────────────
 
   async function fetchRunHistory(graphId: string) {
-    const auth = useAuthStore();
     loadingHistory.value = true;
     try {
-      const res = await fetch(`/api/graph-runs?graphId=${encodeURIComponent(graphId)}`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(`/api/graph-runs?graphId=${encodeURIComponent(graphId)}`);
       if (!res.ok) throw new Error('Failed to fetch run history');
       const data = await res.json();
       runHistory.value = data.runs;
@@ -531,10 +528,7 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   }
 
   async function loadRun(runId: string) {
-    const auth = useAuthStore();
-    const res = await fetch(`/api/graph-runs/${runId}`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
+    const res = await apiFetch(`/api/graph-runs/${runId}`);
     if (!res.ok) throw new Error('Failed to load run');
     const data = await res.json();
 
@@ -566,11 +560,9 @@ export const useGraphRunnerStore = defineStore('graphRunner', () => {
   }
 
   async function deleteRun(runId: string) {
-    const auth = useAuthStore();
     try {
-      const res = await fetch(`/api/graph-runs/${runId}`, {
+      const res = await apiFetch(`/api/graph-runs/${runId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${auth.token}` },
       });
       if (!res.ok) {
         toast.error('Failed to delete run');

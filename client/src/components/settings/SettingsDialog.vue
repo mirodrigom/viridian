@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useChatStore } from '@/stores/chat';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
@@ -13,7 +13,6 @@ import McpSettingsDialog from './McpSettingsDialog.vue';
 import ProviderSelector from './ProviderSelector.vue';
 import { Server } from 'lucide-vue-next';
 
-const auth = useAuthStore();
 const chat = useChatStore();
 
 const open = defineModel<boolean>('open', { default: false });
@@ -29,9 +28,8 @@ watch(open, async (isOpen) => {
   if (isOpen && chat.projectPath) {
     gitConfigLoading.value = true;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/git/user-config?cwd=${encodeURIComponent(chat.projectPath)}`,
-        { headers: { Authorization: `Bearer ${auth.token}` } },
       );
       if (res.ok) {
         const data = await res.json();
@@ -46,11 +44,10 @@ watch(open, async (isOpen) => {
 async function saveGitConfig() {
   if (!chat.projectPath || gitConfigLoading.value) return;
   try {
-    await fetch('/api/git/user-config', {
+    await apiFetch('/api/git/user-config', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
       },
       body: JSON.stringify({ cwd: chat.projectPath, name: gitName.value, email: gitEmail.value }),
     });

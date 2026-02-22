@@ -14,8 +14,8 @@ Viridian is a full-stack web application that provides a browser-based UI for [C
 Clone the repository and install dependencies:
 
 ```bash
-git clone <your-repo-url> claude-code-web
-cd claude-code-web
+git clone <your-repo-url> viridian
+cd viridian
 pnpm install
 ```
 
@@ -89,7 +89,7 @@ node dist/index.js
 ## Project Structure
 
 ```
-claude-code-web/
+viridian/
 ├── client/          # Vue 3 SPA (Vite + TypeScript)
 │   └── src/
 │       ├── components/   # Vue components by feature

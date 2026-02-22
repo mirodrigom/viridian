@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
 import { useChatStore } from '@/stores/chat';
+import { apiFetch } from '@/lib/apiFetch';
 import { useAuthStore } from '@/stores/auth';
 import { useProviderStore } from '@/stores/provider';
 import { useRouter } from 'vue-router';
@@ -57,9 +58,7 @@ async function fetchSessions(bustCache = false) {
     const params = new URLSearchParams();
     if (chat.projectPath) params.set('project', chat.projectPath);
     if (bustCache) params.set('_t', String(Date.now()));
-    const res = await fetch(`/api/sessions?${params}`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    });
+    const res = await apiFetch(`/api/sessions?${params}`);
     if (!res.ok) return;
     const data = await res.json();
     sessions.value = data.sessions || [];
@@ -83,8 +82,8 @@ function startNewSession() {
 async function resumeSession(session: SessionItem) {
   // Abort current stream before switching sessions
   if (chat.isStreaming) chat.abortStream();
-  chat.isLoadingSession = true;
   chat.clearMessages();
+  chat.isLoadingSession = true;
   chat.sessionId = session.id;
   chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
   chat.activeProjectDir = session.projectDir;
@@ -96,9 +95,8 @@ async function resumeSession(session: SessionItem) {
   });
 
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/sessions/${session.id}/messages?projectDir=${encodeURIComponent(session.projectDir)}&limit=50`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
     );
     if (!res.ok) { chat.isLoadingSession = false; return; }
     const data = await res.json();
@@ -152,9 +150,8 @@ async function deleteSession() {
   if (!session) return;
   isDeleting.value = true;
   try {
-    const res = await fetch(`/api/sessions/${session.id}?projectDir=${encodeURIComponent(session.projectDir)}`, {
+    const res = await apiFetch(`/api/sessions/${session.id}?projectDir=${encodeURIComponent(session.projectDir)}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     if (!res.ok) {
       toast.error('Failed to delete session');
@@ -179,9 +176,8 @@ async function fetchNewMessages(projectDir: string) {
   // Request messages after the ones we already have
   const afterIndex = chat.messages.length + chat.oldestLoadedIndex;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/sessions/${chat.sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&after=${afterIndex}`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
     );
     if (!res.ok) return;
     const data = await res.json();

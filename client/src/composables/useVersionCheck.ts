@@ -1,6 +1,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
+import { apiFetch } from '@/lib/apiFetch';
 
-const GITHUB_REPO = 'mirodrigom/claude-code-web';
+const GITHUB_REPO = 'mirodrigom/viridian';
 const CHECK_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 const DISMISSED_KEY = 'version-update-dismissed';
 
@@ -14,7 +15,7 @@ export function useVersionCheck() {
 
   async function fetchCurrentVersion() {
     try {
-      const res = await fetch('/api/version');
+      const res = await apiFetch('/api/version');
       if (res.ok) {
         const data = await res.json();
         currentVersion.value = data.version || '';

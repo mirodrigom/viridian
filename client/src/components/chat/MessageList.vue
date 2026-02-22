@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { useChatStore } from '@/stores/chat';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { useProviderLogo } from '@/composables/useProviderLogo';
@@ -10,7 +10,6 @@ import MessageBubble from './MessageBubble.vue';
 import { playResponseCompleteSound } from '@/composables/useNotificationSound';
 
 const chat = useChatStore();
-const auth = useAuthStore();
 const { activeLogo, activeName } = useProviderLogo();
 const scrollContainer = ref<any>(null);
 const showScrollBtn = ref(false);
@@ -292,9 +291,8 @@ async function loadOlderMessages() {
   const oldScrollHeight = viewport?.scrollHeight || 0;
 
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/sessions/${chat.sessionId}/messages?projectDir=${encodeURIComponent(chat.activeProjectDir)}&limit=50&before=${chat.oldestLoadedIndex}`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
     );
     if (!res.ok) return;
     const data = await res.json();

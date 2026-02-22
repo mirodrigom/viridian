@@ -1,4 +1,4 @@
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import type {
   AutopilotRun,
   AutopilotCycle,
@@ -10,7 +10,6 @@ import type {
  * Composable for high-level autopilot actions and run loading
  */
 export function useAutopilotActions() {
-  const auth = useAuthStore();
 
   async function loadRun(
     runId: string,
@@ -31,12 +30,8 @@ export function useAutopilotActions() {
     try {
       // Fetch run metadata + cycles in parallel
       const [runRes, cyclesRes] = await Promise.all([
-        fetch(`/api/autopilot/runs/${runId}`, {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        }),
-        fetch(`/api/autopilot/runs/${runId}/cycles`, {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        }),
+        apiFetch(`/api/autopilot/runs/${runId}`),
+        apiFetch(`/api/autopilot/runs/${runId}/cycles`),
       ]);
 
       if (!runRes.ok || !cyclesRes.ok) return;

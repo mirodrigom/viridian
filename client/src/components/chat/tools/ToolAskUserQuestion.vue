@@ -62,7 +62,10 @@ watch(
     streaming: props.toolUse.isInputStreaming,
   }),
   ({ status, questionCount, streaming }) => {
-    if (status === 'pending' && questionCount > 0 && !streaming) {
+    // Only open (and reset step) when the modal isn't already open.
+    // Without this guard, any reactive change (e.g. another message appended)
+    // would re-fire the watcher and reset currentStep while the user is answering.
+    if (status === 'pending' && questionCount > 0 && !streaming && !showModal.value) {
       showModal.value = true;
       currentStep.value = 0;
     }

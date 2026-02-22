@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { useAuthStore } from './auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useSettingsStore } from './settings';
 import { toast } from 'vue-sonner';
 import type { ProviderId, ProviderInfo, ProviderModel, ProviderCapabilities } from '@/types/provider';
@@ -37,7 +37,6 @@ const FALLBACK_CLAUDE: ProviderInfo = {
 };
 
 export const useProviderStore = defineStore('provider', () => {
-  const auth = useAuthStore();
 
   // State
   const providers = ref<ProviderInfo[]>([FALLBACK_CLAUDE]);
@@ -51,6 +50,11 @@ export const useProviderStore = defineStore('provider', () => {
   /** Model IDs that failed their last connection test, keyed by provider ID. */
   const failedModels = ref<Record<string, string[]>>(
     JSON.parse(localStorage.getItem('failedModels') || '{}') as Record<string, string[]>,
+  );
+
+  /** Provider IDs whose last credential test failed entirely ("Fix credentials" state). */
+  const failedProviderIds = ref<Set<ProviderId>>(
+    new Set(JSON.parse(localStorage.getItem('failedProviders') || '[]') as ProviderId[]),
   );
 
   // Getters
@@ -76,6 +80,13 @@ export const useProviderStore = defineStore('provider', () => {
     providers.value.filter(p => p.available)
   );
 
+  /** Providers that are installed, configured, and passed their last test (shown as green in settings). */
+  const configuredProviders = computed<ProviderInfo[]>(() =>
+    providers.value.filter(p =>
+      p.available && p.configured && !failedProviderIds.value.has(p.id)
+    )
+  );
+
   const activeProviderName = computed(() => activeProvider.value.name);
 
   /** Set of model IDs that failed their last test for the currently active provider. */
@@ -94,9 +105,7 @@ export const useProviderStore = defineStore('provider', () => {
 
   async function fetchProviders(retryCount = 0) {
     try {
-      const res = await fetch('/api/providers', {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch('/api/providers');
       if (!res.ok) {
         // Server returned error — retry up to 3 times with backoff
         if (retryCount < 3) {
@@ -177,6 +186,16 @@ export const useProviderStore = defineStore('provider', () => {
     localStorage.setItem('failedModels', JSON.stringify(updated));
   }
 
+  /** Mark a provider as failed (true) or clear its failure (false). */
+  function setFailedProvider(id: ProviderId, failed: boolean) {
+    if (failed) {
+      failedProviderIds.value.add(id);
+    } else {
+      failedProviderIds.value.delete(id);
+    }
+    localStorage.setItem('failedProviders', JSON.stringify([...failedProviderIds.value]));
+  }
+
   /** Check if a model ID is valid for the given provider. */
   function isValidModel(modelId: string, providerId?: ProviderId): boolean {
     const pid = providerId || activeProviderId.value;
@@ -194,15 +213,18 @@ export const useProviderStore = defineStore('provider', () => {
     activeModels,
     activeCapabilities,
     availableProviders,
+    configuredProviders,
     activeProviderName,
     activeFailedModelIds,
     defaultModel,
     failedModels,
+    failedProviderIds,
     fetchProviders,
     setDefaultProvider,
     setSessionProvider,
     clearSessionProvider,
     setFailedModels,
+    setFailedProvider,
     isValidModel,
   };
 });

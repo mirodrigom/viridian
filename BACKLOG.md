@@ -1,4 +1,4 @@
-# Claude Code Web - Feature Backlog
+# Viridian - Feature Backlog
 
 > Comparison against [claudecodeui](https://github.com/siteboon/claudecodeui) v1.16.3
 > Generated: 2026-02-11

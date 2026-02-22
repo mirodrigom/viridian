@@ -52,15 +52,17 @@ const scheduleEnabled = ref(false);
 const scheduleStartTime = ref('22:00');
 const scheduleEndTime = ref('10:00');
 
-// Dynamic models based on selected provider per agent
+// Dynamic models based on selected provider per agent (excluding failed models)
 const agentAModels = computed(() => {
   const provider = providerStore.providers.find(p => p.id === agentAProvider.value);
-  return provider?.models.map(m => ({ value: m.id, label: m.label })) || [];
+  const failed = new Set(providerStore.failedModels[agentAProvider.value] ?? []);
+  return provider?.models.filter(m => !failed.has(m.id)).map(m => ({ value: m.id, label: m.label })) || [];
 });
 
 const agentBModels = computed(() => {
   const provider = providerStore.providers.find(p => p.id === agentBProvider.value);
-  return provider?.models.map(m => ({ value: m.id, label: m.label })) || [];
+  const failed = new Set(providerStore.failedModels[agentBProvider.value] ?? []);
+  return provider?.models.filter(m => !failed.has(m.id)).map(m => ({ value: m.id, label: m.label })) || [];
 });
 
 // Reset model when provider changes
@@ -308,7 +310,7 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem
-                    v-for="p in providerStore.availableProviders"
+                    v-for="p in providerStore.configuredProviders"
                     :key="p.id"
                     :value="p.id"
                   >
@@ -373,7 +375,7 @@ const canStart = computed(() => goalPrompt.value.trim().length > 0 && cwdOverrid
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem
-                    v-for="p in providerStore.availableProviders"
+                    v-for="p in providerStore.configuredProviders"
                     :key="p.id"
                     :value="p.id"
                   >

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'claude-code-web-v1';
+const CACHE_NAME = 'viridian-v1';
 const STATIC_ASSETS = ['/', '/index.html'];
 
 self.addEventListener('install', (event) => {

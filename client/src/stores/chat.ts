@@ -29,6 +29,7 @@ export const useChatStore = defineStore('chat', () => {
   function clearMessages() {
     messages.clearMessages();
     session.clearSession();
+    session.isLoadingSession.value = false;
     pagination.clearPagination();
     ui.clearUI();
   }

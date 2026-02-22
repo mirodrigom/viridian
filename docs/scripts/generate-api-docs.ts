@@ -1,7 +1,7 @@
 /**
  * generate-api-docs.ts
  *
- * Auto-generates API reference documentation by parsing the Claude Code Web
+ * Auto-generates API reference documentation by parsing the Viridian
  * server route files, WebSocket handlers, and client TypeScript types.
  *
  * Usage:

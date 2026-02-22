@@ -228,7 +228,7 @@ export function setupChatWs(server: Server) {
             const accumulatedText = streaming ? (session?.accumulatedText ?? '') : undefined;
             // Reply with the client's sessionId so it can match the response,
             // plus the server's internal UUID so the client can match subsequent events
-            safeSend(ws, { type: 'session_status', sessionId, serverSessionId: session?.id, isStreaming: streaming, accumulatedText });
+            safeSend(ws, { type: 'session_status', sessionId, serverSessionId: session?.id, claudeSessionId: session?.claudeSessionId, isStreaming: streaming, accumulatedText });
             // If still streaming, re-wire so remaining events reach this new WS
             if (session && streaming) {
               // Use session.id (server UUID) for internal tracking (tool_response, abort, etc.)

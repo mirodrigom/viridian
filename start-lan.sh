@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start-lan.sh — Start claude-code-web accessible on LAN (0.0.0.0)
+# start-lan.sh — Start viridian accessible on LAN (0.0.0.0)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ export CORS_ORIGIN="http://${LAN_IP}:5174"
 export VITE_HOST="0.0.0.0"
 
 echo "============================================"
-echo "  claude-code-web — LAN Mode"
+echo "  viridian — LAN Mode"
 echo "============================================"
 echo "  LAN IP:   ${LAN_IP}"
 echo "  Client:   http://${LAN_IP}:5174"

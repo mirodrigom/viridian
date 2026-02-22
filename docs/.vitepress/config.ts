@@ -66,7 +66,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/mirodrigom/claude-code-web' },
+      { icon: 'github', link: 'https://github.com/mirodrigom/viridian' },
     ],
 
     search: {
@@ -74,7 +74,7 @@ export default defineConfig({
     },
 
     editLink: {
-      pattern: 'https://github.com/mirodrigom/claude-code-web/edit/main/docs/:path',
+      pattern: 'https://github.com/mirodrigom/viridian/edit/main/docs/:path',
       text: 'Edit this page',
     },
 

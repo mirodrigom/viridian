@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { toast } from 'vue-sonner';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import type {
   AutopilotConfig,
   AutopilotProfile,
@@ -15,13 +15,10 @@ export function useAutopilotConfig() {
   const profiles = ref<AutopilotProfile[]>([]);
   const runs = ref<AutopilotRunSummary[]>([]);
 
-  const auth = useAuthStore();
 
   async function fetchProfiles() {
     try {
-      const res = await fetch('/api/autopilot/profiles', {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch('/api/autopilot/profiles');
       if (!res.ok) return;
       const data = await res.json();
       profiles.value = data.profiles;
@@ -33,9 +30,7 @@ export function useAutopilotConfig() {
 
   async function fetchConfigs(project: string) {
     try {
-      const res = await fetch(`/api/autopilot/configs?project=${encodeURIComponent(project)}`, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(`/api/autopilot/configs?project=${encodeURIComponent(project)}`);
       if (!res.ok) return;
       const data = await res.json();
       configs.value = data.configs;
@@ -50,9 +45,7 @@ export function useAutopilotConfig() {
       const url = project
         ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=20`
         : '/api/autopilot/runs?limit=20';
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(url);
       if (!res.ok) return [];
       return (await res.json()).runs;
     } catch (err) {
@@ -66,9 +59,7 @@ export function useAutopilotConfig() {
       const url = project
         ? `/api/autopilot/runs?project=${encodeURIComponent(project)}&limit=50`
         : '/api/autopilot/runs?limit=50';
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${auth.token}` },
-      });
+      const res = await apiFetch(url);
       if (!res.ok) return;
       runs.value = (await res.json()).runs as AutopilotRunSummary[];
     } catch (err) {

@@ -274,9 +274,12 @@ function shouldAutoApprove(session: ProviderSession, toolName: string): boolean 
   const provider = getProvider(session.providerId);
   if (!provider.capabilities.supportsControlRequests) return true;
 
+  // AskUserQuestion always requires user interaction regardless of permission mode
+  if (toolName === 'AskUserQuestion') return false;
+
   const mode = session.userPermissionMode || 'default';
   if (mode === 'bypassPermissions') return true;
-  if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return false;
+  if (toolName === 'ExitPlanMode') return false;
   if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true;
   if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true;
   return false;
@@ -349,10 +352,13 @@ function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
 
   // Start buffering as soon as we see AskUserQuestion or ExitPlanMode tool_use
   // since text can stream between tool_use and control_request.
-  // Skip in bypassPermissions mode — these tools are auto-approved there.
-  const BLOCKING_TOOLS = ['AskUserQuestion', 'ExitPlanMode'];
-  if (msg.type === 'tool_use' && BLOCKING_TOOLS.includes(msg.tool) && session.userPermissionMode !== 'bypassPermissions') {
-    session.pendingQuestionBuffer = [];
+  // AskUserQuestion always buffers (requires user interaction regardless of mode).
+  // ExitPlanMode only buffers when not in bypassPermissions mode.
+  if (msg.type === 'tool_use') {
+    if (msg.tool === 'AskUserQuestion' ||
+        (msg.tool === 'ExitPlanMode' && session.userPermissionMode !== 'bypassPermissions')) {
+      session.pendingQuestionBuffer = [];
+    }
   }
 
   session.emitter.emit(evt.event, evt.data);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useProviderStore } from '@/stores/provider';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { CheckCircle, XCircle, Download, Loader2, Terminal, Settings2, AlertTriangle } from 'lucide-vue-next';
 import { useProviderLogo } from '@/composables/useProviderLogo';
 import { toast } from 'vue-sonner';
@@ -9,7 +9,6 @@ import type { ProviderId, ProviderInfo } from '@/types/provider';
 import ProviderConfigDialog from './ProviderConfigDialog.vue';
 
 const providerStore = useProviderStore();
-const auth = useAuthStore();
 const { getLogoComponent } = useProviderLogo();
 
 const installing = ref<ProviderId | null>(null);
@@ -19,22 +18,13 @@ const installOutput = ref<{ provider: ProviderInfo; output: string; success: boo
 const configDialogOpen = ref(false);
 const configuringProvider = ref<ProviderInfo | null>(null);
 
-// Providers whose last test failed — persisted across page reloads
-const failedProviders = ref<Set<ProviderId>>(
-  new Set(JSON.parse(localStorage.getItem('failedProviders') || '[]') as ProviderId[]),
-);
-
-function persistFailedProviders() {
-  localStorage.setItem('failedProviders', JSON.stringify([...failedProviders.value]));
-}
-
 function isKeyInvalid(provider: ProviderInfo): boolean {
-  return provider.configured && failedProviders.value.has(provider.id);
+  return provider.configured && providerStore.failedProviderIds.has(provider.id);
 }
 
 // A provider is truly selectable only if configured AND not known-failed
 function isSelectable(provider: ProviderInfo): boolean {
-  return provider.available && provider.configured && !failedProviders.value.has(provider.id);
+  return provider.available && provider.configured && !providerStore.failedProviderIds.has(provider.id);
 }
 
 // Card state helpers
@@ -49,7 +39,7 @@ const cardState = computed(() => (provider: ProviderInfo) => {
 function handleProviderClick(provider: ProviderInfo) {
   if (!provider.available) return;
   // Block selection if not configured OR if last test failed
-  if (!provider.configured || failedProviders.value.has(provider.id)) {
+  if (!provider.configured || providerStore.failedProviderIds.has(provider.id)) {
     configuringProvider.value = provider;
     configDialogOpen.value = true;
     return;
@@ -75,20 +65,18 @@ function onConfigured(anySuccess: boolean, failedModelIds: string[]) {
   providerStore.setFailedModels(id, failedModelIds);
 
   if (anySuccess) {
-    failedProviders.value.delete(id);
-    persistFailedProviders();
+    providerStore.setFailedProvider(id, false);
     selectProvider(id);
     return;
   }
 
   // All models failed — block card selection
-  failedProviders.value.add(id);
-  persistFailedProviders();
+  providerStore.setFailedProvider(id, true);
 
   // If this was the active provider, fall back to another verified one
   if (providerStore.defaultProvider === id) {
     const fallback = providerStore.providers.find(
-      p => p.available && p.configured && p.id !== id && !failedProviders.value.has(p.id),
+      p => p.available && p.configured && p.id !== id && !providerStore.failedProviderIds.has(p.id),
     );
     if (fallback) {
       selectProvider(fallback.id);
@@ -107,9 +95,8 @@ async function installProvider(provider: ProviderInfo) {
   installOutput.value = null;
 
   try {
-    const res = await fetch(`/api/providers/${provider.id}/install`, {
+    const res = await apiFetch(`/api/providers/${provider.id}/install`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${auth.token}` },
     });
     const data = await res.json() as { output?: string; success?: boolean };
 

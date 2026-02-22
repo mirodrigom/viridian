@@ -1,40 +1,47 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
-import { useAuthStore } from '@/stores/auth';
+import { apiFetch } from '@/lib/apiFetch';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useProviderStore } from '@/stores/provider';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
+import type { RouteLocationNormalized } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
 
 const chat = useChatStore();
-const auth = useAuthStore();
 const graph = useGraphStore();
 const autopilot = useAutopilotStore();
 const providerStore = useProviderStore();
 const route = useRoute();
 const router = useRouter();
 
-onMounted(async () => {
+// AbortController for cancelling in-flight session loads on navigation
+let loadAbort: AbortController | null = null;
+
+async function handleRoute(to: RouteLocationNormalized) {
   // Ensure a project path is set (falls back to /home if nothing stored)
   if (!chat.projectPath) {
     chat.setProjectPath('/home');
   }
 
-  // If navigated to /chat/:sessionId, load that session
-  const sessionId = route.params.sessionId as string | undefined;
+  // --- Chat session handling ---
+  const sessionId = to.params.sessionId as string | undefined;
+  // Cancel any in-flight session load
+  loadAbort?.abort();
+  loadAbort = new AbortController();
+
   if (sessionId && (sessionId !== chat.sessionId || chat.messages.length === 0)) {
-    await loadSessionFromUrl(sessionId);
-  } else if (!sessionId && route.name === 'project' && chat.sessionId) {
+    await loadSessionFromUrl(sessionId, loadAbort.signal);
+  } else if (!sessionId && (to.name === 'project') && chat.sessionId) {
     // Landing on /project with no sessionId in URL but a stale sessionId in store
     // (e.g. from sessionStorage after a page refresh). Clear it so the next
     // conversation correctly creates a new session and updates the URL.
     chat.clearMessages();
   }
 
-  // If navigated to /graph/:graphId, load that graph
-  const graphId = route.params.graphId as string | undefined;
+  // --- Graph handling ---
+  const graphId = to.params.graphId as string | undefined;
   if (graphId && graphId !== graph.currentGraphId) {
     try {
       await graph.loadGraph(graphId);
@@ -44,16 +51,15 @@ onMounted(async () => {
     }
   }
 
-  // If navigated to /autopilot/:runId or /autopilot/:runId/:cycleNumber, load that run
-  const runId = route.params.runId as string | undefined;
+  // --- Autopilot handling ---
+  const runId = to.params.runId as string | undefined;
   if (runId) {
-    // If a run is actively running and URL points to a different run, correct to active run
     if (autopilot.isRunning && autopilot.currentRun?.runId !== runId) {
       router.replace({ name: 'autopilot-run', params: { runId: autopilot.currentRun!.runId } });
     } else if (autopilot.currentRun?.runId !== runId) {
       try {
         await autopilot.loadRun(runId);
-        const cycleNumber = route.params.cycleNumber as string | undefined;
+        const cycleNumber = to.params.cycleNumber as string | undefined;
         if (cycleNumber !== undefined) {
           autopilot.selectedCycleNumber = Number(cycleNumber);
         }
@@ -62,20 +68,25 @@ onMounted(async () => {
         router.replace({ name: 'autopilot' });
       }
     } else {
-      // Run already loaded, just apply cycle selection from URL
-      const cycleNumber = route.params.cycleNumber as string | undefined;
+      const cycleNumber = to.params.cycleNumber as string | undefined;
       if (cycleNumber !== undefined) {
         autopilot.selectedCycleNumber = Number(cycleNumber);
       }
     }
   }
-});
+}
 
-async function loadSessionFromUrl(sessionId: string) {
+onMounted(() => handleRoute(route));
+
+// Handle browser back/forward navigation when Vue reuses this component
+// (all /project, /chat/:sessionId, /editor, /git, etc. routes use ProjectPage)
+onBeforeRouteUpdate((to) => handleRoute(to));
+
+async function loadSessionFromUrl(sessionId: string, signal?: AbortSignal) {
   try {
     // First fetch sessions to find the projectDir for this session
-    const res = await fetch('/api/sessions', {
-      headers: { Authorization: `Bearer ${auth.token}` },
+    const res = await apiFetch('/api/sessions', {
+      signal,
     });
     if (!res.ok) return;
     const data = await res.json();
@@ -87,15 +98,15 @@ async function loadSessionFromUrl(sessionId: string) {
       chat.setProjectPath(session.projectPath);
     }
 
-    chat.isLoadingSession = true;
     chat.clearMessages();
+    chat.isLoadingSession = true;
     chat.sessionId = session.id;
     chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
     chat.activeProjectDir = session.projectDir;
 
-    const msgRes = await fetch(
+    const msgRes = await apiFetch(
       `/api/sessions/${session.id}/messages?projectDir=${encodeURIComponent(session.projectDir)}&limit=50`,
-      { headers: { Authorization: `Bearer ${auth.token}` } },
+      { signal },
     );
     if (!msgRes.ok) { chat.isLoadingSession = false; return; }
     const msgData = await msgRes.json();
@@ -131,6 +142,8 @@ async function loadSessionFromUrl(sessionId: string) {
       chat.startStreaming();
     }
   } catch (err) {
+    // Ignore AbortError — just means navigation cancelled the load
+    if (err instanceof DOMException && err.name === 'AbortError') return;
     chat.isLoadingSession = false;
     console.error('Failed to load session from URL:', err);
     router.replace({ name: 'project' });
