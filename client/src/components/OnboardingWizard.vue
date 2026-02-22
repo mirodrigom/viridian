@@ -53,7 +53,7 @@ function onDirSelect(path: string) {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-2xl" @interact-outside.prevent>
+    <DialogContent class="max-w-3xl" @interact-outside.prevent>
       <!-- Step 0: Welcome -->
       <template v-if="step === 0">
         <DialogHeader>

@@ -14,6 +14,7 @@ import type { SDKMessage } from './claude-sdk.js';
 import type { ProviderId } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import { upsertSessionProvider } from '../db/database.js';
+import * as lf from './langfuse.js';
 
 // Ensure providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -130,6 +131,14 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   session.accumulatedText = '';
   session.emitter.emit('stream_start');
 
+  lf.startTrace({
+    sessionId: session.id,
+    claudeSessionId: session.claudeSessionId,
+    providerId: session.providerId,
+    prompt,
+    model: options?.model,
+  });
+
   // Store user's permission mode for server-side auto-approval of control_requests.
   // For providers that support control requests (like Claude), we pass 'default' to the CLI
   // so it sends control_request for every tool, and the server auto-approves based on user's mode.
@@ -207,6 +216,7 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
   switch (msg.type) {
     case 'text_delta':
       session.accumulatedText += msg.text;
+      lf.recordTextDelta(session.id, msg.text);
       return { event: 'stream_delta', data: { text: msg.text } };
     case 'thinking_start':
       return { event: 'thinking_start', data: {} };
@@ -214,13 +224,17 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       return { event: 'thinking_delta', data: { text: msg.text } };
     case 'thinking_end':
       return { event: 'thinking_end', data: {} };
-    case 'tool_use':
+    case 'tool_use': {
+      lf.recordToolUse(session.id, msg.requestId, msg.tool, msg.input, msg.parentToolUseId);
       return { event: 'tool_use', data: { tool: msg.tool, input: msg.input, requestId: msg.requestId } };
+    }
     case 'tool_input_delta':
       return { event: 'tool_input_delta', data: { requestId: msg.requestId, tool: msg.tool, partialJson: msg.partialJson, accumulatedJson: msg.accumulatedJson } };
     case 'tool_input_complete':
+      if (msg.requestId) lf.updateToolInput(session.id, msg.requestId, msg.input);
       return { event: 'tool_input_complete', data: { requestId: msg.requestId, tool: msg.tool, input: msg.input } };
     case 'error':
+      lf.recordError(session.id, msg.error);
       return { event: 'error', data: { error: msg.error } };
     case 'system':
       if (msg.sessionId) session.claudeSessionId = msg.sessionId;
@@ -243,6 +257,7 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       session.isStreaming = false;
       session.lastActivity = Date.now();
       session.stdinWrite = undefined;
+      lf.endTrace(session.id, session.usage);
       // Persist provider → session mapping so historical messages show the correct logo
       if (session.claudeSessionId) {
         const projectDir = session.cwd.replace(/\//g, '-');
@@ -258,6 +273,9 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
           usage: { input_tokens: session.usage.inputTokens, output_tokens: session.usage.outputTokens },
         },
       };
+    case 'subagent_result':
+      lf.recordToolResult(session.id, msg.toolUseId, msg.content);
+      return null;
     default:
       return null;
   }

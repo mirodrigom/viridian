@@ -259,3 +259,38 @@ Your unsent message text is automatically saved to `localStorage` as you type, k
 ::: info Design rationale
 Draft persistence uses `localStorage` rather than `sessionStorage` so that drafts survive browser tab closes. The save is triggered by a Vue `watch` on the input value, making it effectively instant with no explicit save button needed.
 :::
+
+## Traces Panel
+
+When [Langfuse observability](./getting-started#langfuse-observability-optional) is configured, the right panel of the chat view shows a live **Traces Panel** — a compact view of recent agent interactions.
+
+The Traces Panel is the default right-panel content, shown whenever there is no active Plan Review or Todo Timeline.
+
+### What it shows
+
+Each entry in the trace list represents one Claude turn and includes:
+
+- A **status dot** (green = success, red = error)
+- A **type icon** (chat bubble for regular turns, bot icon for autopilot)
+- The **trace name** (e.g. `chat`, `autopilot:orchestrator`)
+- **Token count** (in thousands)
+- **Relative timestamp** (e.g. `2m`)
+
+### Expanding a trace
+
+Click any trace row to expand it and see its **observations** — the structured spans recorded during that turn:
+
+- **Generation** (⚡) — The model call, with input/output token counts and the model name. Expand further to see the raw input prompt and output text.
+- **Spans** (🔧) — Tool calls and subagent invocations. Expand to see input arguments and output. Subagent spans (nested under `Task` or `Skill` tool calls) are labeled accordingly.
+
+### Auto-refresh
+
+The panel polls Langfuse every **3 seconds** while open, so you can watch traces appear in real time as Claude responds.
+
+### Not configured
+
+If Langfuse keys are not set in `.env`, the panel shows a "Langfuse not configured" placeholder instead of traces. Set `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_BASE_URL` in `.env` to enable it.
+
+::: tip
+The full-page **Traces** view (accessible from the Management tab) provides a resizable list/detail layout with a 5-second auto-refresh toggle and a complete observation tree for each selected trace.
+:::

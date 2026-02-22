@@ -2,6 +2,22 @@
 
 All notable changes to Viridian are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-02-22
+
+### Added
+
+- **Langfuse observability** — Self-hosted tracing for all Claude turns: prompts, tool calls, nested subagent spans, and token usage. Disabled automatically when `LANGFUSE_SECRET_KEY` is not set. Includes a proxy API (`/api/langfuse/*`) that keeps keys server-side.
+- **Traces Panel** — Compact live trace list in the Chat right panel (auto-refresh every 3s). Shows the last 20 traces with expandable generation and tool-call observations. Appears as the default right panel when no Plan Review or Todo Timeline is active.
+- **Management tab** — Full dashboard tab with four draggable, resizable widgets: Services (long-running processes with real-time log streaming), Scripts (one-shot commands with SSE output), Env (in-browser `.env` editor), and Processes (live process list with PID + uptime).
+- **Management project scoping** — Services and scripts are now associated with a project path, so switching projects loads the correct set of items.
+- **`setup.sh` bootstrap script** — Idempotent setup script that checks Node.js, installs pnpm, installs dependencies, creates `.env`, and pulls Langfuse container images.
+- **`docker-compose.yml`** — Docker / Podman Compose file for running a self-hosted Langfuse instance (Langfuse + PostgreSQL) on port 3001.
+
+### Changed
+
+- **Chat right panel** — TracesPanel now always occupies the right panel as a fallback (previously the panel was empty when there were no todos or plan review).
+- **Management drag-to-reorder** — Widget grid supports HTML5 drag-and-drop for reordering; layout persists in localStorage.
+
 ## [0.2.0] — 2026-02-16
 
 ### Added

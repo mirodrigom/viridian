@@ -319,9 +319,19 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   const debugArgs = args.map((a, i) => args[i - 1] === '-p' ? `"${a.slice(0, 80)}..."` : a);
   debugLog(`[ClaudeSDK] FULL CLI: claude ${debugArgs.join(' ')}`);
 
+  // Strip env vars that Claude CLI uses to detect nested sessions.
+  // When our server runs inside a Claude Code session (e.g. VSCode extension),
+  // the parent sets these — passing them through causes:
+  //   "Claude Code cannot be launched inside another Claude Code session"
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.CLAUDECODE;
+  delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
+  delete cleanEnv.CLAUDE_AGENT_SDK_VERSION;
+  delete cleanEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING;
+
   const proc = spawn(claudeBin, args, {
     cwd: options.cwd,
-    env: { ...process.env },
+    env: cleanEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 

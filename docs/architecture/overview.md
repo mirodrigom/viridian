@@ -117,13 +117,15 @@ viridian/
 │       ├── composables/      # Reusable logic (useClaudeStream, useWebSocket, ...)
 │       ├── components/       # UI components organized by domain
 │       │   ├── layout/       # AppLayout, TopBar, MainTabs, FileSidebar
-│       │   ├── chat/         # ChatInput, MessageList, SessionSidebar
+│       │   ├── chat/         # ChatInput, MessageList, SessionSidebar, TracesPanel
 │       │   ├── editor/       # EditorView (CodeMirror)
 │       │   ├── git/          # Git status, diff, commit UI
 │       │   ├── graph/        # Graph editor (Vue Flow)
 │       │   ├── autopilot/    # Dual-agent autonomous mode
 │       │   ├── terminal/     # xterm.js terminal
 │       │   ├── tasks/        # Task management
+│       │   ├── management/   # Management dashboard (services, scripts, env, processes)
+│       │   ├── traces/       # Full-page Langfuse traces view
 │       │   ├── settings/     # Settings + tools dialogs
 │       │   └── ui/           # shadcn-vue primitives
 │       ├── pages/            # Route-level page components
@@ -163,13 +165,15 @@ viridian/
 │       │   ├── autopilot.ts  # Dual-agent autonomous loop
 │       │   ├── autopilot-profiles.ts  # Built-in agent profiles
 │       │   ├── autopilot-scheduler.ts # Cron-like scheduler
-│       │   └── autopilot-git.ts       # Branch + scoped auto-commit
+│       │   ├── autopilot-git.ts       # Branch + scoped auto-commit
+│       │   └── langfuse.ts            # Observability: trace/span instrumentation
 │       └── ws/               # WebSocket endpoint handlers
 │           ├── chat.ts       # /ws/chat — streaming chat
 │           ├── shell.ts      # /ws/shell — terminal I/O
 │           ├── sessions.ts   # /ws/sessions — live session list
 │           ├── graph-runner.ts # /ws/graph — graph execution events
-│           └── autopilot.ts  # /ws/autopilot — autopilot events
+│           ├── autopilot.ts  # /ws/autopilot — autopilot events
+│           └── management.ts # /ws/management — service status + log streaming
 │
 └── docs/                     # VitePress documentation site
     ├── package.json
@@ -217,7 +221,9 @@ Request
   ├── /api/tasks/*  ─── authMiddleware ───── tasksRoutes
   ├── /api/keys/*   ─── authMiddleware ───── apikeysRoutes
   ├── /api/agent/*  ─── authMiddleware ───── agentRoutes
-  └── /api/mcp/*    ─── authMiddleware ───── mcpRoutes
+  ├── /api/mcp/*    ─── authMiddleware ───── mcpRoutes
+  ├── /api/management/* ─ authMiddleware ─── managementRoutes
+  └── /api/langfuse/* ── authMiddleware ──── langfuseRoutes
 ```
 
 ::: info Design Rationale: Auth Middleware
@@ -257,6 +263,7 @@ Services encapsulate the core business logic and are the only layer that directl
 | `autopilot-scheduler.ts` | Cron-like 60-second tick that starts/stops autopilot runs based on time windows |
 | `autopilot-profiles.ts` | Built-in and user-defined agent profile management |
 | `autopilot-git.ts` | Branch creation and scoped auto-commit for autopilot runs |
+| `langfuse.ts` | Langfuse observability: instruments Claude turns with traces, generation spans, and nested tool/subagent spans. Disabled automatically when `LANGFUSE_SECRET_KEY` is absent |
 
 ### Configuration (`server/src/config.ts`)
 
@@ -269,6 +276,9 @@ Configuration is resolved at startup from environment variables with sensible de
 | `JWT_SECRET` | Dev fallback | **Required** in production (min 32 chars) |
 | `CORS_ORIGIN` | `http://localhost:5174` | Allowed CORS origin (Vite dev server) |
 | `CLAUDE_PATH` | Auto-detected | Override path to Claude CLI binary |
+| `LANGFUSE_SECRET_KEY` | *(unset)* | Langfuse secret key — enables observability when set |
+| `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse public key |
+| `LANGFUSE_BASE_URL` | `http://localhost:3001` | URL of the self-hosted Langfuse instance |
 
 ## Client Architecture
 
@@ -303,6 +313,7 @@ All authenticated routes resolve to `ProjectPage.vue`, which renders the `AppLay
 | `/graph/:graphId` | `graph` | Open specific graph |
 | `/autopilot` | `autopilot` | Autopilot dashboard |
 | `/autopilot/:runId` | `autopilot` | Specific autopilot run |
+| `/management` | `management` | Management dashboard (services, scripts, env, processes) |
 
 A navigation guard redirects unauthenticated users to `/login` and redirects authenticated users away from `/login` to `/`:
 
@@ -332,7 +343,8 @@ App.vue
             │   │   │   ├── GitView
             │   │   │   ├── TasksView
             │   │   │   ├── GraphView (Vue Flow)
-            │   │   │   └── AutopilotView
+            │   │   │   ├── AutopilotView
+            │   │   │   └── ManagementView (Services, Scripts, Env, Processes)
             │   │   └── FileSidebar.vue (editor tab only)
             │   └── TerminalPanel.vue (toggleable)
             ├── SettingsDialog.vue
@@ -354,6 +366,8 @@ Each feature domain has its own Pinia store:
 | `graph` | `graphs`, `currentGraphId` | Graph definitions |
 | `graphRunner` | `currentRun`, `executions`, `timeline` | Active graph execution state |
 | `autopilot` | `configs`, `currentRun`, `cycles` | Autopilot configuration and run state |
+| `management` | `services`, `scripts`, `processes`, `widgetLayout` | Management dashboard state — services, scripts, env, processes, widget layout |
+| `traces` | `traces`, `selectedTrace`, `configured` | Langfuse trace list and selected trace detail |
 
 ### Composables
 

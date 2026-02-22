@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useManagementStore } from '@/stores/management';
+import { useChatStore } from '@/stores/chat';
 import type { WidgetConfig } from '@/stores/management';
 import { LayoutDashboard } from 'lucide-vue-next';
 import ServicesWidget from './widgets/ServicesWidget.vue';
@@ -9,6 +10,7 @@ import EnvWidget from './widgets/EnvWidget.vue';
 import ProcessesWidget from './widgets/ProcessesWidget.vue';
 
 const store = useManagementStore();
+const chat = useChatStore();
 
 const WIDGET_COMPONENTS: Record<WidgetConfig['id'], unknown> = {
   services: ServicesWidget,
@@ -60,7 +62,11 @@ function reset() {
 
 onMounted(() => {
   store.connect();
-  store.init();
+  store.init(chat.projectPath);
+});
+
+watch(() => chat.projectPath, (path) => {
+  store.init(path);
 });
 </script>
 
@@ -70,6 +76,11 @@ onMounted(() => {
     <div class="flex items-center gap-2 border-b px-3 py-2 shrink-0 bg-muted/10">
       <LayoutDashboard class="h-4 w-4 text-primary shrink-0" />
       <span class="text-sm font-semibold">Management</span>
+      <span
+        v-if="store.projectPath"
+        class="text-[10px] font-mono text-muted-foreground truncate max-w-48"
+        :title="store.projectPath"
+      >{{ store.projectPath.split('/').pop() }}</span>
       <span
         v-if="store.runningCount > 0"
         class="flex h-4 min-w-5 items-center justify-center rounded-full bg-green-500/15 px-1.5 text-[10px] font-semibold text-green-500"

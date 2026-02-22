@@ -13,6 +13,7 @@ export interface ManagedService {
   name: string;
   command: string;
   cwd: string;
+  projectPath: string;
   sortOrder: number;
   status: ServiceStatus;
   pid?: number;
@@ -25,6 +26,7 @@ export interface ManagedScript {
   name: string;
   command: string;
   cwd: string;
+  projectPath: string;
   sortOrder: number;
   createdAt: string;
 }
@@ -89,6 +91,7 @@ export const useManagementStore = defineStore('management', () => {
   const selectedServiceId = ref<string | null>(null);
   const serviceLogs = ref<Map<string, string[]>>(new Map());
   const widgetLayout = ref<WidgetConfig[]>(loadLayout());
+  const projectPath = ref<string | null>(null);
 
   // ─── WebSocket ────────────────────────────────────────────────────────────
   const { connected, connect, disconnect, send, on } = createStoreWebSocket('/ws/management');
@@ -130,7 +133,10 @@ export const useManagementStore = defineStore('management', () => {
 
   // ─── Services actions ─────────────────────────────────────────────────────
   async function fetchServices() {
-    const res = await apiFetch('/api/management/services');
+    const url = projectPath.value
+      ? `/api/management/services?project=${encodeURIComponent(projectPath.value)}`
+      : '/api/management/services';
+    const res = await apiFetch(url);
     if (!res.ok) return;
     const data = await res.json() as { services: ManagedService[] };
     services.value = data.services;
@@ -140,7 +146,7 @@ export const useManagementStore = defineStore('management', () => {
     const res = await apiFetch('/api/management/services', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, command, cwd }),
+      body: JSON.stringify({ name, command, cwd, projectPath: projectPath.value || '' }),
     });
     if (!res.ok) throw new Error('Failed to add service');
     const data = await res.json() as { service: ManagedService };
@@ -168,7 +174,10 @@ export const useManagementStore = defineStore('management', () => {
 
   // ─── Scripts actions ──────────────────────────────────────────────────────
   async function fetchScripts() {
-    const res = await apiFetch('/api/management/scripts');
+    const url = projectPath.value
+      ? `/api/management/scripts?project=${encodeURIComponent(projectPath.value)}`
+      : '/api/management/scripts';
+    const res = await apiFetch(url);
     if (!res.ok) return;
     const data = await res.json() as { scripts: ManagedScript[] };
     scripts.value = data.scripts;
@@ -178,7 +187,7 @@ export const useManagementStore = defineStore('management', () => {
     const res = await apiFetch('/api/management/scripts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, command, cwd }),
+      body: JSON.stringify({ name, command, cwd, projectPath: projectPath.value || '' }),
     });
     if (!res.ok) throw new Error('Failed to add script');
     const data = await res.json() as { script: ManagedScript };
@@ -192,7 +201,10 @@ export const useManagementStore = defineStore('management', () => {
 
   // ─── Processes ────────────────────────────────────────────────────────────
   async function fetchProcesses() {
-    const res = await apiFetch('/api/management/processes');
+    const url = projectPath.value
+      ? `/api/management/processes?project=${encodeURIComponent(projectPath.value)}`
+      : '/api/management/processes';
+    const res = await apiFetch(url);
     if (!res.ok) return;
     const data = await res.json() as { processes: RunningProcess[] };
     processes.value = data.processes;
@@ -213,7 +225,8 @@ export const useManagementStore = defineStore('management', () => {
   function selectService(id: string | null) { selectedServiceId.value = id; }
   function clearLogs(id: string) { serviceLogs.value.set(id, []); serviceLogs.value = new Map(serviceLogs.value); }
 
-  async function init() {
+  async function init(path?: string | null) {
+    if (path !== undefined) projectPath.value = path;
     loading.value = true;
     try { await Promise.all([fetchServices(), fetchScripts()]); }
     finally { loading.value = false; }
@@ -222,7 +235,7 @@ export const useManagementStore = defineStore('management', () => {
   return {
     // State
     services, scripts, processes, loading,
-    selectedServiceId, serviceLogs, widgetLayout,
+    selectedServiceId, serviceLogs, widgetLayout, projectPath,
     // Computed
     runningCount, selectedServiceLogs, sortedWidgets,
     connected,

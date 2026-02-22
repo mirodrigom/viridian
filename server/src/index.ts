@@ -18,6 +18,7 @@ import graphRunsRoutes from './routes/graph-runs.js';
 import autopilotRoutes from './routes/autopilot.js';
 import providersRoutes from './routes/providers.js';
 import managementRoutes from './routes/management.js';
+import langfuseRoutes from './routes/langfuse.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
@@ -25,6 +26,7 @@ import { setupSessionsWs } from './ws/sessions.js';
 import { setupGraphRunnerWs } from './ws/graph-runner.js';
 import { setupAutopilotWs } from './ws/autopilot.js';
 import { setupManagementWs } from './ws/management.js';
+import { setupTracesWs } from './ws/traces.js';
 import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
 import { destroyAllTerminals } from './services/terminal.js';
@@ -55,6 +57,7 @@ app.use('/api/graph-runs', graphRunsRoutes);
 app.use('/api/autopilot', autopilotRoutes);
 app.use('/api/providers', providersRoutes);
 app.use('/api/management', managementRoutes);
+app.use('/api/langfuse', authMiddleware, langfuseRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -86,6 +89,7 @@ const sessionsWs = setupSessionsWs(server);
 setupGraphRunnerWs(server);
 setupAutopilotWs(server);
 setupManagementWs(server);
+setupTracesWs(server);
 
 server.listen(config.port, config.host, () => {
   console.log(`Server running on http://${config.host}:${config.port}`);

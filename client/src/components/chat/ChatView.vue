@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, provide, onMounted, onUnmounted } from 'vue';
+import { ref, computed, provide, watch, onMounted, onUnmounted } from 'vue';
 import { useClaudeStream } from '@/composables/useClaudeStream';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -12,8 +12,9 @@ import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
+import TracesPanel from './TracesPanel.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
-import { PanelLeft, PanelLeftClose, Loader2, Plus } from 'lucide-vue-next';
+import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
 import { useRouter } from 'vue-router';
@@ -26,7 +27,13 @@ provide('respondToTool', respondToTool);
 const showToolsSettings = ref(false);
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
+const showTracesSidebar = ref(false);
 const isMobile = ref(false);
+
+// Auto-expand traces when Claude starts responding
+watch(() => chat.isStreaming, (streaming) => {
+  if (streaming) showTracesSidebar.value = true;
+});
 
 function handleNewSession() {
   if (chat.isStreaming) abort();
@@ -35,7 +42,7 @@ function handleNewSession() {
 }
 
 const hasTodos = computed(() => chat.latestTodos.length > 0);
-const hasRightPanel = computed(() => chat.isPlanReviewActive || hasTodos.value);
+const hasSecondPanel = computed(() => chat.isPlanReviewActive || hasTodos.value);
 
 function handlePlanApprove() {
   const requestId = chat.planReviewRequestId;
@@ -129,15 +136,17 @@ defineExpose({ showToolsSettings });
           >
             <PanelLeft class="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="h-7 w-7 p-0"
-            title="New session"
-            @click="handleNewSession"
-          >
-            <Plus class="h-4 w-4" />
-          </Button>
+          <div class="flex flex-col items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0"
+              title="New session"
+              @click="handleNewSession"
+            >
+              <Plus class="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         <!-- Expanded: full sidebar -->
@@ -161,13 +170,14 @@ defineExpose({ showToolsSettings });
         </div>
       </div>
 
-      <!-- Chat + right panels -->
+      <!-- Chat + optional second panel (todos / plan review) -->
       <ResizablePanelGroup
         :key="chat.isPlanReviewActive ? 'plan' : hasTodos ? 'todos' : 'chat'"
         direction="horizontal"
         class="min-w-0 flex-1"
       >
-        <ResizablePanel :default-size="hasRightPanel ? 80 : 100" :min-size="40">
+        <!-- Main chat area -->
+        <ResizablePanel :default-size="hasSecondPanel ? 70 : 100" :min-size="40">
           <div class="flex h-full flex-col" :class="modeClass">
             <MessageList
               class="flex-1 overflow-hidden"
@@ -178,9 +188,11 @@ defineExpose({ showToolsSettings });
             <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
           </div>
         </ResizablePanel>
+
+        <!-- Second panel: Plan Review or Todos (when active) -->
         <template v-if="chat.isPlanReviewActive">
           <ResizableHandle />
-          <ResizablePanel :default-size="20" :min-size="18" :max-size="40">
+          <ResizablePanel :default-size="30" :min-size="15" :max-size="45">
             <PlanReviewPanel
               @approve="handlePlanApprove"
               @deny="handlePlanDeny"
@@ -190,11 +202,50 @@ defineExpose({ showToolsSettings });
         </template>
         <template v-else-if="hasTodos">
           <ResizableHandle />
-          <ResizablePanel :default-size="20" :min-size="14" :max-size="35">
+          <ResizablePanel :default-size="30" :min-size="12" :max-size="40">
             <TodoTimeline />
           </ResizablePanel>
         </template>
       </ResizablePanelGroup>
+
+      <!-- Traces sidebar: always present, collapsible -->
+      <div
+        class="sidebar-slide relative shrink-0 overflow-hidden border-l border-border bg-card/50"
+        :class="showTracesSidebar ? 'w-[300px]' : 'w-9'"
+      >
+        <!-- Collapsed: toggle button -->
+        <div
+          v-if="!showTracesSidebar"
+          class="flex h-full w-9 flex-col items-center justify-start py-2"
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            title="Show traces"
+            @click="showTracesSidebar = true"
+          >
+            <PanelRight class="h-4 w-4" />
+          </Button>
+        </div>
+
+        <!-- Expanded: full traces panel -->
+        <div v-else class="h-full w-[300px]">
+          <TracesPanel :session-id="chat.sessionId">
+            <template #header-action>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-5 w-5 p-0 text-muted-foreground"
+                title="Hide traces"
+                @click="showTracesSidebar = false"
+              >
+                <PanelRightClose class="h-3.5 w-3.5" />
+              </Button>
+            </template>
+          </TracesPanel>
+        </div>
+      </div>
     </template>
 
     <!-- Mobile: overlay sidebar + full-width chat -->

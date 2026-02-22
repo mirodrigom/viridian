@@ -28,10 +28,17 @@ function getJwtSecret(): string {
 
   // Validate secret length (minimum 32 characters for security)
   if (secret && secret.length < 32) {
-    throw new Error(
-      'JWT_SECRET must be at least 32 characters long for security. ' +
-      'Current length: ' + secret.length
+    if (isProduction) {
+      throw new Error(
+        'JWT_SECRET must be at least 32 characters long for security. ' +
+        'Current length: ' + secret.length
+      );
+    }
+    console.warn(
+      '⚠️  WARNING: JWT_SECRET is too short (< 32 chars). ' +
+      'Using dev fallback secret instead.'
     );
+    return 'viridian-dev-secret-change-in-production';
   }
 
   return secret!;

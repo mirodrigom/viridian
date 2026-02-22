@@ -11,21 +11,33 @@ Viridian is a full-stack web application that provides a browser-based UI for [C
 
 ## Installation
 
-Clone the repository and install dependencies:
+Clone the repository and run the bootstrap script:
+
+```bash
+git clone <your-repo-url> viridian
+cd viridian
+bash setup.sh
+```
+
+`setup.sh` is idempotent — safe to run multiple times. It:
+
+1. Checks that Node.js 20+ is available
+2. Installs pnpm if missing
+3. Installs npm dependencies (skips if lockfile unchanged)
+4. Copies `.env.example` → `.env` if `.env` is missing
+5. Installs `podman-compose` if Podman is present (for Langfuse)
+6. Pulls Langfuse container images (one-time, skipped if already pulled)
+
+Alternatively, install manually:
 
 ```bash
 git clone <your-repo-url> viridian
 cd viridian
 pnpm install
+cp .env.example .env
 ```
 
 ## Configuration
-
-Copy the environment template and configure:
-
-```bash
-cp .env.example .env
-```
 
 Edit `.env` with your settings:
 
@@ -48,6 +60,46 @@ CORS_ORIGIN=http://localhost:5174
 Generate a secure JWT secret with: `openssl rand -base64 64`
 :::
 
+## Langfuse Observability (optional)
+
+Viridian can trace every Claude turn — prompts, tool calls, subagent spans, and token usage — using [Langfuse](https://langfuse.com/), an open-source observability platform.
+
+### Self-hosting Langfuse
+
+A `docker-compose.yml` at the repo root starts a local Langfuse instance (Langfuse + PostgreSQL):
+
+```bash
+# Docker
+docker compose up -d
+
+# Podman
+podman-compose up -d
+```
+
+Langfuse will be available at `http://localhost:3001`.
+
+### Getting API keys
+
+1. Open `http://localhost:3001` in your browser
+2. Register an account and create a new project
+3. Copy the **public key** and **secret key** from Project Settings → API Keys
+
+### Enabling tracing
+
+Add the keys to `.env`:
+
+```ini
+LANGFUSE_BASE_URL=http://localhost:3001
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
+
+Restart the server — traces will appear in the **Traces Panel** (right side of Chat) and in the Langfuse UI.
+
+::: info
+Tracing is completely optional. When `LANGFUSE_SECRET_KEY` is not set, the Langfuse service is disabled with zero overhead. The Traces Panel shows a "not configured" placeholder.
+:::
+
 ## Running in Development
 
 Start both client and server:
@@ -67,7 +119,7 @@ Open `http://localhost:5174` in your browser.
 1. **Login** — On first visit you'll be prompted to create credentials
 2. **Select a Project** — Choose a directory from the dashboard or clone a GitHub repo
 3. **Start Chatting** — Send messages to Claude in the Chat tab
-4. **Explore Tabs** — Switch between Chat, Editor, Git, Tasks, Graph, and Autopilot
+4. **Explore Tabs** — Switch between Chat, Editor, Git, Tasks, Graph, Autopilot, and Management
 
 ## Building for Production
 

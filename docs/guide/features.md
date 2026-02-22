@@ -1,6 +1,6 @@
 # Features Overview
 
-Viridian organizes all its functionality into **six main tabs**, a **resizable terminal panel**, and a **settings system**. This page provides a guided tour of each section — what it does, how it's structured, and where to go for details.
+Viridian organizes all its functionality into **seven main tabs**, a **resizable terminal panel**, and a **settings system**. This page provides a guided tour of each section — what it does, how it's structured, and where to go for details.
 
 ## Chat
 
@@ -24,6 +24,7 @@ The chat interface is the core of Viridian — your primary channel for interact
 - **Search** — `Ctrl+F` to find and navigate through matches across all messages.
 - **Token tracking** — Status bar shows context usage percentage, cost, input/output tokens, and response time.
 - **Draft persistence** — Unsent messages are saved to localStorage per session and survive page reloads.
+- **Traces Panel** — When Langfuse is configured, the right panel shows a live list of the last 20 agent traces (auto-refreshes every 3s), with expandable observations (generation + tool spans).
 
 ::: tip
 Sessions are identified by their JSONL filename, which is also the Claude CLI session ID. You can resume any web session from the CLI with `claude --resume <id>` and vice versa.
@@ -170,6 +171,29 @@ A dual-Claude autonomous collaboration system — two specialized agents work to
 - **Git integration** — Automatic branch creation, scoped auto-commits, push to origin, and PR creation via `gh` CLI with auto-merge.
 
 [Full documentation →](./autopilot)
+
+---
+
+## Management
+
+A project dashboard for managing long-running services, one-shot scripts, environment files, and monitoring running processes — all scoped to the active project.
+
+**Layout:** A two-column widget grid with drag-to-reorder support. Each widget can be resized to half-width or full-width.
+
+**Four widgets:**
+
+| Widget | Purpose |
+|--------|---------|
+| **Services** | Define and control long-running processes (dev servers, workers). Start/stop individual services, view real-time stdout/stderr logs, and see uptime. Status updates stream via WebSocket. |
+| **Scripts** | One-shot commands with real-time SSE output streaming. Click Run to execute; output scrolls in a terminal-style view. |
+| **Env** | In-browser editor for any `.env` file in the project. Read and write the file directly from the UI. |
+| **Processes** | Live snapshot of all currently running managed services, showing PID, uptime, and working directory. |
+
+**Key capabilities:**
+
+- **Project scoping** — Services and scripts are associated with the active project path. Switching projects loads a different set of items.
+- **Drag-to-reorder** — Grab the drag handle on any widget header to reorder the grid. Layout is persisted in localStorage.
+- **Running count badge** — The Management tab shows a green badge with the count of currently running services.
 
 ---
 
