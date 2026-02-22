@@ -59,6 +59,7 @@ export function getProviderDTOs(): ProviderInfoDTO[] {
     models: p.models,
     capabilities: p.capabilities,
     available: (() => { try { return p.isAvailable(); } catch { return false; } })(),
+    configured: (() => { try { return p.isConfigured().configured; } catch { return true; } })(),
     installCommand: p.info.installCommand,
   }));
 }

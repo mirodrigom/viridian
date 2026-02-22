@@ -38,5 +38,20 @@ export function useProviderLogo() {
     return logoMap[iconName] || ClaudeLogo;
   }
 
-  return { activeLogo, activeName, getLogoComponent, logoMap };
+  /** Look up logo component by provider ID (e.g. 'claude', 'gemini'). */
+  function getLogoForProviderId(providerId: string | undefined): Component {
+    if (!providerId) return activeLogo.value;
+    const p = providerStore.providers.find(p => p.id === providerId);
+    if (p) return logoMap[p.icon] || ClaudeLogo;
+    return ClaudeLogo;
+  }
+
+  /** Look up provider display name by provider ID. */
+  function getNameForProviderId(providerId: string | undefined): string {
+    if (!providerId) return activeName.value;
+    const p = providerStore.providers.find(p => p.id === providerId);
+    return p?.name ?? activeName.value;
+  }
+
+  return { activeLogo, activeName, getLogoComponent, getLogoForProviderId, getNameForProviderId, logoMap };
 }

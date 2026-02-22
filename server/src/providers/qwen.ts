@@ -28,7 +28,7 @@ import type {
 import type { SDKMessage } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
 import { spawn, execSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
 
@@ -116,6 +116,24 @@ const qwenProvider: IProvider = {
 
   findBinary(): string {
     return findQwenBinary();
+  },
+
+  isConfigured() {
+    // Alibaba DashScope API key
+    if (process.env.DASHSCOPE_API_KEY) return { configured: true };
+    // ~/.qwen/settings.json (similar structure to ~/.gemini/settings.json)
+    const home = process.env.HOME || '/home';
+    const settingsPath = join(home, '.qwen', 'settings.json');
+    if (existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+        if (settings.selectedAuthType) return { configured: true };
+      } catch { /* invalid JSON */ }
+    }
+    return {
+      configured: false,
+      reason: 'No Qwen credentials found. Set DASHSCOPE_API_KEY or run `qwen` for OAuth.',
+    };
   },
 
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {

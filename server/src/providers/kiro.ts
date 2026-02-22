@@ -131,6 +131,22 @@ const kiroProvider: IProvider = {
     return findKiroBinary();
   },
 
+  isConfigured() {
+    // AWS credentials: env vars
+    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+      return { configured: true };
+    }
+    // ~/.aws/credentials file (aws configure)
+    const home = process.env.HOME || '/home';
+    if (existsSync(join(home, '.aws', 'credentials'))) return { configured: true };
+    // Kiro-specific auth token
+    if (existsSync(join(home, '.kiro', 'auth.json'))) return { configured: true };
+    return {
+      configured: false,
+      reason: 'No AWS credentials found. Run `aws configure` or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
+    };
+  },
+
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
     const kiroBin = findKiroBinary();
 

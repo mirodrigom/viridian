@@ -28,6 +28,7 @@ import type {
 } from './types.js';
 import type { SDKMessage } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
+import { getProviderConfig } from '../db/database.js';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -118,6 +119,26 @@ const openCodeProvider: IProvider = {
 
   findBinary(): string {
     return findOpenCodeBinary();
+  },
+
+  isConfigured() {
+    // Check keys explicitly stored for OpenCode via our settings flow.
+    // Do NOT read shared env vars (GEMINI_API_KEY etc.) because they may have
+    // been set by other providers (e.g. Gemini) and would give a false positive.
+    const stored = getProviderConfig('opencode');
+    if (stored['ANTHROPIC_API_KEY'] || stored['OPENAI_API_KEY'] || stored['GEMINI_API_KEY']) {
+      return { configured: true };
+    }
+    // OpenCode native config (user set up outside our app)
+    const home = process.env.HOME || '/home';
+    if (
+      existsSync(join(home, '.config', 'opencode', 'config.json')) ||
+      existsSync(join(home, '.opencode', 'config.json'))
+    ) return { configured: true };
+    return {
+      configured: false,
+      reason: 'No provider credentials found. Configure a key via Settings.',
+    };
   },
 
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {

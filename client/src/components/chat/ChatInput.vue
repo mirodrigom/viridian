@@ -833,9 +833,15 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
             <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="m in providerStore.activeModels" :key="m.id" :value="m.id">
+            <SelectItem
+              v-for="m in providerStore.activeModels"
+              :key="m.id"
+              :value="m.id"
+              :disabled="providerStore.activeFailedModelIds.has(m.id)"
+              :class="providerStore.activeFailedModelIds.has(m.id) ? 'bg-red-500/10 data-[highlighted]:bg-red-500/15 opacity-60' : ''"
+            >
               <div>
-                <div class="text-sm">{{ m.label }}</div>
+                <div class="text-sm" :class="providerStore.activeFailedModelIds.has(m.id) ? 'text-red-400' : ''">{{ m.label }}</div>
                 <div class="text-xs text-muted-foreground">{{ m.description }}</div>
               </div>
             </SelectItem>

@@ -21,6 +21,12 @@ export interface ChatMessage {
   isThinking?: boolean;
   images?: { name: string; dataUrl: string }[];
   isContextSummary?: boolean;
+  /** Provider that generated this message (e.g. 'claude', 'gemini'). Used for per-message logo display. */
+  provider?: string;
+  /** Snapshot of the provider display name at message creation time. Never changes after set. */
+  providerName?: string;
+  /** Snapshot of the provider icon name at message creation time. Never changes after set. */
+  providerIcon?: string;
 }
 
 /**

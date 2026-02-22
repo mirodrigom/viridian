@@ -33,7 +33,21 @@ const emit = defineEmits<{
   rejectTool: [requestId: string];
 }>();
 
-const { activeLogo, activeName } = useProviderLogo();
+const { activeLogo, activeName, getLogoForProviderId, getNameForProviderId, logoMap } = useProviderLogo();
+
+// Use snapshotted provider info first (immune to store changes after message creation),
+// then fall back to dynamic store lookup by ID, then fall back to active provider.
+const messageLogo = computed<Component>(() => {
+  if (props.message.providerIcon) return logoMap[props.message.providerIcon] || activeLogo.value;
+  if (props.message.provider) return getLogoForProviderId(props.message.provider);
+  return activeLogo.value;
+});
+const messageName = computed<string>(() => {
+  if (props.message.providerName) return props.message.providerName;
+  if (props.message.provider) return getNameForProviderId(props.message.provider);
+  return activeName.value;
+});
+
 const thinkingOpen = ref(false);
 const contextSummaryOpen = ref(false);
 
@@ -138,13 +152,13 @@ function formatTime(ts: number) {
       <!-- Avatar: visible on group start, invisible spacer on continuation -->
       <Avatar v-if="isGroupStart" class="h-8 w-8 shrink-0 border border-primary/20 hidden sm:flex">
         <AvatarFallback class="bg-primary/10 p-1">
-          <component :is="activeLogo" :size="16" class="text-primary" />
+          <component :is="messageLogo" :size="16" class="text-primary" />
         </AvatarFallback>
       </Avatar>
       <div v-else class="hidden sm:block w-8 shrink-0" />
 
       <div class="min-w-0 flex-1">
-        <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">{{ activeName }}</p>
+        <p v-if="isGroupStart" class="mb-1.5 text-sm font-semibold text-foreground">{{ messageName }}</p>
 
         <!-- Thinking block (collapsible) -->
         <Collapsible v-if="message.thinking || message.isThinking" v-model:open="thinkingOpen">

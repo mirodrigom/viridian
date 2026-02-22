@@ -42,7 +42,7 @@ export function setupChatWs(server: Server) {
 
   /** Wire up a session's EventEmitter to forward events to the WebSocket client.
    *  Returns a cleanup function to remove only this WS's listeners. */
-  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter, sessionId: string): () => void {
+  function wireEmitter(ws: WebSocket, emitter: import('events').EventEmitter, sessionId: string, providerId: string): () => void {
     const listeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
 
     function addHandler(event: string, handler: (...args: unknown[]) => void) {
@@ -51,7 +51,9 @@ export function setupChatWs(server: Server) {
     }
 
     addHandler('stream_start', () => {
-      safeSend(ws, { type: 'stream_start', sessionId });
+      // Include provider so the client can label the message bubble correctly
+      // even if the user switched providers in settings after sending the message.
+      safeSend(ws, { type: 'stream_start', sessionId, provider: providerId });
     });
 
     addHandler('stream_delta', (d: unknown) => {
@@ -158,6 +160,19 @@ export function setupChatWs(server: Server) {
 
           const providerInstance = getProvider(providerId);
 
+          // Fail fast with a clear message if the provider isn't configured.
+          // We wrap in stream_start/stream_end so the client renders it in a message bubble.
+          try {
+            const configStatus = providerInstance.isConfigured();
+            if (!configStatus.configured) {
+              const errMsg = configStatus.reason || `${providerInstance.info.name} is not configured. Open Settings → Providers to set it up.`;
+              safeSend(ws, { type: 'stream_start', sessionId: null });
+              safeSend(ws, { type: 'error', error: errMsg });
+              safeSend(ws, { type: 'stream_end', sessionId: null, claudeSessionId: null });
+              return;
+            }
+          } catch { /* isConfigured() not critical — proceed */ }
+
           const projectDir = validateCwd(cwd) || process.env.HOME || '/home';
 
           let session = sessionId ? getSession(sessionId) : null;
@@ -172,7 +187,7 @@ export function setupChatWs(server: Server) {
           currentSessionId = session.id;
 
           if (cleanupListeners) cleanupListeners();
-          cleanupListeners = wireEmitter(ws, session.emitter, session.id);
+          cleanupListeners = wireEmitter(ws, session.emitter, session.id, session.providerId);
 
           // Validate model against the provider's available models
           const validModels = providerInstance.models.map(m => m.id);
@@ -219,7 +234,7 @@ export function setupChatWs(server: Server) {
               // Use session.id (server UUID) for internal tracking (tool_response, abort, etc.)
               currentSessionId = session.id;
               if (cleanupListeners) cleanupListeners();
-              cleanupListeners = wireEmitter(ws, session.emitter, session.id);
+              cleanupListeners = wireEmitter(ws, session.emitter, session.id, session.providerId);
             }
           }
         }

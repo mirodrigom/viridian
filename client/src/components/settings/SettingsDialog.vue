@@ -44,7 +44,7 @@ watch(open, async (isOpen) => {
 });
 
 async function saveGitConfig() {
-  if (!chat.projectPath) return;
+  if (!chat.projectPath || gitConfigLoading.value) return;
   try {
     await fetch('/api/git/user-config', {
       method: 'PUT',
@@ -96,18 +96,25 @@ async function saveGitConfig() {
           <div v-else class="space-y-3">
             <div class="space-y-1.5">
               <Label class="text-xs">Name</Label>
-              <Input v-model="gitName" placeholder="Your Name" class="h-8 text-sm" :disabled="gitConfigLoading" />
+              <Input
+                v-model="gitName"
+                placeholder="Your Name"
+                class="h-8 text-sm"
+                :disabled="gitConfigLoading"
+                @blur="saveGitConfig"
+              />
             </div>
             <div class="space-y-1.5">
               <Label class="text-xs">Email</Label>
-              <Input v-model="gitEmail" placeholder="your@email.com" class="h-8 text-sm" :disabled="gitConfigLoading" />
+              <Input
+                v-model="gitEmail"
+                placeholder="your@email.com"
+                class="h-8 text-sm"
+                :disabled="gitConfigLoading"
+                @blur="saveGitConfig"
+              />
             </div>
-            <div class="flex items-center gap-2">
-              <Button size="sm" class="h-7 text-xs" @click="saveGitConfig" :disabled="gitConfigLoading">
-                Save
-              </Button>
-              <span v-if="gitConfigSaved" class="text-xs text-green-500">Saved!</span>
-            </div>
+            <p v-if="gitConfigSaved" class="text-xs text-green-500">Git identity saved.</p>
           </div>
         </div>
       </div>

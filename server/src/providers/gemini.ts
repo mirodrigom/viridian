@@ -18,11 +18,12 @@ import type {
   ProviderModel,
   ProviderCapabilities,
   ProviderQueryOptions,
+  ConfigStatus,
 } from './types.js';
 import type { SDKMessage } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
 import { spawn, execSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
 
@@ -112,6 +113,28 @@ const geminiProvider: IProvider = {
     return findGeminiBinary();
   },
 
+  isConfigured(): ConfigStatus {
+    // 1. GEMINI_API_KEY env var (set manually or via configure endpoint)
+    if (process.env.GEMINI_API_KEY) {
+      return { configured: true };
+    }
+    // 2. ~/.gemini/settings.json with a selectedAuthType (OAuth or other)
+    const home = process.env.HOME || '/home';
+    const settingsPath = join(home, '.gemini', 'settings.json');
+    if (existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as Record<string, unknown>;
+        if (settings.selectedAuthType) {
+          return { configured: true };
+        }
+      } catch { /* invalid JSON — fall through */ }
+    }
+    return {
+      configured: false,
+      reason: 'No Gemini credentials found. Set GEMINI_API_KEY or run the OAuth flow.',
+    };
+  },
+
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
     const geminiBin = findGeminiBinary();
 
@@ -160,55 +183,75 @@ const geminiProvider: IProvider = {
       return new Promise<void>(r => { resolve = r; });
     }
 
-    let buffer = '';
     let hasEmittedText = false;
+    let hasEmittedError = false;
+    // Collect ALL stdout — Gemini CLI outputs a single JSON blob at the end, not NDJSON
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
 
     proc.stdout!.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const event = JSON.parse(line);
-          const messages = processGeminiEvent(event);
-          for (const msg of messages) {
-            if (msg.type === 'text_delta') hasEmittedText = true;
-            push(msg);
-          }
-        } catch {
-          // Non-JSON line — treat as plain text output
-          if (line.trim()) {
-            hasEmittedText = true;
-            push({ type: 'text_delta', text: line + '\n' });
-          }
-        }
-      }
+      stdoutBuffer += chunk.toString();
     });
 
     proc.stderr!.on('data', (chunk: Buffer) => {
-      const text = chunk.toString().trim();
-      if (text && (text.includes('Error') || text.includes('error'))) {
-        push({ type: 'error', error: text });
-      }
+      stderrBuffer += chunk.toString();
     });
 
     proc.on('close', (code) => {
-      // Flush remaining buffer
-      if (buffer.trim()) {
+      // Process complete stdout. Gemini CLI outputs either:
+      //   A) A single pretty-printed JSON object (multi-line)
+      //   B) Multiple NDJSON lines (one JSON per line)
+      // Try strategy A (whole blob) first, then fall back to B (line-by-line).
+      const raw = stdoutBuffer.trim();
+      if (raw) {
+        let parsedOk = false;
+
+        // Strategy A: whole blob as one JSON object
         try {
-          const event = JSON.parse(buffer.trim());
+          const event = JSON.parse(raw);
           const messages = processGeminiEvent(event);
-          for (const msg of messages) push(msg);
-        } catch {
-          if (buffer.trim()) {
-            push({ type: 'text_delta', text: buffer.trim() });
+          for (const msg of messages) {
+            if (msg.type === 'text_delta') hasEmittedText = true;
+            if (msg.type === 'error') hasEmittedError = true;
+            push(msg);
           }
+          parsedOk = true;
+        } catch { /* fall through to line-by-line */ }
+
+        // Strategy B: NDJSON (line per event)
+        if (!parsedOk) {
+          for (const line of raw.split('\n')) {
+            if (!line.trim()) continue;
+            try {
+              const event = JSON.parse(line);
+              const messages = processGeminiEvent(event);
+              for (const msg of messages) {
+                if (msg.type === 'text_delta') hasEmittedText = true;
+                if (msg.type === 'error') hasEmittedError = true;
+                push(msg);
+                parsedOk = true;
+              }
+            } catch { /* skip non-JSON lines */ }
+          }
+        }
+
+        // Last resort: emit as plain text
+        if (!parsedOk) {
+          hasEmittedText = true;
+          push({ type: 'text_delta', text: raw });
         }
       }
 
-      if (code && code !== 0 && !hasEmittedText) {
+      // Process accumulated stderr — extract the most useful error line
+      if (stderrBuffer.trim()) {
+        const errText = extractGeminiError(stderrBuffer);
+        if (errText && !hasEmittedError) {
+          hasEmittedError = true;
+          push({ type: 'error', error: errText });
+        }
+      }
+
+      if (code && code !== 0 && !hasEmittedText && !hasEmittedError) {
         push({ type: 'error', error: `Gemini exited unexpectedly (exit code ${code}).` });
       }
 
@@ -250,9 +293,28 @@ function processGeminiEvent(event: Record<string, unknown>): SDKMessage[] {
 
   // Gemini JSON output varies by version. Handle common patterns:
 
-  // Pattern 1: { response: "text" } or { text: "text" }
+  // Pattern 1: { response: "text", stats?: {...}, session_id?: "..." } — Gemini CLI JSON output
   if (typeof event.response === 'string') {
     messages.push({ type: 'text_delta', text: event.response as string });
+    // Extract token usage from stats if present
+    if (event.stats && typeof event.stats === 'object') {
+      const stats = event.stats as Record<string, unknown>;
+      const models = stats.models as Record<string, unknown> | undefined;
+      if (models) {
+        let totalInput = 0;
+        let totalOutput = 0;
+        for (const modelStats of Object.values(models)) {
+          const ms = modelStats as Record<string, unknown>;
+          const tokens = ms.tokens as Record<string, unknown> | undefined;
+          if (tokens) {
+            totalInput += (tokens.input as number) || (tokens.prompt as number) || 0;
+            totalOutput += (tokens.candidates as number) || 0;
+          }
+        }
+        if (totalInput) messages.push({ type: 'message_start', inputTokens: totalInput });
+        if (totalOutput) messages.push({ type: 'message_delta', outputTokens: totalOutput });
+      }
+    }
     return messages;
   }
   if (typeof event.text === 'string') {
@@ -318,12 +380,27 @@ function processGeminiEvent(event: Record<string, unknown>): SDKMessage[] {
     return messages;
   }
 
-  // Pattern 5: { error: "..." }
+  // Pattern 5: { error: "..." } or { session_id: "...", error: {...} }
   if (event.error) {
-    const errMsg = typeof event.error === 'string'
-      ? event.error
-      : (event.error as Record<string, unknown>).message as string || JSON.stringify(event.error);
-    messages.push({ type: 'error', error: errMsg });
+    let errMsg: string;
+    if (typeof event.error === 'string') {
+      errMsg = event.error;
+    } else {
+      const errObj = event.error as Record<string, unknown>;
+      const msg = errObj.message as string | undefined;
+      // Gemini CLI sometimes serializes errors as "[object Object]" — fall back to type/code
+      if (msg && msg !== '[object Object]') {
+        errMsg = msg;
+      } else if (errObj.type) {
+        errMsg = `Gemini error: ${errObj.type}${errObj.code ? ` (code ${errObj.code})` : ''}`;
+      } else {
+        errMsg = JSON.stringify(event.error);
+      }
+    }
+    // Skip uninformative duplicate errors — the real message comes from stderr
+    if (errMsg && errMsg !== '[object Object]') {
+      messages.push({ type: 'error', error: errMsg });
+    }
     return messages;
   }
 
@@ -334,6 +411,37 @@ function processGeminiEvent(event: Record<string, unknown>): SDKMessage[] {
   }
 
   return messages;
+}
+
+/**
+ * Extract the most useful error message from Gemini CLI stderr output.
+ * Prioritizes quota/auth errors; falls back to first "Error:" line.
+ */
+function extractGeminiError(stderr: string): string | null {
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Prefer known high-signal error patterns
+  const knownPatterns = [
+    /TerminalQuotaError[:\s]*(.*)/i,
+    /quota exceeded[:\s]*(.*)/i,
+    /authentication.*failed[:\s]*(.*)/i,
+    /unauthorized[:\s]*(.*)/i,
+  ];
+  for (const pat of knownPatterns) {
+    for (const line of lines) {
+      const m = line.match(pat);
+      if (m) {
+        const detail = m[1]?.trim();
+        return detail ? `${m[0].split(':')[0]}: ${detail}` : m[0];
+      }
+    }
+  }
+
+  // Fall back: first line containing "Error"
+  const errLine = lines.find(l => /error/i.test(l));
+  if (errLine) return errLine.slice(0, 300); // cap length
+
+  return null;
 }
 
 // Auto-register on import

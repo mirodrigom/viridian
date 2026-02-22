@@ -92,6 +92,15 @@ export interface ParsedSessionMessage {
   thinking?: string;
 }
 
+// ─── Configuration Status ────────────────────────────────────────────────
+
+export interface ConfigStatus {
+  /** True if the provider has valid credentials and can accept queries. */
+  configured: boolean;
+  /** Human-readable reason when not configured. */
+  reason?: string;
+}
+
 // ─── Provider Interface ─────────────────────────────────────────────────
 
 export interface IProvider {
@@ -101,6 +110,9 @@ export interface IProvider {
 
   /** Check if the CLI binary is installed and reachable. */
   isAvailable(): boolean;
+
+  /** Check if credentials/auth are configured for this provider. */
+  isConfigured(): ConfigStatus;
 
   /** Find and return the binary path, or throw if not found. */
   findBinary(): string;
@@ -135,5 +147,6 @@ export interface ProviderInfoDTO {
   models: ProviderModel[];
   capabilities: ProviderCapabilities;
   available: boolean;
+  configured: boolean;
   installCommand: string;
 }

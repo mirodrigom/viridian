@@ -261,7 +261,18 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   ];
 
   if (options.sessionId) {
-    args.push('--resume', options.sessionId);
+    // Verify the JSONL file exists before using --resume.
+    // If the file is missing (e.g. session from another project dir, or a failed
+    // session that never wrote its JSONL), Claude exits with code 1 immediately.
+    // In that case, start a fresh session instead.
+    const home = process.env.HOME || '/home';
+    const cwdHash = options.cwd.replace(/\//g, '-');
+    const sessionFile = join(home, '.claude', 'projects', cwdHash, `${options.sessionId}.jsonl`);
+    if (existsSync(sessionFile)) {
+      args.push('--resume', options.sessionId);
+    } else {
+      debugLog(`[ClaudeSDK] Session ${options.sessionId} not found at ${sessionFile} — starting fresh`);
+    }
   }
 
   if (options.model) {
@@ -404,14 +415,18 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     }
   });
 
+  let stderrAccumulated = '';
+  let hasEmittedStderrError = false;
+
   proc.stderr!.on('data', (chunk: Buffer) => {
-    const text = chunk.toString().trim();
-    if (!text) return;
-    if (
-      text.includes('Error') || text.includes('error') || text.includes('ENOENT') ||
-      /rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(text)
-    ) {
-      push({ type: 'error', error: text });
+    const text = chunk.toString();
+    stderrAccumulated += text;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // Emit rate-limit signals immediately so the client can show the proper UI
+    if (/rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(trimmed)) {
+      hasEmittedStderrError = true;
+      push({ type: 'error', error: trimmed });
     }
   });
 
@@ -436,8 +451,15 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
 
     // If CLI exited with error code and no text was produced, emit a fallback error
     // so the frontend doesn't show an empty message bubble
-    if (code && code !== 0 && !state.hasEmittedText) {
-      push({ type: 'error', error: `Claude exited unexpectedly (exit code ${code}). You may have hit your usage limit.` });
+    if (code && code !== 0 && !state.hasEmittedText && !hasEmittedStderrError) {
+      // Use accumulated stderr as the error message if available — it has the actual reason.
+      // Deliberately avoid "usage limit" language here so we don't trigger the rate limit
+      // detector with a false positive (exit code 1 has many causes beyond rate limits).
+      const stderrMsg = stderrAccumulated.trim()
+        ? extractClaudeError(stderrAccumulated)
+        : null;
+      const fallback = stderrMsg || `Claude exited unexpectedly (exit code ${code}). Check your network connection or try again.`;
+      push({ type: 'error', error: fallback });
     }
 
     push({
@@ -457,6 +479,22 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
       yield msg;
     }
   }
+}
+
+// ─── Error extraction helper ─────────────────────────────────────────────────
+
+/**
+ * Extract the most useful error line from Claude CLI's stderr output.
+ * Prefers lines that mention specific error conditions; falls back to the last non-empty line.
+ */
+function extractClaudeError(stderr: string): string | null {
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  // Prefer lines with specific error keywords
+  const errorLine = lines.findLast(l =>
+    /error|failed|unauthorized|forbidden|timeout|ENOENT|ECONNREFUSED/i.test(l),
+  );
+  return errorLine || lines[lines.length - 1] || null;
 }
 
 // ─── Unicode decode helper ───────────────────────────────────────────────────

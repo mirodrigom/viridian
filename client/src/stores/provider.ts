@@ -32,6 +32,7 @@ const FALLBACK_CLAUDE: ProviderInfo = {
   ],
   capabilities: DEFAULT_CAPABILITIES,
   available: true,
+  configured: true,
   installCommand: 'npm install -g @anthropic-ai/claude-code',
 };
 
@@ -46,6 +47,11 @@ export const useProviderStore = defineStore('provider', () => {
   /** Per-session override. null = use default. */
   const sessionProvider = ref<ProviderId | null>(null);
   const loaded = ref(false);
+
+  /** Model IDs that failed their last connection test, keyed by provider ID. */
+  const failedModels = ref<Record<string, string[]>>(
+    JSON.parse(localStorage.getItem('failedModels') || '{}') as Record<string, string[]>,
+  );
 
   // Getters
   const activeProviderId = computed<ProviderId>(() =>
@@ -71,6 +77,11 @@ export const useProviderStore = defineStore('provider', () => {
   );
 
   const activeProviderName = computed(() => activeProvider.value.name);
+
+  /** Set of model IDs that failed their last test for the currently active provider. */
+  const activeFailedModelIds = computed<Set<string>>(() =>
+    new Set(failedModels.value[activeProviderId.value] ?? []),
+  );
 
   const defaultModel = computed(() =>
     activeModels.value.find(m => m.isDefault)?.id
@@ -126,11 +137,17 @@ export const useProviderStore = defineStore('provider', () => {
     defaultProvider.value = id;
     localStorage.setItem('defaultProvider', id);
 
-    // Reset model to new provider's default if current model isn't valid
+    // Reset model to a working model for the new provider
     const settings = useSettingsStore();
+    const failed = new Set(failedModels.value[id] ?? []);
     const validModels = provider.models.map(m => m.id);
-    if (!validModels.includes(settings.model)) {
-      const newDefault = provider.models.find(m => m.isDefault)?.id || provider.models[0]?.id;
+    const currentIsValid = validModels.includes(settings.model) && !failed.has(settings.model);
+    if (!currentIsValid) {
+      // Prefer the provider's default model if it works, otherwise first non-failed model
+      const newDefault =
+        provider.models.find(m => m.isDefault && !failed.has(m.id))?.id ||
+        provider.models.find(m => !failed.has(m.id))?.id ||
+        provider.models[0]?.id;
       if (newDefault) {
         settings.model = newDefault;
         settings.save();
@@ -146,6 +163,18 @@ export const useProviderStore = defineStore('provider', () => {
 
   function clearSessionProvider() {
     sessionProvider.value = null;
+  }
+
+  /** Record which model IDs failed for a provider. Pass [] to clear. */
+  function setFailedModels(providerId: string, modelIds: string[]) {
+    const updated = { ...failedModels.value };
+    if (modelIds.length > 0) {
+      updated[providerId] = modelIds;
+    } else {
+      delete updated[providerId];
+    }
+    failedModels.value = updated;
+    localStorage.setItem('failedModels', JSON.stringify(updated));
   }
 
   /** Check if a model ID is valid for the given provider. */
@@ -166,11 +195,14 @@ export const useProviderStore = defineStore('provider', () => {
     activeCapabilities,
     availableProviders,
     activeProviderName,
+    activeFailedModelIds,
     defaultModel,
+    failedModels,
     fetchProviders,
     setDefaultProvider,
     setSessionProvider,
     clearSessionProvider,
+    setFailedModels,
     isValidModel,
   };
 });

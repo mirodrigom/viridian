@@ -21,6 +21,7 @@ interface SessionInfo {
   messageCount: number;
   lastActive: number;
   isStreaming?: boolean;
+  provider?: string;
 }
 
 const CLAUDE_DIR = join(process.env.HOME || '/home', '.claude', 'projects');
@@ -163,9 +164,16 @@ router.get('/', async (req, res) => {
     const getCached = db.prepare(
       'SELECT * FROM session_cache WHERE project_dir = ? AND id = ?',
     );
+    // ON CONFLICT preserves the `provider` column set during streaming
     const upsertCache = db.prepare(`
-      INSERT OR REPLACE INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime)
+      INSERT INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime)
       VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_dir, id) DO UPDATE SET
+        title = excluded.title,
+        project_path = excluded.project_path,
+        message_count = excluded.message_count,
+        last_active = excluded.last_active,
+        file_mtime = excluded.file_mtime
     `);
 
     for (const dir of projectDirs) {
@@ -198,7 +206,7 @@ router.get('/', async (req, res) => {
         // Check cache
         const cached = getCached.get(dir, sessionId) as {
           title: string; project_path: string; message_count: number;
-          last_active: number; file_mtime: number;
+          last_active: number; file_mtime: number; provider?: string;
         } | undefined;
 
         if (cached && cached.file_mtime === Math.floor(mtimeMs)) {
@@ -209,6 +217,7 @@ router.get('/', async (req, res) => {
             projectDir: dir,
             messageCount: cached.message_count,
             lastActive: cached.last_active,
+            provider: cached.provider || 'claude',
           });
           continue;
         }
@@ -507,7 +516,14 @@ router.get('/:id/messages', async (req, res) => {
     const streamingIds = getStreamingClaudeSessionIds();
     const isStreaming = streamingIds.has(sessionId);
 
-    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming });
+    // Look up provider from cache so clients can display per-session provider logo
+    const db2 = getDb();
+    const cachedProvider = db2.prepare(
+      'SELECT provider FROM session_cache WHERE id = ?',
+    ).get(sessionId) as { provider?: string } | undefined;
+    const sessionProvider = cachedProvider?.provider || 'claude';
+
+    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming, sessionProvider });
   } catch (err) {
     console.error('[sessions] Error loading messages:', err);
     res.status(500).json({ error: 'Failed to load session messages' });

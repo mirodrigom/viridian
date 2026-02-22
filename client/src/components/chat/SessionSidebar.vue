@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
 import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
+import { useProviderStore } from '@/stores/provider';
 import { useRouter } from 'vue-router';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -26,6 +27,7 @@ interface SessionItem {
 
 const chat = useChatStore();
 const auth = useAuthStore();
+const providerStore = useProviderStore();
 const router = useRouter();
 const sessions = ref<SessionItem[]>([]);
 const isRefreshing = ref(false);
@@ -101,6 +103,16 @@ async function resumeSession(session: SessionItem) {
     if (!res.ok) { chat.isLoadingSession = false; return; }
     const data = await res.json();
     if (data.messages?.length) {
+      if (data.sessionProvider) {
+        const p = providerStore.providers.find(pr => pr.id === data.sessionProvider);
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant') {
+            if (!msg.provider) msg.provider = data.sessionProvider;
+            if (!msg.providerName) msg.providerName = p?.name ?? data.sessionProvider;
+            if (!msg.providerIcon) msg.providerIcon = p?.icon;
+          }
+        }
+      }
       chat.loadMessages(data.messages, {
         total: data.total,
         hasMore: data.hasMore,

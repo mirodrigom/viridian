@@ -4,6 +4,7 @@ import { useChatStore } from '@/stores/chat';
 import { useAuthStore } from '@/stores/auth';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
+import { useProviderStore } from '@/stores/provider';
 import { useRoute, useRouter } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
 
@@ -11,6 +12,7 @@ const chat = useChatStore();
 const auth = useAuthStore();
 const graph = useGraphStore();
 const autopilot = useAutopilotStore();
+const providerStore = useProviderStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -98,6 +100,16 @@ async function loadSessionFromUrl(sessionId: string) {
     if (!msgRes.ok) { chat.isLoadingSession = false; return; }
     const msgData = await msgRes.json();
     if (msgData.messages?.length) {
+      if (msgData.sessionProvider) {
+        const p = providerStore.providers.find(pr => pr.id === msgData.sessionProvider);
+        for (const msg of msgData.messages) {
+          if (msg.role === 'assistant') {
+            if (!msg.provider) msg.provider = msgData.sessionProvider;
+            if (!msg.providerName) msg.providerName = p?.name ?? msgData.sessionProvider;
+            if (!msg.providerIcon) msg.providerIcon = p?.icon;
+          }
+        }
+      }
       chat.loadMessages(msgData.messages, {
         total: msgData.total,
         hasMore: msgData.hasMore,

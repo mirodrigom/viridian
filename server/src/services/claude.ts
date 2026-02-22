@@ -13,6 +13,7 @@ import { v4 as uuid } from 'uuid';
 import type { SDKMessage } from './claude-sdk.js';
 import type { ProviderId } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
+import { upsertSessionProvider } from '../db/database.js';
 
 // Ensure providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -237,6 +238,11 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       session.isStreaming = false;
       session.lastActivity = Date.now();
       session.stdinWrite = undefined;
+      // Persist provider → session mapping so historical messages show the correct logo
+      if (session.claudeSessionId) {
+        const projectDir = session.cwd.replace(/\//g, '-');
+        upsertSessionProvider(projectDir, session.claudeSessionId, session.providerId);
+      }
       return {
         event: 'stream_end',
         data: {

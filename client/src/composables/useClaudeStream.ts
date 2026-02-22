@@ -19,6 +19,14 @@ export function useClaudeStream() {
   // Hoisted so cleanup() can clear it
   let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Snapshot the active provider's id/name/icon at the moment a message is created.
+   *  Stored directly on the message so the display never changes after the fact,
+   *  even when the user switches providers mid-session. */
+  function captureProvider(): { provider: string; providerName: string; providerIcon: string } {
+    const p = providerStore.activeProvider;
+    return { provider: p.id, providerName: p.name, providerIcon: p.icon };
+  }
+
   function init() {
     connect();
     chat.registerAbort(abort);
@@ -36,6 +44,11 @@ export function useClaudeStream() {
     // When true, reject ALL events until a new stream_start explicitly sets the session.
     // This prevents stale events from a previous session being "adopted" after clearMessages().
     let awaitingNewSession = false;
+
+    // Clear rate limit when the active provider changes (rate limits are provider-specific)
+    watch(() => providerStore.activeProviderId, () => {
+      chat.clearRateLimit();
+    });
 
     watch(() => chat.sessionId, (newId, oldId) => {
       activeSessionId = newId;
@@ -120,7 +133,7 @@ export function useClaudeStream() {
     }
 
     on('stream_start', (data: unknown) => {
-      const d = (data || {}) as { sessionId?: string };
+      const d = (data || {}) as { sessionId?: string; provider?: string };
       // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
       if (d.sessionId) {
         activeSessionId = d.sessionId;
@@ -132,12 +145,17 @@ export function useClaudeStream() {
       touchStreamActivity();
       needsNewAssistantMsg = false;
       reconnectedMidStream = false;
+      const providerId = (d.provider as string | undefined) || providerStore.activeProviderId;
+      const providerInfo = providerStore.providers.find(p => p.id === providerId) ?? providerStore.activeProvider;
       const msg: ChatMessage = {
         id: uuid(),
         role: 'assistant',
         content: '',
         timestamp: Date.now(),
         isStreaming: true,
+        provider: providerId,
+        providerName: providerInfo.name,
+        providerIcon: providerInfo.icon,
       };
       chat.addMessage(msg);
     });
@@ -154,12 +172,17 @@ export function useClaudeStream() {
         // Clear isStreaming on the previous assistant message
         const prev = chat.messages.findLast(m => m.role === 'assistant');
         if (prev) prev.isStreaming = false;
+        // Inherit provider snapshot from the group's first message so all
+        // continuation bubbles stay labelled with the same provider.
         const msg: ChatMessage = {
           id: uuid(),
           role: 'assistant',
           content: d.text,
           timestamp: Date.now(),
           isStreaming: true,
+          provider: prev?.provider ?? providerStore.activeProviderId,
+          providerName: prev?.providerName ?? providerStore.activeProvider.name,
+          providerIcon: prev?.providerIcon ?? providerStore.activeProvider.icon,
         };
         chat.addMessage(msg);
       } else {
@@ -416,12 +439,16 @@ export function useClaudeStream() {
           if (lastAssistant) lastAssistant.isStreaming = true;
         } else {
           // No messages loaded yet — add a placeholder so deltas have somewhere to go
+          const { provider, providerName, providerIcon } = captureProvider();
           const msg: ChatMessage = {
             id: uuid(),
             role: 'assistant',
             content: d.accumulatedText || '',
             timestamp: Date.now(),
             isStreaming: true,
+            provider,
+            providerName,
+            providerIcon,
           };
           chat.addMessage(msg);
         }
@@ -577,6 +604,16 @@ export function useClaudeStream() {
       if (!res.ok) return;
       const data = await res.json();
       if (data.messages?.length) {
+        if (data.sessionProvider) {
+          const p = providerStore.providers.find(pr => pr.id === data.sessionProvider);
+          for (const msg of data.messages) {
+            if (msg.role === 'assistant') {
+              if (!msg.provider) msg.provider = data.sessionProvider;
+              if (!msg.providerName) msg.providerName = p?.name ?? data.sessionProvider;
+              if (!msg.providerIcon) msg.providerIcon = p?.icon;
+            }
+          }
+        }
         chat.loadMessages(data.messages, {
           total: data.total,
           hasMore: data.hasMore,

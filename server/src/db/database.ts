@@ -236,4 +236,83 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('autopilot_runs', 'agent_b_provider', "TEXT DEFAULT 'claude'");
   safeAddColumn('autopilot_runs', 'agent_a_provider_session_id', "TEXT");
   safeAddColumn('autopilot_runs', 'agent_b_provider_session_id', "TEXT");
+
+  // ── Provider credential storage ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS provider_config (
+      provider_id TEXT PRIMARY KEY,
+      env_vars TEXT NOT NULL DEFAULT '{}'
+    );
+  `);
+}
+
+/** Load all saved provider env vars into process.env. Call once on startup. */
+export function loadProviderConfigs(): void {
+  const database = getDb();
+  const rows = database.prepare('SELECT provider_id, env_vars FROM provider_config').all() as {
+    provider_id: string;
+    env_vars: string;
+  }[];
+  for (const row of rows) {
+    try {
+      const vars = JSON.parse(row.env_vars) as Record<string, string>;
+      for (const [key, value] of Object.entries(vars)) {
+        if (value) process.env[key] = value;
+      }
+    } catch { /* skip invalid JSON */ }
+  }
+}
+
+/** Merge env vars for a provider into the DB and process.env. */
+export function saveProviderConfig(providerId: string, envVars: Record<string, string>): void {
+  const database = getDb();
+  const existing = database
+    .prepare('SELECT env_vars FROM provider_config WHERE provider_id = ?')
+    .get(providerId) as { env_vars: string } | undefined;
+  const current = existing ? (JSON.parse(existing.env_vars) as Record<string, string>) : {};
+  const merged = { ...current, ...envVars };
+  database
+    .prepare('INSERT OR REPLACE INTO provider_config (provider_id, env_vars) VALUES (?, ?)')
+    .run(providerId, JSON.stringify(merged));
+  // Also inject into current process
+  for (const [key, value] of Object.entries(envVars)) {
+    if (value) process.env[key] = value;
+  }
+}
+
+/** Save the provider used for a session so historical messages can show the correct logo. */
+export function upsertSessionProvider(projectDir: string, sessionId: string, provider: string): void {
+  try {
+    const database = getDb();
+    database.prepare(`
+      INSERT INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime, provider)
+      VALUES (?, ?, '', '', 0, ?, 0, ?)
+      ON CONFLICT(project_dir, id) DO UPDATE SET provider = excluded.provider
+    `).run(sessionId, projectDir, Date.now(), provider);
+  } catch { /* best effort */ }
+}
+
+/** Remove a single env var for a provider from the DB and process.env. */
+export function deleteProviderEnvVar(providerId: string, envVarName: string): void {
+  const database = getDb();
+  const existing = database
+    .prepare('SELECT env_vars FROM provider_config WHERE provider_id = ?')
+    .get(providerId) as { env_vars: string } | undefined;
+  if (!existing) return;
+  const current = JSON.parse(existing.env_vars) as Record<string, string>;
+  delete current[envVarName];
+  database
+    .prepare('INSERT OR REPLACE INTO provider_config (provider_id, env_vars) VALUES (?, ?)')
+    .run(providerId, JSON.stringify(current));
+  delete process.env[envVarName];
+}
+
+/** Get stored env vars for a provider. */
+export function getProviderConfig(providerId: string): Record<string, string> {
+  const database = getDb();
+  const row = database
+    .prepare('SELECT env_vars FROM provider_config WHERE provider_id = ?')
+    .get(providerId) as { env_vars: string } | undefined;
+  if (!row) return {};
+  try { return JSON.parse(row.env_vars) as Record<string, string>; } catch { return {}; }
 }

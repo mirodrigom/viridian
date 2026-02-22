@@ -74,6 +74,16 @@ const claudeProvider: IProvider = {
     return findClaudeBinary();
   },
 
+  isConfigured() {
+    // Claude stores auth in ~/.claude/ after running `claude` for the first time
+    const home = process.env.HOME || '/home';
+    if (existsSync(join(home, '.claude'))) return { configured: true };
+    return {
+      configured: false,
+      reason: 'Claude credentials not found. Run `claude` in your terminal to authenticate.',
+    };
+  },
+
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
     // ProviderQueryOptions and QueryOptions are structurally identical —
     // Claude SDK was the original design, so we pass through directly.

@@ -300,6 +300,13 @@ async function loadOlderMessages() {
     const data = await res.json();
 
     if (data.messages?.length) {
+      if (data.sessionProvider) {
+        for (const msg of data.messages) {
+          if (msg.role === 'assistant' && !msg.provider) {
+            msg.provider = data.sessionProvider;
+          }
+        }
+      }
       chat.prependMessages(data.messages, {
         hasMore: data.hasMore,
         oldestIndex: data.oldestIndex,

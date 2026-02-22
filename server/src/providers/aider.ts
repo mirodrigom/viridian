@@ -30,6 +30,7 @@ import type {
 } from './types.js';
 import type { SDKMessage } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
+import { getProviderConfig } from '../db/database.js';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -44,7 +45,7 @@ const info: ProviderInfo = {
   website: 'https://aider.chat',
   binaryName: 'aider',
   envVarForPath: 'AIDER_PATH',
-  installCommand: 'pip install aider-chat',
+  installCommand: 'pip install -q uv && uv python install 3.12 && uv venv ~/.aider-venv --python 3.12 && uv pip install --python ~/.aider-venv/bin/python aider-chat && mkdir -p ~/.local/bin && ln -sf ~/.aider-venv/bin/aider ~/.local/bin/aider',
 };
 
 const models: ProviderModel[] = [
@@ -166,6 +167,29 @@ const aiderProvider: IProvider = {
 
   findBinary(): string {
     return findAiderBinary();
+  },
+
+  isConfigured() {
+    // Check keys explicitly stored for Aider via our settings flow.
+    // Do NOT read shared env vars (GEMINI_API_KEY etc.) because they may have
+    // been set by other providers (e.g. Gemini) and would give a false positive.
+    const stored = getProviderConfig('aider');
+    if (
+      stored['ANTHROPIC_API_KEY'] ||
+      stored['OPENAI_API_KEY'] ||
+      stored['GEMINI_API_KEY'] ||
+      stored['DEEPSEEK_API_KEY']
+    ) return { configured: true };
+    // Also accept ~/.aider.conf.yml (user set up Aider outside our app)
+    const home = process.env.HOME || '/home';
+    if (
+      existsSync(join(home, '.aider.conf.yml')) ||
+      existsSync(join(home, '.config', 'aider', 'aider.conf.yml'))
+    ) return { configured: true };
+    return {
+      configured: false,
+      reason: 'No API key found. Configure a key via Settings.',
+    };
   },
 
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {

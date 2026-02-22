@@ -35,5 +35,6 @@ export interface ProviderInfo {
   models: ProviderModel[];
   capabilities: ProviderCapabilities;
   available: boolean;
+  configured: boolean;
   installCommand: string;
 }

@@ -26,6 +26,10 @@ import { setupAutopilotWs } from './ws/autopilot.js';
 import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
 import { destroyAllTerminals } from './services/terminal.js';
+import { loadProviderConfigs } from './db/database.js';
+
+// Load saved provider API keys into process.env before any provider is invoked
+loadProviderConfigs();
 
 const app: Express = express();
 const server = createServer(app);

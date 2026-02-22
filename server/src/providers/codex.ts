@@ -134,6 +134,14 @@ const codexProvider: IProvider = {
     return findCodexBinary();
   },
 
+  isConfigured() {
+    if (process.env.OPENAI_API_KEY) return { configured: true };
+    return {
+      configured: false,
+      reason: 'OPENAI_API_KEY environment variable is not set.',
+    };
+  },
+
   async *query(options: ProviderQueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
     const codexBin = findCodexBinary();
 
@@ -208,60 +216,67 @@ const codexProvider: IProvider = {
       return new Promise<void>(r => { resolve = r; });
     }
 
-    let buffer = '';
-    let hasEmittedText = false;
+    // Collect stdout lines to process at close — this lets us deduplicate
+    // transient "Reconnecting..." errors and only emit the final failure.
+    let stdoutBuffer = '';
     let capturedSessionId: string | undefined;
+    let stderrBuffer = '';
 
-    proc.stdout!.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+    proc.stdout!.on('data', (chunk: Buffer) => { stdoutBuffer += chunk.toString(); });
+    proc.stderr!.on('data', (chunk: Buffer) => { stderrBuffer += chunk.toString(); });
 
-      for (const line of lines) {
+    proc.on('close', (code) => {
+      let hasEmittedText = false;
+      let hasEmittedError = false;
+
+      // Collect all non-error events immediately; accumulate errors for dedup
+      const pendingErrors: SDKMessage[] = [];
+
+      for (const line of stdoutBuffer.split('\n')) {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
-          const messages = processCodexEvent(event);
-          for (const msg of messages) {
-            // Capture session ID from system event
-            if (msg.type === 'system' && msg.sessionId) {
-              capturedSessionId = msg.sessionId;
+          const msgs = processCodexEvent(event);
+          for (const msg of msgs) {
+            if (msg.type === 'system' && msg.sessionId) capturedSessionId = msg.sessionId;
+            if (msg.type === 'error') {
+              pendingErrors.push(msg);
+            } else {
+              if (msg.type === 'text_delta') hasEmittedText = true;
+              push(msg);
             }
-            if (msg.type === 'text_delta') hasEmittedText = true;
-            push(msg);
           }
-        } catch {
-          // Non-JSON line — treat as plain text output
-          if (line.trim()) {
-            hasEmittedText = true;
-            push({ type: 'text_delta', text: line + '\n' });
-          }
-        }
+        } catch { /* skip non-JSON lines */ }
       }
-    });
 
-    proc.stderr!.on('data', (chunk: Buffer) => {
-      const text = chunk.toString().trim();
-      if (text && (text.includes('Error') || text.includes('error'))) {
-        push({ type: 'error', error: text });
-      }
-    });
-
-    proc.on('close', (code) => {
-      // Flush remaining buffer
-      if (buffer.trim()) {
-        try {
-          const event = JSON.parse(buffer.trim());
-          const messages = processCodexEvent(event);
-          for (const msg of messages) push(msg);
-        } catch {
-          if (buffer.trim()) {
-            push({ type: 'text_delta', text: buffer.trim() });
-          }
+      // Emit only the most informative error — prefer turn.failed (clean message)
+      // over transient "Reconnecting..." attempts.
+      if (pendingErrors.length > 0) {
+        // Find the best error: prefer one without "Reconnecting" prefix
+        const finalErr = pendingErrors.findLast(e =>
+          e.type === 'error' && !(e.error as string).startsWith('Reconnecting')
+        ) || pendingErrors[pendingErrors.length - 1];
+        if (finalErr) {
+          // Clean up verbose 401 messages for display
+          const raw = finalErr.error as string;
+          const clean = raw.includes('401') || raw.includes('Unauthorized')
+            ? 'OpenAI 401 Unauthorized — your API key may be invalid or lack access to the Responses API. Check your key in Settings → Providers.'
+            : raw;
+          push({ type: 'error', error: clean });
+          hasEmittedError = true;
         }
       }
 
-      if (code && code !== 0 && !hasEmittedText) {
+      // Stderr fallback
+      if (stderrBuffer.trim() && !hasEmittedError) {
+        const errText = extractCodexError(stderrBuffer);
+        if (errText) {
+          hasEmittedError = true;
+          push({ type: 'error', error: errText });
+        }
+      }
+
+      if (code && code !== 0 && !hasEmittedText && !hasEmittedError) {
         push({ type: 'error', error: `Codex exited unexpectedly (exit code ${code}).` });
       }
 
@@ -343,6 +358,13 @@ function processCodexEvent(event: Record<string, unknown>): SDKMessage[] {
     if (!item) return messages;
 
     const itemType = item.type as string;
+
+    // Item-level error (e.g. model metadata warning) — treat as error message
+    if (itemType === 'error') {
+      const msg = item.message as string | undefined;
+      if (msg) messages.push({ type: 'error', error: msg });
+      return messages;
+    }
 
     // Agent text message
     if (itemType === 'agent_message') {
@@ -431,17 +453,12 @@ function processCodexEvent(event: Record<string, unknown>): SDKMessage[] {
       return messages;
     }
 
-    // Unknown item type — emit text representation
-    const raw = JSON.stringify(item);
-    if (raw.length > 2 && raw !== '{}') {
-      messages.push({ type: 'text_delta', text: raw });
-    }
+    // Unknown item type — drop silently (avoid polluting chat with debug JSON)
     return messages;
   }
 
-  // item.started — could provide streaming deltas later
+  // item.started — no action; wait for item.completed
   if (eventType === 'item.started') {
-    // We don't emit anything for item.started; wait for item.completed
     return messages;
   }
 
@@ -450,23 +467,48 @@ function processCodexEvent(event: Record<string, unknown>): SDKMessage[] {
     return messages;
   }
 
-  // error event
+  // error event (type === 'error' OR event has an error field)
   if (eventType === 'error' || event.error) {
-    const error = event.error || event.message || event;
-    const errMsg = typeof error === 'string'
-      ? error
-      : (error as Record<string, unknown>).message as string || JSON.stringify(error);
-    messages.push({ type: 'error', error: errMsg });
+    const errorVal = event.error || event.message;
+    let errMsg: string;
+    if (typeof errorVal === 'string') {
+      errMsg = errorVal;
+    } else if (errorVal && typeof errorVal === 'object') {
+      const e = errorVal as Record<string, unknown>;
+      errMsg = (e.message as string) || JSON.stringify(errorVal);
+    } else {
+      errMsg = 'Unknown Codex error';
+    }
+    if (errMsg && errMsg !== '[object Object]') {
+      messages.push({ type: 'error', error: errMsg });
+    }
     return messages;
   }
 
-  // Unknown event — emit as text for debugging if substantial
-  const raw = JSON.stringify(event);
-  if (raw.length > 2 && raw !== '{}') {
-    messages.push({ type: 'text_delta', text: raw });
+  // Unknown event — drop silently
+  return messages;
+}
+
+/**
+ * Extract the most useful error message from Codex CLI stderr output.
+ */
+function extractCodexError(stderr: string): string | null {
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // 401 / auth errors
+  const authLine = lines.find(l => l.includes('401') || l.includes('Unauthorized') || l.includes('authentication'));
+  if (authLine) {
+    if (authLine.includes('401') || authLine.includes('Unauthorized')) {
+      return 'Codex: 401 Unauthorized — check your OPENAI_API_KEY is valid.';
+    }
+    return authLine.slice(0, 300);
   }
 
-  return messages;
+  // First line containing "Error" or "error"
+  const errLine = lines.find(l => /error/i.test(l));
+  if (errLine) return errLine.slice(0, 300);
+
+  return null;
 }
 
 // Auto-register on import
