@@ -24,6 +24,7 @@ import LoadGraphDialog from './dialogs/LoadGraphDialog.vue';
 import RunGraphDialog from './dialogs/RunGraphDialog.vue';
 import TemplatesDialog from './dialogs/TemplatesDialog.vue';
 import ImportGraphDialog from './dialogs/ImportGraphDialog.vue';
+import ImportProjectAssetsDialog from './dialogs/ImportProjectAssetsDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
 import SubagentNode from './nodes/SubagentNode.vue';
@@ -47,6 +48,7 @@ const showLoadDialog = ref(false);
 const showRunDialog = ref(false);
 const showTemplatesDialog = ref(false);
 const showImportDialog = ref(false);
+const showImportProjectDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
 // Mobile responsive
@@ -258,6 +260,7 @@ function isValidConnection(connection: Connection): boolean {
             @load="showLoadDialog = true"
             @templates="showTemplatesDialog = true"
             @import="showImportDialog = true"
+            @import-project="showImportProjectDialog = true"
             @run="showRunDialog = true"
             @abort="abortRun()"
           />
@@ -424,6 +427,7 @@ function isValidConnection(connection: Connection): boolean {
     <RunGraphDialog v-model:open="showRunDialog" @run="onRunGraph" />
     <TemplatesDialog v-model:open="showTemplatesDialog" />
     <ImportGraphDialog v-model:open="showImportDialog" />
+    <ImportProjectAssetsDialog v-model:open="showImportProjectDialog" :cwd="chat.projectPath || ''" />
   </div>
 </template>
 

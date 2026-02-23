@@ -1,7 +1,16 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { randomUUID } from 'crypto';
 import { config } from '../config.js';
+
+const DEFAULT_SERVICES: { name: string; command: string; cwd: string }[] = [
+  {
+    name: 'D2 Interactive Map',
+    command: 'npm run dev',
+    cwd: '/home/rodrigom/Documents/proyects/d2-interactive-map',
+  },
+];
 
 let db: Database.Database;
 
@@ -264,6 +273,12 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('management_services', 'project_path', "TEXT DEFAULT ''");
   safeAddColumn('management_scripts', 'project_path', "TEXT DEFAULT ''");
 
+  // ── Seed default services for existing users ──
+  const existingUsers = db.prepare('SELECT id FROM users').all() as { id: number }[];
+  for (const user of existingUsers) {
+    seedServicesForUser(db, user.id);
+  }
+
   // ── Provider credential storage ──
   db.exec(`
     CREATE TABLE IF NOT EXISTS provider_config (
@@ -271,6 +286,28 @@ function runMigrations(db: Database.Database) {
       env_vars TEXT NOT NULL DEFAULT '{}'
     );
   `);
+}
+
+// ── Default service seeding ───────────────────────────────────────────────────
+
+function seedServicesForUser(db: Database.Database, userId: number): void {
+  for (const svc of DEFAULT_SERVICES) {
+    const exists = db
+      .prepare('SELECT 1 FROM management_services WHERE user_id = ? AND cwd = ? AND command = ?')
+      .get(userId, svc.cwd, svc.command);
+    if (!exists) {
+      const next = (db
+        .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_services WHERE user_id = ?')
+        .get(userId) as { next: number }).next;
+      db.prepare('INSERT INTO management_services (id, user_id, name, command, cwd, sort_order, project_path) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), userId, svc.name, svc.command, svc.cwd, next, svc.cwd);
+    }
+  }
+}
+
+/** Seed default services for a newly created user. */
+export function seedDefaultServicesForNewUser(userId: number): void {
+  seedServicesForUser(getDb(), userId);
 }
 
 /** Load all saved provider env vars into process.env. Call once on startup. */

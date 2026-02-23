@@ -27,12 +27,19 @@ provide('respondToTool', respondToTool);
 const showToolsSettings = ref(false);
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
-const showTracesSidebar = ref(false);
+const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') !== 'false');
 const isMobile = ref(false);
 
-// Auto-expand traces when Claude starts responding
+// Persist traces sidebar state
+watch(showTracesSidebar, (val) => {
+  localStorage.setItem('traces-panel-open', String(val));
+});
+
+// Auto-expand traces when Claude starts responding (only if not explicitly closed)
 watch(() => chat.isStreaming, (streaming) => {
-  if (streaming) showTracesSidebar.value = true;
+  if (streaming && localStorage.getItem('traces-panel-open') !== 'false') {
+    showTracesSidebar.value = true;
+  }
 });
 
 function handleNewSession() {
@@ -231,7 +238,7 @@ defineExpose({ showToolsSettings });
 
         <!-- Expanded: full traces panel -->
         <div v-else class="h-full w-[300px]">
-          <TracesPanel :session-id="chat.sessionId">
+          <TracesPanel :session-id="chat.claudeSessionId ?? undefined">
             <template #header-action>
               <Button
                 variant="ghost"

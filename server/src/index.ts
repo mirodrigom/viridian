@@ -1,9 +1,14 @@
+import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env before anything else — tsx watch doesn't forward --env-file to its child process
+const __envDir = dirname(fileURLToPath(import.meta.url));
+try { process.loadEnvFile(resolve(__envDir, '../../.env')); } catch { /* .env optional */ }
+
 import express, { type Express } from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import authRoutes from './routes/auth.js';
 import filesRoutes from './routes/files.js';

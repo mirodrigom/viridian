@@ -67,6 +67,11 @@ export function useClaudeStream() {
     // the REST API and we need to send check_session to wire up live WS events.
     let wsStreamActive = false;
 
+    // Track whether the last check_session was sent due to an actual WS reconnect
+    // (vs. a periodic watchdog check). Only real reconnects warrant a full reloadSession;
+    // watchdog checks just verify liveness and should fall back to fetchMissedMessages.
+    let pendingReconnectCheck = false;
+
     watch(() => chat.isStreaming, (streaming) => {
       if (streaming && !wsStreamActive && activeSessionId && connected.value) {
         // Streaming was activated externally (REST API) — send check_session
@@ -104,6 +109,9 @@ export function useClaudeStream() {
           // On reconnect while streaming, or on initial connect after page reload
           // (isStreaming is false after reload, but sessionId is persisted)
           if (isReconnect ? chat.isStreaming : true) {
+            // Mark as a reconnect check so session_status knows to do a full reload
+            // if the session is still streaming (we may have missed events during disconnect).
+            pendingReconnectCheck = isReconnect;
             send({ type: 'check_session', sessionId: chat.sessionId });
           }
         }
@@ -284,11 +292,11 @@ export function useClaudeStream() {
         return;
       }
 
-      // Mark current assistant message as done — next text delta gets a new bubble
+      // Mark current assistant message as done — next text delta gets a new bubble.
+      // Do NOT clear isStreaming here: the cursor must stay visible during long-running
+      // tools (e.g. Task). The stream_delta handler clears it when new text arrives,
+      // and finishStreaming() clears it on stream_end.
       needsNewAssistantMsg = true;
-      // Stop streaming indicator on the current assistant message
-      const lastAssistant = chat.messages.findLast(m => m.role === 'assistant');
-      if (lastAssistant) lastAssistant.isStreaming = false;
 
       // Determine initial tool status.
       // EnterPlanMode is an internal tool that never needs approval.
@@ -367,7 +375,11 @@ export function useClaudeStream() {
       // Server handles auto-approval — any control_request that reaches the client
       // is a tool that genuinely needs user approval (or AskUserQuestion).
       // Store the control request ID on the tool message so respondToTool can use it.
-      const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
+      // Prefer matching by toolUseId; fall back to the most recent pending tool with
+      // the same name in case toolUseId is missing from the event.
+      const msg = d.toolUseId
+        ? chat.messages.find(m => m.toolUse?.requestId === d.toolUseId)
+        : chat.messages.findLast(m => m.toolUse?.tool === d.toolName && m.toolUse.status === 'pending');
       if (msg?.toolUse) {
         msg.toolUse.controlRequestId = d.requestId;
       }
@@ -427,8 +439,16 @@ export function useClaudeStream() {
       if (d.sessionId !== activeSessionId) return;
 
       if (d.isStreaming) {
-        // Session is still actively streaming on server — restore streaming state
-        reconnectedMidStream = true;
+        // Session is still actively streaming on server — restore streaming state.
+        // Only mark reconnectedMidStream on actual WS disconnects (not watchdog checks):
+        // watchdog fires check_session after 60s of silence (e.g. long bash command in a
+        // Task subagent) but the connection was never lost, so we haven't missed events.
+        // A full reloadSession would cause all messages to arrive in bulk and briefly
+        // hide the abort button; fetchMissedMessages is sufficient for the watchdog case.
+        if (pendingReconnectCheck) {
+          reconnectedMidStream = true;
+        }
+        pendingReconnectCheck = false;
         wsStreamActive = true; // Server re-wired the WS emitter for this session
         // Adopt the server's internal session UUID so subsequent events from
         // wireEmitter (which use session.id) pass the isForCurrentSession check.
@@ -468,6 +488,7 @@ export function useClaudeStream() {
       } else {
         // Session finished while we were disconnected — stop streaming UI
         // and fetch any messages we missed
+        pendingReconnectCheck = false;
         if (chat.isStreaming) {
           chat.finishStreaming();
         }

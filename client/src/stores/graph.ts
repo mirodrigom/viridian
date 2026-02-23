@@ -224,6 +224,26 @@ export const useGraphStore = defineStore('graph', () => {
 
   // ─── Auto-layout ──────────────────────────────────────────────────
 
+  // ─── Import project assets ─────────────────────────────────────────
+
+  function importNodes(
+    items: Array<{ type: GraphNodeType; position: { x: number; y: number }; data: Record<string, unknown> }>,
+  ) {
+    for (const item of items) {
+      const id = uuid();
+      const defaults = createDefaultNodeData(item.type);
+      nodes.value.push({
+        id,
+        type: item.type,
+        position: item.position,
+        data: { ...defaults, ...item.data },
+      });
+    }
+    isDirty.value = true;
+    selectedNodeId.value = null;
+    graphVersion.value++;
+  }
+
   function autoLayout() {
     const layers: GraphNodeType[][] = [
       ['agent'],
@@ -524,7 +544,7 @@ export const useGraphStore = defineStore('graph', () => {
     addNode, removeNode, updateNodeData, updateNodePosition, selectNode,
     canConnect, getEdgeType, addEdge, removeEdge,
     fetchGraphList, loadGraph, saveGraph, deleteGraph,
-    newGraph, loadTemplate, autoLayout, serialize, deserialize, generatePrompt,
+    newGraph, loadTemplate, importNodes, autoLayout, serialize, deserialize, generatePrompt,
   };
 });
 

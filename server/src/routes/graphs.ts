@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import archiver from 'archiver';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
@@ -58,6 +60,197 @@ router.get('/', (req: AuthRequest, res) => {
     'SELECT * FROM graphs WHERE user_id = ? AND project_path = ? ORDER BY updated_at DESC',
   ).all(req.user!.id, project) as GraphRow[];
   res.json({ graphs: rows.map(rowToSummary) });
+});
+
+// ─── Project asset scanning helpers ─────────────────────────────────
+
+function parseFrontmatter(content: string): { fm: Record<string, string | string[]>; body: string } {
+  if (!content.startsWith('---\n')) return { fm: {}, body: content.trim() };
+  const end = content.indexOf('\n---\n', 4);
+  if (end === -1) return { fm: {}, body: content.trim() };
+
+  const yamlStr = content.slice(4, end);
+  const body = content.slice(end + 5).trim();
+  const fm: Record<string, string | string[]> = {};
+  let currentArrayKey: string | null = null;
+
+  for (const line of yamlStr.split('\n')) {
+    // Multi-line array item: "  - value"
+    if (currentArrayKey && /^\s+-\s+/.test(line)) {
+      const item = line.replace(/^\s+-\s+/, '').trim();
+      (fm[currentArrayKey] as string[]).push(item);
+      continue;
+    }
+    currentArrayKey = null;
+
+    const colonIdx = line.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = line.slice(0, colonIdx).trim();
+    const rest = line.slice(colonIdx + 1).trim();
+
+    if (rest === '') {
+      // Start of a multi-line array
+      currentArrayKey = key;
+      fm[key] = [];
+    } else {
+      let value = rest;
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      fm[key] = value;
+    }
+  }
+
+  return { fm, body };
+}
+
+const REVERSE_MODEL_MAP: Record<string, string> = {
+  opus: 'claude-opus-4-6',
+  sonnet: 'claude-sonnet-4-6',
+  haiku: 'claude-haiku-4-5-20251001',
+};
+
+function reverseMapModel(short: string): string {
+  return REVERSE_MODEL_MAP[short] || short || 'claude-sonnet-4-6';
+}
+
+function slugToLabel(slug: string): string {
+  return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// GET /project-assets — scan a project's .claude/ directory for importable assets
+router.get('/project-assets', (req: AuthRequest, res) => {
+  const { cwd } = req.query;
+  if (!cwd || typeof cwd !== 'string') {
+    res.status(400).json({ error: 'cwd query param required' });
+    return;
+  }
+
+  try {
+    const result: {
+      agents: unknown[];
+      skills: unknown[];
+      mcps: unknown[];
+      rules: unknown[];
+    } = { agents: [], skills: [], mcps: [], rules: [] };
+
+    // ── Agents (.claude/agents/*.md) ─────────────────────────────────
+    const agentsDir = join(cwd, '.claude', 'agents');
+    if (existsSync(agentsDir)) {
+      for (const file of readdirSync(agentsDir)) {
+        if (!file.endsWith('.md')) continue;
+        try {
+          const content = readFileSync(join(agentsDir, file), 'utf8');
+          const { fm, body } = parseFrontmatter(content);
+          const slug = file.replace(/\.md$/, '');
+          const label = fm.name ? slugToLabel(fm.name) : slugToLabel(slug);
+          const toolsRaw = fm.tools || fm['allowed-tools'] || '';
+          const disallowedRaw = fm.disallowedTools || '';
+          result.agents.push({
+            label,
+            description: fm.description || '',
+            model: reverseMapModel((fm.model as string) || 'sonnet'),
+            systemPrompt: body,
+            allowedTools: Array.isArray(toolsRaw) ? toolsRaw : (toolsRaw ? toolsRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
+            disallowedTools: Array.isArray(disallowedRaw) ? disallowedRaw : (disallowedRaw ? disallowedRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
+            permissionMode: (fm.permissionMode as string) || 'bypassPermissions',
+          });
+        } catch { /* skip unreadable */ }
+      }
+    }
+
+    // ── Skills (.claude/skills/*/SKILL.md) ───────────────────────────
+    const skillsDir = join(cwd, '.claude', 'skills');
+    if (existsSync(skillsDir)) {
+      for (const dir of readdirSync(skillsDir)) {
+        const skillFile = join(skillsDir, dir, 'SKILL.md');
+        if (!existsSync(skillFile)) continue;
+        try {
+          const content = readFileSync(skillFile, 'utf8');
+          const { fm, body } = parseFrontmatter(content);
+          const commandName = (fm.name as string) || dir;
+          const skillToolsRaw = fm['allowed-tools'] || fm.tools || '';
+          result.skills.push({
+            label: slugToLabel(commandName),
+            description: (fm.description as string) || '',
+            command: `/${commandName.replace(/^\//, '')}`,
+            promptTemplate: body,
+            allowedTools: Array.isArray(skillToolsRaw) ? skillToolsRaw : (skillToolsRaw ? skillToolsRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
+          });
+        } catch { /* skip */ }
+      }
+    }
+
+    // ── MCP servers (.mcp.json) ──────────────────────────────────────
+    const mcpFile = join(cwd, '.mcp.json');
+    if (existsSync(mcpFile)) {
+      try {
+        const mcpJson = JSON.parse(readFileSync(mcpFile, 'utf8'));
+        const servers = (mcpJson.mcpServers || {}) as Record<string, Record<string, unknown>>;
+        for (const [name, cfg] of Object.entries(servers)) {
+          result.mcps.push({
+            label: slugToLabel(name),
+            serverType: (cfg.type as string) || 'stdio',
+            command: (cfg.command as string) || '',
+            args: (cfg.args as string[]) || [],
+            url: (cfg.url as string) || '',
+            env: (cfg.env as Record<string, string>) || {},
+            headers: (cfg.headers as Record<string, string>) || {},
+          });
+        }
+      } catch { /* skip */ }
+    }
+
+    // ── Rules (CLAUDE.md) ────────────────────────────────────────────
+    const claudeMdFile = join(cwd, 'CLAUDE.md');
+    if (existsSync(claudeMdFile)) {
+      try {
+        const content = readFileSync(claudeMdFile, 'utf8');
+        let currentSection = 'guideline';
+        for (const line of content.split('\n')) {
+          if (line.startsWith('## ')) {
+            const heading = line.slice(3).toLowerCase().trim();
+            if (heading.includes('allow')) currentSection = 'allow';
+            else if (heading.includes('deny') || heading.includes('disallow')) currentSection = 'deny';
+            else if (heading.includes('constraint')) currentSection = 'constraint';
+            else currentSection = 'guideline';
+            continue;
+          }
+          if (line.startsWith('#') || line.startsWith('>')) continue;
+
+          // "- **Label**: text"
+          const boldMatch = line.match(/^-\s+\*\*(.+?)\*\*:\s*(.+)/);
+          if (boldMatch) {
+            result.rules.push({
+              label: boldMatch[1],
+              ruleText: boldMatch[2].trim(),
+              ruleType: currentSection,
+              scope: 'project',
+            });
+            continue;
+          }
+          // "- plain text"
+          const plainMatch = line.match(/^-\s+(.+)/);
+          if (plainMatch && plainMatch[1].trim()) {
+            result.rules.push({
+              label: 'Rule',
+              ruleText: plainMatch[1].trim(),
+              ruleType: currentSection,
+              scope: 'project',
+            });
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to read project assets';
+    res.status(500).json({ error: msg });
+  }
 });
 
 // GET /:id — get single graph with full data

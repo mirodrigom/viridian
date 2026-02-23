@@ -64,12 +64,17 @@ export const useTracesStore = defineStore('traces', () => {
   }
 
   async function fetchTraces(userId?: string) {
+    const prevUserId = currentUserId.value;
     if (userId !== undefined) currentUserId.value = userId;
+    const uid = userId ?? currentUserId.value;
+
+    // If the session filter changed, clear stale traces immediately
+    if (uid !== prevUserId) traces.value = [];
+
     loading.value = true;
     error.value = null;
     try {
       const params = new URLSearchParams({ limit: '50' });
-      const uid = userId ?? currentUserId.value;
       if (uid) params.set('userId', uid);
       const res = await apiFetch(`/api/langfuse/traces?${params}`);
       if (!res.ok) { error.value = 'Failed to fetch traces'; return; }
@@ -78,7 +83,8 @@ export const useTracesStore = defineStore('traces', () => {
       configured.value = true;
       reachable.value = true;
       const fresh = data.data || [];
-      // Preserve existing traces if fetch returns empty (Langfuse indexing lag)
+      // Preserve existing traces only within the same session if fetch returns empty
+      // (handles Langfuse indexing lag right after a message completes)
       if (fresh.length > 0 || traces.value.length === 0) {
         traces.value = fresh;
       }

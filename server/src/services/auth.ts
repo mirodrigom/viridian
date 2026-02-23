@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { getDb } from '../db/database.js';
+import { getDb, seedDefaultServicesForNewUser } from '../db/database.js';
 import { config } from '../config.js';
 
 const SALT_ROUNDS = 10;
@@ -19,7 +19,9 @@ export async function createUser(username: string, password: string): Promise<{ 
   }
   const hash = await bcrypt.hash(password, SALT_ROUNDS);
   const result = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, hash);
-  return { id: result.lastInsertRowid as number, username };
+  const userId = result.lastInsertRowid as number;
+  seedDefaultServicesForNewUser(userId);
+  return { id: userId, username };
 }
 
 export async function authenticateUser(username: string, password: string): Promise<string> {

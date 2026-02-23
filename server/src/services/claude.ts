@@ -406,7 +406,18 @@ export function respondToPermission(
   // Send control_response via the provider's protocol
   if (session.stdinWrite) {
     const provider = getProvider(session.providerId);
-    const updatedInput = answers ? { questions: questions || [], answers } : undefined;
+    // For AskUserQuestion, merge answers inline into each question object so the CLI
+    // can find them at questions[i].answer — the separate top-level `answers` key is
+    // not recognised by the Claude CLI and causes Claude to ignore the user's responses.
+    let updatedInput: unknown = undefined;
+    if (answers) {
+      const mergedQuestions = (questions || []).map((q: unknown) => {
+        const qObj = q as Record<string, unknown>;
+        const qText = String(qObj.question || '');
+        return { ...qObj, answer: answers[qText] ?? '' };
+      });
+      updatedInput = { questions: mergedQuestions };
+    }
     const response = provider.buildControlResponse(requestId, approved, {
       updatedInput: approved ? updatedInput : undefined,
       message: approved ? undefined : 'User denied the tool request',

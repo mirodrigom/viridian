@@ -42,6 +42,7 @@ echo "  Client:   http://${LAN_IP}:5174"
 echo "  Server:   http://${LAN_IP}:${PORT}"
 echo "  Docs:     http://${LAN_IP}:${DOCS_PORT}"
 echo "  Langfuse: http://${LAN_IP}:${LANGFUSE_PORT}"
+echo "  D2 Map:   http://${LAN_IP}:7575"
 echo "============================================"
 echo ""
 
@@ -66,6 +67,20 @@ if [ -n "$COMPOSE_CMD" ]; then
   xdg-open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
 else
   echo "  (Neither podman-compose nor docker found — skipping Langfuse)"
+  echo ""
+fi
+
+# Start D2 Interactive Map dev server in background
+D2_DIR="/home/rodrigom/Documents/proyects/d2-interactive-map"
+if [ -d "$D2_DIR" ]; then
+  echo "→ Starting D2 Interactive Map (port 7575)..."
+  if [ -f /.flatpak-info ]; then
+    flatpak-spawn --host bash -c "cd '$D2_DIR' && npm run dev" &
+  else
+    (cd "$D2_DIR" && npm run dev) &
+  fi
+  D2_PID=$!
+  trap 'kill $D2_PID 2>/dev/null || true' EXIT
   echo ""
 fi
 

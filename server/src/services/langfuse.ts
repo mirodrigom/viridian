@@ -90,9 +90,10 @@ export function startTrace(params: {
 
   const trace = lf.trace({
     name,
-    userId: params.sessionId,
+    userId: params.claudeSessionId || params.sessionId,
     metadata: {
       claudeSessionId: params.claudeSessionId,
+      sessionId: params.sessionId,
       providerId: params.providerId,
     },
     tags: [params.providerId, name],

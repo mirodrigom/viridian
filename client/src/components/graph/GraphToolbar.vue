@@ -9,7 +9,7 @@ import { toast } from 'vue-sonner';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
   FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package,
-  LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight,
+  LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight, FolderSearch,
 } from 'lucide-vue-next';
 
 const emit = defineEmits<{
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   load: [];
   templates: [];
   import: [];
+  importProject: [];
   run: [];
   abort: [];
 }>();
@@ -209,6 +210,15 @@ async function onExportClaude() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>Import from JSON</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('importProject')">
+            <FolderSearch class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Import from Project (.claude/)</TooltipContent>
       </Tooltip>
 
       <div class="mx-1 h-4 w-px bg-border" />

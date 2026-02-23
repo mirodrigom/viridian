@@ -36,7 +36,7 @@ async function buildTree(rootPath: string, currentPath: string, depth: number): 
 
     for (const entry of sorted) {
       if (IGNORED_DIRS.has(entry.name) || IGNORED_FILES.has(entry.name)) continue;
-      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
+      if (entry.name.startsWith('.') && entry.name !== '.env.example' && entry.name !== '.claude') continue;
 
       const fullPath = join(currentPath, entry.name);
       const relativePath = relative(rootPath, fullPath);
@@ -92,7 +92,7 @@ export async function getDirectoryChildren(rootPath: string, relativePath: strin
 
     for (const entry of sorted) {
       if (IGNORED_DIRS.has(entry.name) || IGNORED_FILES.has(entry.name)) continue;
-      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
+      if (entry.name.startsWith('.') && entry.name !== '.env.example' && entry.name !== '.claude') continue;
 
       const entryFullPath = join(fullPath, entry.name);
       const entryRelativePath = relative(rootPath, entryFullPath);

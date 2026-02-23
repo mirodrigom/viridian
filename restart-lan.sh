@@ -18,6 +18,7 @@ kill_procs() {
   fuser -k "${PORT}/tcp" 2>/dev/null || true
   fuser -k 5174/tcp 2>/dev/null || true
   fuser -k 5175/tcp 2>/dev/null || true
+  fuser -k 7575/tcp 2>/dev/null || true
 }
 
 if [ -f /.flatpak-info ]; then
