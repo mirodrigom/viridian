@@ -222,9 +222,11 @@ export function useClaudeStream() {
         chat.sessionId = d.sessionId;
       }
 
-      // Ensure activeProjectDir is set so live-updates and message fetching work
+      // Ensure activeProjectDir is set so live-updates and message fetching work.
+      // Encode raw path → directory name (slashes → hyphens) to match the server's
+      // ~/.claude/projects/<encoded-dir>/ layout used by the sessions REST API.
       if (!chat.activeProjectDir && chat.projectPath) {
-        chat.activeProjectDir = chat.projectPath;
+        chat.activeProjectDir = chat.projectPath.replace(/\//g, '-');
       }
 
       // URL uses claudeSessionId (= JSONL filename) so page reloads & sidebar work
@@ -382,6 +384,17 @@ export function useClaudeStream() {
         : chat.messages.findLast(m => m.toolUse?.tool === d.toolName && m.toolUse.status === 'pending');
       if (msg?.toolUse) {
         msg.toolUse.controlRequestId = d.requestId;
+        // For AskUserQuestion: if tool input is empty (streaming didn't arrive yet),
+        // populate it from the control_request's toolInput so the modal has questions
+        // and respondToTool can include them in the response.
+        if (d.toolName === 'AskUserQuestion' && d.toolInput?.questions) {
+          if (!msg.toolUse.input?.questions || !Array.isArray(msg.toolUse.input.questions) || msg.toolUse.input.questions.length === 0) {
+            msg.toolUse.input = { ...msg.toolUse.input, ...d.toolInput };
+            msg.toolUse.isInputStreaming = false;
+          }
+        }
+      } else {
+        console.warn(`[control_request] Could not find matching tool message for toolUseId=${d.toolUseId}, toolName=${d.toolName}`);
       }
       // Play attention sound so user knows approval is needed
       playToolApprovalSound();
@@ -496,7 +509,10 @@ export function useClaudeStream() {
         // won't match any file. Fall back to projectPath if activeProjectDir wasn't set
         // yet (e.g. stream_end never arrived to set it).
         const fetchId = d.claudeSessionId || chat.claudeSessionId || d.sessionId;
-        const projectDir = chat.activeProjectDir || chat.projectPath;
+        // Prefer the already-encoded activeProjectDir; fall back to projectPath
+        // (raw path → encode to match server's directory layout)
+        const projectDir = chat.activeProjectDir
+          || (chat.projectPath ? chat.projectPath.replace(/\//g, '-') : null);
         if (fetchId && projectDir) {
           // Ensure activeProjectDir is persisted so future fetches work too
           if (!chat.activeProjectDir && projectDir) {
@@ -592,13 +608,46 @@ export function useClaudeStream() {
     }
   }
 
+  /**
+   * Send a message to the server without adding a visible user bubble in the chat.
+   * Used by AskUserQuestion to deliver answers as a new turn via --resume.
+   */
+  function sendSilentMessage(prompt: string) {
+    const payload: Record<string, unknown> = {
+      type: 'chat',
+      prompt,
+      sessionId: chat.sessionId,
+      claudeSessionId: chat.claudeSessionId,
+      cwd: chat.projectPath,
+      provider: providerStore.activeProviderId,
+      model: settings.model,
+      permissionMode: settings.permissionMode,
+      allowedTools: settings.allowedTools,
+      disallowedTools: settings.disallowedTools,
+      maxOutputTokens: settings.maxOutputTokens || undefined,
+    };
+    send(payload);
+  }
+
   function respondToTool(requestId: string, approved: boolean, answers?: Record<string, string>) {
     const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
     // Use the CLI's control request ID if available (for permission responses)
     const controlRequestId = msg?.toolUse?.controlRequestId || requestId;
+    if (!msg?.toolUse?.controlRequestId) {
+      console.warn(`[respondToTool] controlRequestId not found on tool message (requestId=${requestId}), using fallback`);
+    }
     // For AskUserQuestion, include the original questions so the server can build updatedInput
     const questions = answers && msg?.toolUse?.input?.questions ? msg.toolUse.input.questions : undefined;
-    send({ type: 'tool_response', requestId: controlRequestId, approved, answers, questions });
+    if (answers && !questions) {
+      console.warn(`[respondToTool] Answers provided but no questions found on tool input — server will need to use fallback`);
+    }
+    const sent = send({ type: 'tool_response', requestId: controlRequestId, approved, answers, questions });
+    if (!sent) {
+      console.warn('[respondToTool] WebSocket send failed — tool response not delivered');
+      // Don't update status since the response didn't go through.
+      // The tool stays as 'pending' so the user can try again.
+      return;
+    }
     if (msg?.toolUse) {
       msg.toolUse.status = approved ? 'approved' : 'rejected';
       if (answers) {
@@ -628,7 +677,10 @@ export function useClaudeStream() {
       const res = await apiFetch(
         `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&after=${afterIndex}`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn(`[fetchMissedMessages] Server returned ${res.status} for session=${sessionId}, projectDir=${projectDir}, after=${afterIndex}`);
+        return;
+      }
       const data = await res.json();
       if (data.messages?.length) {
         chat.appendMessages(data.messages, { total: data.total });
@@ -640,7 +692,7 @@ export function useClaudeStream() {
         });
       }
     } catch (err) {
-      console.error('Failed to fetch missed messages:', err);
+      console.error('[fetchMissedMessages] Failed:', err);
     }
   }
 
@@ -650,7 +702,10 @@ export function useClaudeStream() {
       const res = await apiFetch(
         `/api/sessions/${sessionId}/messages?projectDir=${encodeURIComponent(projectDir)}&limit=50`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn(`[reloadSession] Server returned ${res.status} for session=${sessionId}, projectDir=${projectDir}`);
+        return;
+      }
       const data = await res.json();
       if (data.messages?.length) {
         if (data.sessionProvider) {
@@ -769,5 +824,5 @@ export function useClaudeStream() {
     disconnect();
   }
 
-  return { connected, init, sendMessage, respondToTool, abort, disconnect: cleanup, checkSession };
+  return { connected, init, sendMessage, sendSilentMessage, respondToTool, abort, disconnect: cleanup, checkSession };
 }

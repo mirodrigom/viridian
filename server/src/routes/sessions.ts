@@ -8,6 +8,7 @@ import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
 import { getDb } from '../db/database.js';
 import { getStreamingClaudeSessionIds } from '../services/claude.js';
 import { isGraphRunnerSession } from '../services/graph-runner.js';
+import { isInternalSession } from './git.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -192,6 +193,9 @@ router.get('/', async (req, res) => {
 
         // Skip sessions created by graph runner executions
         if (isGraphRunnerSession(sessionId)) continue;
+
+        // Skip sessions created by internal utility queries (commit message generation, etc.)
+        if (isInternalSession(sessionId)) continue;
 
         const filePath = join(dirPath, file);
 

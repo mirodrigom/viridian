@@ -15,7 +15,9 @@
       "Bash(git branch:*)",
       "Bash(pnpm build:*)",
       "Bash(ls:*)",
-      "Bash(env:*)"
+      "Bash(env:*)",
+      "Bash(docker --version:*)",
+      "Bash(podman:*)"
     ]
   }
 }

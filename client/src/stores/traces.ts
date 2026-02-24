@@ -43,6 +43,10 @@ export const useTracesStore = defineStore('traces', () => {
   const ws = createStoreWebSocket('/ws/traces');
 
   ws.on('trace:ended', () => {
+    // Only auto-refetch when we have a session filter — without one, we'd fetch
+    // ALL traces which is wrong for a new conversation that hasn't received its
+    // claudeSessionId yet (arrives on stream_end).
+    if (!currentUserId.value) return;
     // Small delay: Langfuse indexes events async even after flushAsync completes
     setTimeout(() => fetchTraces(), 1000);
   });

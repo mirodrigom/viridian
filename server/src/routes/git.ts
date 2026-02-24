@@ -5,6 +5,14 @@ import { claudeQuery } from '../services/claude-sdk.js';
 
 const router: ReturnType<typeof Router> = Router();
 
+// Track session IDs created by internal utility queries (e.g. commit message generation)
+// so they can be filtered out of the sidebar session list.
+const internalSessionIds = new Set<string>();
+
+export function isInternalSession(claudeSessionId: string): boolean {
+  return internalSessionIds.has(claudeSessionId);
+}
+
 router.use(authMiddleware);
 
 router.get('/status', async (req, res) => {
@@ -270,6 +278,12 @@ ${truncatedDiff}`;
           allowedTools: [],
           abortSignal: abortController.signal,
         })) {
+          if (msg.type === 'system' && msg.sessionId) {
+            internalSessionIds.add(msg.sessionId);
+          }
+          if (msg.type === 'result' && msg.sessionId) {
+            internalSessionIds.add(msg.sessionId);
+          }
           if (msg.type === 'text_delta') {
             res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
           }

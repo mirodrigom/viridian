@@ -13,11 +13,13 @@ import {
 const store = useTracesStore();
 
 onMounted(() => {
-  store.fetchTraces(props.sessionId);
+  // Only fetch if we already have a session ID — for new conversations
+  // claudeSessionId is null until stream_end, so the watch below handles it.
+  if (props.sessionId) store.fetchTraces(props.sessionId);
 });
 
 watch(() => props.sessionId, (id) => {
-  store.fetchTraces(id);
+  if (id) store.fetchTraces(id);
 });
 
 // Expanded trace / observation

@@ -11,6 +11,7 @@ import { Check, ChevronRight, ChevronLeft, MessageCircleQuestion, Send } from 'l
 const props = defineProps<{ toolUse: ToolUseInfo }>();
 
 const respondToTool = inject<(requestId: string, approved: boolean, answers?: Record<string, string>) => void>('respondToTool')!;
+const sendSilentMessage = inject<(prompt: string) => void>('sendSilentMessage')!;
 
 interface QuestionOption {
   label: string;
@@ -45,6 +46,7 @@ const isAnswered = computed(() => props.toolUse.status === 'approved' || props.t
 const showModal = ref(false);
 const currentStep = ref(0);
 const answers = ref<Record<number, string[]>>({});
+const isSubmitting = ref(false);
 const customInputs = ref<Record<number, string>>({});
 const useCustom = ref<Record<number, boolean>>({});
 
@@ -144,6 +146,9 @@ function goBack() {
 }
 
 function submitAll() {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+
   const result: Record<string, string> = {};
   for (let i = 0; i < questions.value.length; i++) {
     const q = questions.value[i]!;
@@ -155,7 +160,21 @@ function submitAll() {
     }
   }
   showModal.value = false;
-  respondToTool(props.toolUse.requestId, true, result);
+
+  // Mark tool as answered for UI display
+  if (props.toolUse) {
+    props.toolUse.status = 'approved';
+    props.toolUse.input._userAnswers = result;
+  }
+
+  // The CLI handles AskUserQuestion internally and returns an error because
+  // there's no interactive terminal. Instead of sending a tool_response (which
+  // relies on a control_request that never comes), send the answers as a new
+  // chat message so the model receives them via --resume in a new turn.
+  const lines = Object.entries(result)
+    .map(([q, a]) => `- ${q} → ${a}`)
+    .join('\n');
+  sendSilentMessage(`Here are my answers to your questions:\n${lines}`);
 }
 
 // Summary of answers for inline display after answered

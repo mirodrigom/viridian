@@ -251,9 +251,14 @@ export function setupChatWs(server: Server) {
           currentSessionId = null;
         }
 
-        if (data.type === 'tool_response' && currentSessionId) {
-          const { requestId, approved, answers, questions } = data;
-          respondToPermission(currentSessionId, requestId, approved, answers, questions);
+        if (data.type === 'tool_response') {
+          if (!currentSessionId) {
+            console.warn('[Chat WS] Received tool_response but currentSessionId is null (WS reconnected?) — response dropped');
+            safeSend(ws, { type: 'error', error: 'Session disconnected. Please try answering again or reload the page.' });
+          } else {
+            const { requestId, approved, answers, questions } = data;
+            respondToPermission(currentSessionId, requestId, approved, answers, questions);
+          }
         }
 
         if (data.type === 'abort') {
@@ -279,9 +284,8 @@ function safeSend(ws: WebSocket, data: unknown) {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
   } else {
-    const d = data as { type?: string };
-    if (d.type === 'stream_end') {
-      console.warn(`[Chat WS] Tried to send stream_end but WebSocket is in state ${ws.readyState} (not OPEN)`);
-    }
+    const d = data as { type?: string; sessionId?: string };
+    // Log ALL dropped messages (not just stream_end) to help diagnose missing content
+    console.warn(`[Chat WS] Dropped ${d.type || 'unknown'} event — WebSocket state=${ws.readyState} (session=${d.sessionId || '?'})`);
   }
 }

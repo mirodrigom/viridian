@@ -37,6 +37,8 @@ interface ProviderSession {
   stdinWrite?: (data: string) => void;
   /** Buffered events while waiting for user to respond to AskUserQuestion or ExitPlanMode. null = not buffering. */
   pendingQuestionBuffer: { event: string; data: unknown }[] | null;
+  /** Which tool initiated the current pendingQuestionBuffer (for deciding whether to discard on stream end). */
+  pendingQuestionToolName?: string;
   /** The most recent control_request forwarded to the client that is still awaiting a response.
    *  Stored so it can be re-sent when the WebSocket reconnects mid-approval. */
   pendingControlRequest: { requestId: string; toolName: string; toolInput: unknown; toolUseId: string } | null;
@@ -237,7 +239,10 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       lf.recordError(session.id, msg.error);
       return { event: 'error', data: { error: msg.error } };
     case 'system':
-      if (msg.sessionId) session.claudeSessionId = msg.sessionId;
+      if (msg.sessionId) {
+        session.claudeSessionId = msg.sessionId;
+        lf.updateTraceUser(session.id, msg.sessionId);
+      }
       return null;
     case 'message_start': {
       const input = msg.inputTokens || 0;
@@ -331,11 +336,18 @@ function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
   // for the pending tool itself (so input streams to the client).
   if (session.pendingQuestionBuffer !== null) {
     if (msg.type === 'result') {
-      // NEVER buffer stream_end — flush the buffer first, then emit stream_end
+      // For AskUserQuestion: the CLI handles it internally and returns an error
+      // ("Answer questions?") because there's no interactive terminal. Discard the
+      // buffer (model's error response) so the user only sees the question modal.
+      // The user's answers will be sent as a new chat message via --resume.
+      const isAskUserQuestion = session.pendingQuestionToolName === 'AskUserQuestion';
       const buffered = session.pendingQuestionBuffer;
       session.pendingQuestionBuffer = null;
-      for (const evt of buffered) {
-        session.emitter.emit(evt.event, evt.data);
+      session.pendingQuestionToolName = undefined;
+      if (!isAskUserQuestion) {
+        for (const evt of buffered!) {
+          session.emitter.emit(evt.event, evt.data);
+        }
       }
       // Fall through to emit the result/stream_end normally
     } else if (msg.type === 'control_request') {
@@ -381,6 +393,7 @@ function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
     if (msg.tool === 'AskUserQuestion' ||
         (msg.tool === 'ExitPlanMode' && session.userPermissionMode !== 'bypassPermissions')) {
       session.pendingQuestionBuffer = [];
+      session.pendingQuestionToolName = msg.tool;
     }
   }
 
@@ -401,22 +414,32 @@ export function respondToPermission(
   questions?: unknown[],
 ) {
   const session = activeSessions.get(sessionId);
-  if (!session) return;
+  if (!session) {
+    console.warn(`[respondToPermission] Session ${sessionId} not found — tool response dropped`);
+    return;
+  }
 
   // Send control_response via the provider's protocol
   if (session.stdinWrite) {
     const provider = getProvider(session.providerId);
-    // For AskUserQuestion, merge answers inline into each question object so the CLI
-    // can find them at questions[i].answer — the separate top-level `answers` key is
-    // not recognised by the Claude CLI and causes Claude to ignore the user's responses.
+    // For AskUserQuestion, build updatedInput with the top-level `answers` field
+    // matching the tool's schema: { questions: [...], answers: { "question text": "answer" } }
     let updatedInput: unknown = undefined;
     if (answers) {
-      const mergedQuestions = (questions || []).map((q: unknown) => {
-        const qObj = q as Record<string, unknown>;
-        const qText = String(qObj.question || '');
-        return { ...qObj, answer: answers[qText] ?? '' };
-      });
-      updatedInput = { questions: mergedQuestions };
+      // Use questions from the client; fall back to the pending control_request's toolInput
+      // in case the client couldn't extract questions (e.g. tool input wasn't fully streamed yet).
+      let resolvedQuestions = questions;
+      if (!resolvedQuestions?.length && session.pendingControlRequest?.toolInput) {
+        const pending = session.pendingControlRequest.toolInput as Record<string, unknown>;
+        if (Array.isArray(pending.questions)) {
+          resolvedQuestions = pending.questions;
+          console.warn(`[respondToPermission] Using questions from pendingControlRequest (client sent none)`);
+        }
+      }
+      updatedInput = {
+        questions: resolvedQuestions || [],
+        answers,
+      };
     }
     const response = provider.buildControlResponse(requestId, approved, {
       updatedInput: approved ? updatedInput : undefined,
@@ -425,10 +448,13 @@ export function respondToPermission(
     if (response) {
       session.stdinWrite(response);
     }
+  } else {
+    console.warn(`[respondToPermission] stdinWrite is undefined for session ${sessionId} — tool response cannot be sent`);
   }
 
   // Flush buffered events (held back while waiting for tool approval)
   session.pendingControlRequest = null;
+  session.pendingQuestionToolName = undefined;
   if (session.pendingQuestionBuffer) {
     const buffered = session.pendingQuestionBuffer;
     session.pendingQuestionBuffer = null;

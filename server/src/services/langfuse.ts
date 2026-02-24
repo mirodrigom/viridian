@@ -177,6 +177,13 @@ export function recordToolResult(sessionId: string, requestId: string, output: u
   }
 }
 
+/** Update the trace userId once claudeSessionId becomes available (new sessions). */
+export function updateTraceUser(sessionId: string, claudeSessionId: string) {
+  const at = activeTraces.get(sessionId);
+  if (!at) return;
+  at.trace.update({ userId: claudeSessionId });
+}
+
 /** Append streaming text to the accumulated output for this turn. */
 export function recordTextDelta(sessionId: string, text: string) {
   const at = activeTraces.get(sessionId);

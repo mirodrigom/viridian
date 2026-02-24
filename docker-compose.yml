@@ -10,7 +10,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@langfuse-db:5432/langfuse
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-in-production}
       SALT: ${LANGFUSE_SALT:-changeme-in-production}
-      NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:3001}
+      NEXTAUTH_URL: ${LANGFUSE_URL:-http://192.168.100.244:3001}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
 
