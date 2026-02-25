@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { toast } from 'vue-sonner';
 import { useTasksStore, STATUS_OPTIONS, PRIORITY_OPTIONS, type Task, type TaskStatus, type TaskPriority } from '@/stores/tasks';
 import { useChatStore } from '@/stores/chat';
 import { useConfirmDialog } from '@/composables/useConfirmDialog';
@@ -23,7 +24,7 @@ import {
 import {
   Plus, Trash2, Sparkles, FileText, MessageSquare,
   Loader2, CheckCircle2, Circle, Clock,
-  ArrowUpRight, Link2, ChevronRight, GripVertical,
+  ArrowUpRight, Link2, ChevronRight, GripVertical, Send, RotateCcw,
 } from 'lucide-vue-next';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 import { useRouter } from 'vue-router';
@@ -46,6 +47,16 @@ const newPriority = ref<TaskPriority>('medium');
 // PRD form
 const prdText = ref('');
 const prdOutput = ref('');
+
+// PRD chat state
+type PrdPhase = 'input' | 'chat' | 'finalizing';
+const prdPhase = ref<PrdPhase>('input');
+const prdMessages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+const prdChatInput = ref('');
+const prdStreamBuffer = ref('');
+const prdChatSessionId = ref<string | null>(null);
+const prdFinalizingOutput = ref('');
+const prdChatScroll = ref<HTMLElement | null>(null);
 
 // Drag and drop state
 const draggingTaskId = ref<string | null>(null);
@@ -78,6 +89,10 @@ watch(() => chat.projectPath, (path) => {
   if (path) tasks.fetchTasks(path);
 });
 
+watch(showPrdDialog, (open) => {
+  if (!open) resetPrdDialog();
+});
+
 // ── Create / PRD / Expand ──────────────────────────────────────────────────
 
 async function handleCreate() {
@@ -91,6 +106,92 @@ async function handleCreate() {
   newDescription.value = '';
   newPriority.value = 'medium';
   showCreateDialog.value = false;
+}
+
+function scrollPrdToBottom() {
+  nextTick(() => {
+    if (prdChatScroll.value) prdChatScroll.value.scrollTop = prdChatScroll.value.scrollHeight;
+  });
+}
+
+function resetPrdDialog() {
+  prdPhase.value = 'input';
+  prdMessages.value = [];
+  prdChatInput.value = '';
+  prdStreamBuffer.value = '';
+  prdChatSessionId.value = null;
+  prdFinalizingOutput.value = '';
+  prdOutput.value = '';
+}
+
+async function handleStartPrdChat() {
+  if (!prdText.value.trim() || !chat.projectPath) return;
+  const userMessage = 'Please analyze this PRD and describe how you\'d break it into implementation tasks.';
+  prdMessages.value = [{ role: 'user', content: userMessage }];
+  prdStreamBuffer.value = '';
+  prdPhase.value = 'chat';
+  scrollPrdToBottom();
+
+  try {
+    const sid = await tasks.sendPrdMessage(
+      chat.projectPath,
+      userMessage,
+      prdText.value,
+      undefined,
+      (text) => { prdStreamBuffer.value += text; scrollPrdToBottom(); },
+    );
+    prdMessages.value.push({ role: 'assistant', content: prdStreamBuffer.value });
+    prdStreamBuffer.value = '';
+    if (sid) prdChatSessionId.value = sid;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'PRD analysis failed');
+    prdPhase.value = 'input';
+  }
+}
+
+async function handlePrdReply() {
+  const message = prdChatInput.value.trim();
+  if (!message || !chat.projectPath || !prdChatSessionId.value) return;
+  prdChatInput.value = '';
+  prdMessages.value.push({ role: 'user', content: message });
+  prdStreamBuffer.value = '';
+  scrollPrdToBottom();
+
+  try {
+    const sid = await tasks.sendPrdMessage(
+      chat.projectPath,
+      message,
+      undefined,
+      prdChatSessionId.value,
+      (text) => { prdStreamBuffer.value += text; scrollPrdToBottom(); },
+    );
+    prdMessages.value.push({ role: 'assistant', content: prdStreamBuffer.value });
+    prdStreamBuffer.value = '';
+    if (sid) prdChatSessionId.value = sid;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Reply failed');
+  }
+}
+
+async function handleFinalizePrd() {
+  if (!chat.projectPath || !prdChatSessionId.value) return;
+  prdPhase.value = 'finalizing';
+  prdFinalizingOutput.value = '';
+
+  try {
+    await tasks.finalizePrd(
+      chat.projectPath,
+      prdChatSessionId.value,
+      prdText.value,
+      (text) => { prdFinalizingOutput.value += text; },
+    );
+    prdText.value = '';
+    resetPrdDialog();
+    showPrdDialog.value = false;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Task generation failed');
+    prdPhase.value = 'chat';
+  }
 }
 
 async function handleParsePrd() {
@@ -585,27 +686,112 @@ function sendToChat(task: Task) {
 
     <!-- Parse PRD Dialog -->
     <Dialog v-model:open="showPrdDialog">
-      <DialogContent class="max-w-lg">
+      <DialogScrollContent class="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Parse PRD</DialogTitle>
-          <DialogDescription>Paste a Product Requirements Document and Claude will break it into hierarchical tasks</DialogDescription>
+          <DialogTitle>
+            {{ prdPhase === 'input' ? 'Parse PRD' : prdPhase === 'finalizing' ? 'Generating Tasks...' : 'PRD Discussion' }}
+          </DialogTitle>
+          <DialogDescription>
+            {{ prdPhase === 'input' ? 'Paste a PRD and discuss the plan with Claude before generating tasks' : prdPhase === 'finalizing' ? 'Claude is producing the task list...' : 'Refine the task plan, then click Generate Tasks when ready' }}
+          </DialogDescription>
         </DialogHeader>
-        <div class="space-y-3 py-2">
+
+        <!-- Phase: input -->
+        <div v-if="prdPhase === 'input'" class="space-y-3 py-2">
           <Textarea
             v-model="prdText"
             placeholder="Paste your PRD content here..."
             class="min-h-[200px] text-sm"
           />
-          <div v-if="prdOutput" class="max-h-32 overflow-y-auto rounded border border-border bg-muted/50 p-2 text-xs font-mono whitespace-pre-wrap">
-            {{ prdOutput }}
-          </div>
-          <Button class="w-full gap-2" size="sm" :disabled="!prdText.trim() || tasks.prdParsing" @click="handleParsePrd">
-            <Loader2 v-if="tasks.prdParsing" class="h-4 w-4 animate-spin" />
+          <Button class="w-full gap-2" size="sm" :disabled="!prdText.trim() || tasks.prdChatting" @click="handleStartPrdChat">
+            <Loader2 v-if="tasks.prdChatting" class="h-4 w-4 animate-spin" />
             <Sparkles v-else class="h-4 w-4" />
-            {{ tasks.prdParsing ? 'Parsing...' : 'Parse into Tasks' }}
+            {{ tasks.prdChatting ? 'Analyzing...' : 'Analyze PRD' }}
           </Button>
         </div>
-      </DialogContent>
+
+        <!-- Phase: chat -->
+        <div v-else-if="prdPhase === 'chat'" class="flex flex-col gap-3 py-2">
+          <!-- Message history -->
+          <div ref="prdChatScroll" class="flex flex-col gap-2 max-h-72 overflow-y-auto pr-1">
+            <div
+              v-for="(msg, i) in prdMessages"
+              :key="i"
+              :class="['flex', msg.role === 'user' ? 'justify-end' : 'justify-start']"
+            >
+              <div
+                :class="[
+                  'max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed',
+                  msg.role === 'user'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-foreground',
+                ]"
+              >
+                <div v-if="msg.role === 'assistant'" class="prose prose-xs prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(msg.content)" />
+                <span v-else>{{ msg.content }}</span>
+              </div>
+            </div>
+            <!-- Streaming assistant response -->
+            <div v-if="prdStreamBuffer" class="flex justify-start">
+              <div class="max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed bg-muted text-foreground">
+                <div class="prose prose-xs prose-neutral dark:prose-invert max-w-none" v-html="renderMarkdown(prdStreamBuffer)" />
+              </div>
+            </div>
+            <!-- Typing indicator while loading -->
+            <div v-if="tasks.prdChatting && !prdStreamBuffer" class="flex justify-start">
+              <div class="bg-muted rounded-lg px-3 py-2 text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 class="h-3 w-3 animate-spin" /> Thinking...
+              </div>
+            </div>
+          </div>
+
+          <!-- Reply input -->
+          <div class="flex gap-2 items-end">
+            <Textarea
+              v-model="prdChatInput"
+              placeholder="Reply to Claude... (Enter to send)"
+              class="text-sm resize-none min-h-[60px] flex-1"
+              @keydown.enter.exact.prevent="handlePrdReply"
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              class="h-9 w-9 shrink-0 p-0"
+              :disabled="!prdChatInput.trim() || tasks.prdChatting"
+              @click="handlePrdReply"
+            >
+              <Send class="h-4 w-4" />
+            </Button>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex gap-2 pt-1">
+            <Button variant="ghost" size="sm" class="gap-1.5" @click="resetPrdDialog">
+              <RotateCcw class="h-3.5 w-3.5" /> Start Over
+            </Button>
+            <Button
+              size="sm"
+              class="flex-1 gap-2"
+              :disabled="tasks.prdFinalizing || tasks.prdChatting || !prdChatSessionId"
+              @click="handleFinalizePrd"
+            >
+              <Sparkles class="h-4 w-4" />
+              Generate Tasks
+            </Button>
+          </div>
+        </div>
+
+        <!-- Phase: finalizing -->
+        <div v-else class="space-y-3 py-2">
+          <div class="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 class="h-4 w-4 animate-spin" />
+            Generating and saving tasks...
+          </div>
+          <div class="max-h-48 overflow-y-auto rounded border border-border bg-muted/50 p-2 text-xs font-mono whitespace-pre-wrap text-muted-foreground">
+            {{ prdFinalizingOutput || '...' }}
+          </div>
+        </div>
+      </DialogScrollContent>
     </Dialog>
 
     <!-- Task Detail Dialog -->

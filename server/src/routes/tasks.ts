@@ -213,6 +213,82 @@ router.post('/reorder', (req: AuthRequest, res) => {
   res.json({ ok: true });
 });
 
+type ParsedTask = {
+  title: string;
+  description: string;
+  priority: string;
+  dependencyTitles: string[];
+  subtasks?: Array<{ title: string; description: string; priority: string }>;
+};
+
+/** Parse JSON task lines from Claude output and save them to the DB. */
+function saveTasksToDb(fullText: string, prdSnippet: string, userId: number, project: string): ReturnType<typeof rowToTask>[] {
+  const parsedTasks: ParsedTask[] = [];
+  for (const line of fullText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.title) parsedTasks.push(parsed);
+    } catch { /* skip non-JSON lines */ }
+  }
+  if (parsedTasks.length === 0) return [];
+
+  const db = getDb();
+  const allIds: string[] = [];
+  const titleToId = new Map<string, string>();
+
+  const insertParentStmt = db.prepare(`
+    INSERT INTO tasks (id, user_id, project_path, title, description, priority, prd_source, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertSubStmt = db.prepare(`
+    INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, prd_source, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateDeps = db.prepare('UPDATE tasks SET dependency_ids = ? WHERE id = ?');
+
+  const tx = db.transaction(() => {
+    parsedTasks.forEach((t, i) => {
+      const id = randomUUID();
+      titleToId.set(t.title, id);
+      allIds.push(id);
+      insertParentStmt.run(id, userId, project, t.title, t.description || '', t.priority || 'medium', prdSnippet, i);
+    });
+    for (const t of parsedTasks) {
+      const parentId = titleToId.get(t.title);
+      if (!parentId || !t.subtasks) continue;
+      t.subtasks.forEach((st, j) => {
+        const subId = randomUUID();
+        allIds.push(subId);
+        insertSubStmt.run(subId, userId, project, st.title, st.description || '', st.priority || 'medium', parentId, prdSnippet, j);
+      });
+    }
+    for (const t of parsedTasks) {
+      const id = titleToId.get(t.title);
+      if (!id) continue;
+      const depIds = (t.dependencyTitles || []).map((title: string) => titleToId.get(title)).filter(Boolean);
+      if (depIds.length > 0) updateDeps.run(JSON.stringify(depIds), id);
+    }
+  });
+  tx();
+
+  const placeholders = allIds.map(() => '?').join(',');
+  const allRows = db.prepare(
+    `SELECT * FROM tasks WHERE id IN (${placeholders}) ORDER BY parent_id IS NOT NULL, sort_order ASC`,
+  ).all(...allIds) as TaskRow[];
+  return allRows.map(rowToTask);
+}
+
+const JSON_OUTPUT_PROMPT = `Now output the complete task list as JSON. For each parent task (epic/feature), output a JSON object on its own line:
+- title: short epic title (imperative form)
+- description: 1-2 sentence summary
+- priority: "high", "medium", or "low"
+- dependencyTitles: array of other parent task titles this depends on (empty array if none)
+- subtasks: array of 2-5 objects each with: title, description, priority
+
+Each parent task MUST have subtasks. Output ONLY JSON objects, one per line. No markdown, no explanations, no code fences.`;
+
 // POST /parse-prd — use Claude to break a PRD into tasks (SSE stream)
 router.post('/parse-prd', (req: AuthRequest, res) => {
   const { prd, project } = req.body;
@@ -229,18 +305,7 @@ router.post('/parse-prd', (req: AuthRequest, res) => {
 
   const prompt = `You are a project manager AI. Parse the following PRD (Product Requirements Document) into a hierarchical list of parent tasks (epics/features), each with specific subtasks.
 
-For each parent task, output a JSON object on its own line with these fields:
-- title: short epic/feature title (imperative form, e.g. "Add user authentication")
-- description: 1-2 sentence summary of the feature
-- priority: "high", "medium", or "low"
-- dependencyTitles: array of other parent task titles this depends on (empty if none)
-- subtasks: array of 2-5 subtask objects, each with:
-  - title: short subtask title (imperative form)
-  - description: 1-2 sentence summary
-  - priority: "high", "medium", or "low"
-
-Each parent task MUST have subtasks that break down the implementation into concrete steps.
-Output ONLY the JSON objects, one per line. No markdown, no explanations, no code fences.
+${JSON_OUTPUT_PROMPT}
 
 PRD:
 ${prd}`;
@@ -276,80 +341,7 @@ ${prd}`;
         if (msg.type === 'result' && msg.sessionId) claudeSessionId = msg.sessionId;
       }
 
-      // Parse the collected text into hierarchical tasks
-      const parsedTasks: Array<{
-        title: string;
-        description: string;
-        priority: string;
-        dependencyTitles: string[];
-        subtasks?: Array<{ title: string; description: string; priority: string }>;
-      }> = [];
-      for (const line of fullText.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('{')) continue;
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed.title) parsedTasks.push(parsed);
-        } catch { /* skip non-JSON lines */ }
-      }
-
-      // Save tasks to DB with 3-pass approach
-      const db = getDb();
-      const userId = req.user!.id;
-      const allIds: string[] = [];
-      const titleToId = new Map<string, string>();
-
-      const insertParentStmt = db.prepare(`
-        INSERT INTO tasks (id, user_id, project_path, title, description, priority, prd_source, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const insertSubStmt = db.prepare(`
-        INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, prd_source, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const updateDeps = db.prepare('UPDATE tasks SET dependency_ids = ? WHERE id = ?');
-      const prdSnippet = prd.substring(0, 500);
-
-      const tx = db.transaction(() => {
-        // Pass 1: create parent tasks
-        parsedTasks.forEach((t, i) => {
-          const id = randomUUID();
-          titleToId.set(t.title, id);
-          allIds.push(id);
-          insertParentStmt.run(id, userId, project, t.title, t.description || '', t.priority || 'medium', prdSnippet, i);
-        });
-
-        // Pass 2: create subtasks
-        for (const t of parsedTasks) {
-          const parentId = titleToId.get(t.title);
-          if (!parentId || !t.subtasks) continue;
-          t.subtasks.forEach((st, j) => {
-            const subId = randomUUID();
-            allIds.push(subId);
-            insertSubStmt.run(subId, userId, project, st.title, st.description || '', st.priority || 'medium', parentId, prdSnippet, j);
-          });
-        }
-
-        // Pass 3: set dependency_ids on parent tasks
-        for (const t of parsedTasks) {
-          const id = titleToId.get(t.title);
-          if (!id) continue;
-          const depIds = (t.dependencyTitles || [])
-            .map((title: string) => titleToId.get(title))
-            .filter(Boolean);
-          if (depIds.length > 0) {
-            updateDeps.run(JSON.stringify(depIds), id);
-          }
-        }
-      });
-      tx();
-
-      // Fetch all saved tasks (parents + subtasks)
-      const placeholders = allIds.map(() => '?').join(',');
-      const allRows = db.prepare(
-        `SELECT * FROM tasks WHERE id IN (${placeholders}) ORDER BY parent_id IS NOT NULL, sort_order ASC`,
-      ).all(...allIds) as TaskRow[];
-      const savedTasks = allRows.map(rowToTask);
+      const savedTasks = saveTasksToDb(fullText, prd.substring(0, 500), req.user!.id, project);
 
       clearTimeout(timeout);
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
@@ -361,6 +353,132 @@ ${prd}`;
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();
       cleanupClaudeSession(claudeSessionId, project);
+    }
+  })();
+});
+
+// POST /prd-chat — one turn of a conversational PRD analysis (SSE stream)
+router.post('/prd-chat', (req: AuthRequest, res) => {
+  const { message, project, sessionId, prd } = req.body;
+  if (!message || !project) {
+    res.status(400).json({ error: 'message and project are required' });
+    return;
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  // First message: include the PRD as context
+  const prompt = !sessionId && prd
+    ? `You are a project manager AI helping to plan implementation tasks from a PRD. Analyze the PRD and describe how you'd break it into epics and subtasks. Be concise. Ask clarifying questions if the PRD is ambiguous.\n\nPRD:\n${prd}\n\n${message}`
+    : message;
+
+  const abortController = new AbortController();
+  let newSessionId: string | undefined;
+
+  res.on('close', () => abortController.abort());
+
+  const timeout = setTimeout(() => {
+    abortController.abort();
+    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+    res.end();
+  }, 5 * 60_000);
+
+  (async () => {
+    try {
+      for await (const msg of claudeQuery({
+        prompt,
+        cwd: project,
+        permissionMode: 'plan',
+        noTools: true,
+        sessionId: sessionId || undefined,
+        abortSignal: abortController.signal,
+        appendSystemPrompt: 'IMPORTANT: Do NOT use any tools, file reads, or shell commands. Respond with plain conversational text only based on the PRD content provided in this conversation. Do not attempt to explore the codebase.',
+      })) {
+        if (msg.type === 'text_delta') {
+          res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
+        }
+        if (msg.type === 'error') {
+          res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
+        }
+        if (msg.type === 'system' && msg.sessionId) newSessionId = msg.sessionId;
+        if (msg.type === 'result' && msg.sessionId) newSessionId = msg.sessionId;
+      }
+
+      clearTimeout(timeout);
+      res.write(`event: done\ndata: ${JSON.stringify({ sessionId: newSessionId })}\n\n`);
+      res.end();
+    } catch (err) {
+      clearTimeout(timeout);
+      const errMsg = err instanceof Error ? err.message : 'Chat failed';
+      res.write(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`);
+      res.end();
+    }
+  })();
+});
+
+// POST /prd-finalize — generate JSON tasks from conversation, save to DB (SSE stream)
+router.post('/prd-finalize', (req: AuthRequest, res) => {
+  const { project, sessionId, prd } = req.body;
+  if (!project || !sessionId) {
+    res.status(400).json({ error: 'project and sessionId are required' });
+    return;
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  const abortController = new AbortController();
+  let fullText = '';
+  let finalSessionId: string | undefined;
+
+  res.on('close', () => abortController.abort());
+
+  const timeout = setTimeout(() => {
+    abortController.abort();
+    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Request timed out after 5 minutes' })}\n\n`);
+    res.end();
+  }, 5 * 60_000);
+
+  (async () => {
+    try {
+      for await (const msg of claudeQuery({
+        prompt: JSON_OUTPUT_PROMPT,
+        cwd: project,
+        permissionMode: 'plan',
+        noTools: true,
+        sessionId,
+        abortSignal: abortController.signal,
+        appendSystemPrompt: 'IMPORTANT: Do NOT use any tools or file reads. Output ONLY the JSON task objects as plain text, one per line. No tool calls, no markdown, no explanations.',
+      })) {
+        if (msg.type === 'text_delta') {
+          fullText += msg.text;
+          res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);
+        }
+        if (msg.type === 'error') {
+          res.write(`event: error\ndata: ${JSON.stringify({ error: msg.error })}\n\n`);
+        }
+        if (msg.type === 'system' && msg.sessionId) finalSessionId = msg.sessionId;
+        if (msg.type === 'result' && msg.sessionId) finalSessionId = msg.sessionId;
+      }
+
+      const savedTasks = saveTasksToDb(fullText, (prd || '').substring(0, 500), req.user!.id, project);
+
+      clearTimeout(timeout);
+      res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
+      res.end();
+      cleanupClaudeSession(finalSessionId, project);
+    } catch (err) {
+      clearTimeout(timeout);
+      const errMsg = err instanceof Error ? err.message : 'Finalization failed';
+      res.write(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`);
+      res.end();
     }
   })();
 });

@@ -89,13 +89,13 @@ const PROVIDER_SETUPS: Record<string, ProviderSetup> = {
     note: 'Alternatively, run `gemini` in your terminal to authenticate via Google OAuth.',
   },
   codex: {
-    envVar: {
-      name: 'OPENAI_API_KEY',
-      label: 'OpenAI API Key',
-      placeholder: 'sk-...',
-      getKeyUrl: 'https://platform.openai.com/api-keys',
-      getKeyLabel: 'Get key from OpenAI Platform',
-    },
+    instructionsOnly: true,
+    instructions: [
+      { step: 'Install Codex CLI: npm install -g @openai/codex' },
+      { step: 'Run `codex` in your terminal to open the authentication flow' },
+      { step: 'Sign in with your OpenAI account' },
+      { step: 'Restart this app — Codex will be detected automatically' },
+    ],
   },
   aider: {
     envVarOptions: [

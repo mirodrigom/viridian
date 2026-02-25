@@ -135,10 +135,14 @@ const codexProvider: IProvider = {
   },
 
   isConfigured() {
-    if (process.env.OPENAI_API_KEY) return { configured: true };
+    // Check for API key env vars
+    if (process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY) return { configured: true };
+    // Check for ~/.codex/ config directory (like Claude checks ~/.claude/)
+    const home = process.env.HOME || '/home';
+    if (existsSync(join(home, '.codex'))) return { configured: true };
     return {
       configured: false,
-      reason: 'OPENAI_API_KEY environment variable is not set.',
+      reason: 'Codex credentials not found. Run `codex` in your terminal to authenticate, or set CODEX_API_KEY.',
     };
   },
 
@@ -216,23 +220,19 @@ const codexProvider: IProvider = {
       return new Promise<void>(r => { resolve = r; });
     }
 
-    // Collect stdout lines to process at close — this lets us deduplicate
-    // transient "Reconnecting..." errors and only emit the final failure.
-    let stdoutBuffer = '';
+    let buffer = '';
     let capturedSessionId: string | undefined;
     let stderrBuffer = '';
+    let hasEmittedText = false;
+    let hasEmittedError = false;
 
-    proc.stdout!.on('data', (chunk: Buffer) => { stdoutBuffer += chunk.toString(); });
-    proc.stderr!.on('data', (chunk: Buffer) => { stderrBuffer += chunk.toString(); });
+    // Real-time streaming — process each line as it arrives (same pattern as Claude)
+    proc.stdout!.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    proc.on('close', (code) => {
-      let hasEmittedText = false;
-      let hasEmittedError = false;
-
-      // Collect all non-error events immediately; accumulate errors for dedup
-      const pendingErrors: SDKMessage[] = [];
-
-      for (const line of stdoutBuffer.split('\n')) {
+      for (const line of lines) {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
@@ -240,7 +240,14 @@ const codexProvider: IProvider = {
           for (const msg of msgs) {
             if (msg.type === 'system' && msg.sessionId) capturedSessionId = msg.sessionId;
             if (msg.type === 'error') {
-              pendingErrors.push(msg);
+              // Skip transient reconnection noise; emit real errors immediately
+              const errText = msg.error as string;
+              if (errText.startsWith('Reconnecting')) continue;
+              const clean = errText.includes('401') || errText.includes('Unauthorized')
+                ? 'OpenAI 401 Unauthorized — your API key may be invalid. Check your key in Settings → Providers.'
+                : errText;
+              hasEmittedError = true;
+              push({ type: 'error', error: clean });
             } else {
               if (msg.type === 'text_delta') hasEmittedText = true;
               push(msg);
@@ -248,23 +255,30 @@ const codexProvider: IProvider = {
           }
         } catch { /* skip non-JSON lines */ }
       }
+    });
 
-      // Emit only the most informative error — prefer turn.failed (clean message)
-      // over transient "Reconnecting..." attempts.
-      if (pendingErrors.length > 0) {
-        // Find the best error: prefer one without "Reconnecting" prefix
-        const finalErr = pendingErrors.findLast(e =>
-          e.type === 'error' && !(e.error as string).startsWith('Reconnecting')
-        ) || pendingErrors[pendingErrors.length - 1];
-        if (finalErr) {
-          // Clean up verbose 401 messages for display
-          const raw = finalErr.error as string;
-          const clean = raw.includes('401') || raw.includes('Unauthorized')
-            ? 'OpenAI 401 Unauthorized — your API key may be invalid or lack access to the Responses API. Check your key in Settings → Providers.'
-            : raw;
-          push({ type: 'error', error: clean });
-          hasEmittedError = true;
-        }
+    proc.stderr!.on('data', (chunk: Buffer) => { stderrBuffer += chunk.toString(); });
+
+    proc.on('close', (code) => {
+      // Flush any remaining buffered line
+      if (buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer.trim());
+          const msgs = processCodexEvent(event);
+          for (const msg of msgs) {
+            if (msg.type === 'system' && msg.sessionId) capturedSessionId = msg.sessionId;
+            if (msg.type === 'error') {
+              const errText = msg.error as string;
+              if (!errText.startsWith('Reconnecting')) {
+                hasEmittedError = true;
+                push({ type: 'error', error: errText });
+              }
+            } else {
+              if (msg.type === 'text_delta') hasEmittedText = true;
+              push(msg);
+            }
+          }
+        } catch { /* ignore */ }
       }
 
       // Stderr fallback

@@ -39,6 +39,8 @@ export const useTasksStore = defineStore('tasks', () => {
   const filterStatus = ref<TaskStatus | ''>('');
   const filterPriority = ref<TaskPriority | ''>('');
   const prdParsing = ref(false);
+  const prdChatting = ref(false);
+  const prdFinalizing = ref(false);
 
   const rootTasks = computed(() =>
     tasks.value
@@ -265,6 +267,102 @@ export const useTasksStore = defineStore('tasks', () => {
     return subtasks;
   }
 
+  async function sendPrdMessage(
+    project: string,
+    message: string,
+    prd: string | undefined,
+    sessionId: string | undefined,
+    onDelta?: (text: string) => void,
+  ): Promise<string | undefined> {
+    prdChatting.value = true;
+    try {
+      const res = await apiFetch('/api/tasks/prd-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, project, sessionId, prd }),
+      });
+      if (!res.ok) throw new Error('Failed to start PRD chat');
+      if (!res.body) throw new Error('No response body');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let returnedSessionId: string | undefined;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) throw new Error(data.error);
+              if (data.text && onDelta) onDelta(data.text);
+              if (data.sessionId) returnedSessionId = data.sessionId;
+            } catch (err) {
+              if (err instanceof Error && err.message !== line.slice(6)) throw err;
+            }
+          }
+        }
+      }
+      return returnedSessionId;
+    } finally {
+      prdChatting.value = false;
+    }
+  }
+
+  async function finalizePrd(
+    project: string,
+    sessionId: string,
+    prd: string,
+    onDelta?: (text: string) => void,
+  ): Promise<Task[]> {
+    prdFinalizing.value = true;
+    try {
+      const res = await apiFetch('/api/tasks/prd-finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project, sessionId, prd }),
+      });
+      if (!res.ok) throw new Error('Failed to finalize PRD');
+      if (!res.body) throw new Error('No response body');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let newTasks: Task[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) throw new Error(data.error);
+              if (data.text && onDelta) onDelta(data.text);
+              if (data.tasks) {
+                newTasks = data.tasks;
+                tasks.value.push(...newTasks);
+              }
+            } catch (err) {
+              if (err instanceof Error && err.message !== line.slice(6)) throw err;
+            }
+          }
+        }
+      }
+      return newTasks;
+    } finally {
+      prdFinalizing.value = false;
+    }
+  }
+
   async function reorderTasks(taskIds: string[]) {
     await apiFetch('/api/tasks/reorder', {
       method: 'POST',
@@ -283,6 +381,8 @@ export const useTasksStore = defineStore('tasks', () => {
     filterStatus,
     filterPriority,
     prdParsing,
+    prdChatting,
+    prdFinalizing,
     rootTasks,
     tasksByStatus,
     stats,
@@ -297,6 +397,8 @@ export const useTasksStore = defineStore('tasks', () => {
     updateTask,
     deleteTask,
     parsePrd,
+    sendPrdMessage,
+    finalizePrd,
     expandTask,
     reorderTasks,
   };
