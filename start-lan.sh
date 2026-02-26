@@ -15,12 +15,21 @@ fi
 # ── Bootstrap (runs setup.sh if anything is missing) ─────────────────────────
 bash "$SCRIPT_DIR/setup.sh"
 
-# Detect local IP (works inside Flatpak and on host)
-if [ -f /.flatpak-info ]; then
-  LAN_IP=$(flatpak-spawn --host bash -c "ip route get 1.1.1.1 | grep -oP 'src \K[\d.]+'")
-else
-  LAN_IP=$(ip route get 1.1.1.1 | grep -oP 'src \K[\d.]+')
-fi
+# Detect local IP — cross-platform via Node.js
+LAN_IP=$(node -e "
+const os = require('os');
+const nets = os.networkInterfaces();
+for (const name of Object.keys(nets)) {
+  for (const net of nets[name]) {
+    if (net.family === 'IPv4' && !net.internal) {
+      console.log(net.address);
+      process.exit(0);
+    }
+  }
+}
+console.log('127.0.0.1');
+")
+
 
 # Server config
 export HOST="0.0.0.0"
@@ -63,8 +72,14 @@ if [ -n "$COMPOSE_CMD" ]; then
   fi
   echo "  Langfuse dashboard: http://${LAN_IP}:${LANGFUSE_PORT}"
   echo ""
-  # Open browser to Langfuse dashboard
-  xdg-open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
+  # Open browser to Langfuse dashboard (cross-platform)
+  if command -v xdg-open &>/dev/null; then
+    xdg-open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
+  elif command -v open &>/dev/null; then
+    open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
+  elif command -v start &>/dev/null; then
+    start "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
+  fi
 else
   echo "  (Neither podman-compose nor docker found — skipping Langfuse)"
   echo ""

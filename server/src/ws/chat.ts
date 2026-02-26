@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
+import { getHomeDir } from '../utils/platform.js';
 import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
 import type { ProviderId } from '../providers/types.js';
 import { getProvider, getAllProviders } from '../providers/registry.js';
@@ -173,7 +174,7 @@ export function setupChatWs(server: Server) {
             }
           } catch { /* isConfigured() not critical — proceed */ }
 
-          const projectDir = validateCwd(cwd) || process.env.HOME || '/home';
+          const projectDir = validateCwd(cwd) || getHomeDir();
 
           let session = sessionId ? getSession(sessionId) : null;
           // If the session exists but the client switched to a different provider,

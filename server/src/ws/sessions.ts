@@ -3,8 +3,9 @@ import type { Server } from 'http';
 import { watch } from 'chokidar';
 import { join } from 'path';
 import { verifyToken } from '../services/auth.js';
+import { getHomeDir } from '../utils/platform.js';
 
-const CLAUDE_DIR = join(process.env.HOME || '/home', '.claude', 'projects');
+const CLAUDE_DIR = join(getHomeDir(), '.claude', 'projects');
 
 export function setupSessionsWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });

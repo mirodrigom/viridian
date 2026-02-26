@@ -15,6 +15,7 @@ import type { ProviderId } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import { upsertSessionProvider } from '../db/database.js';
 import * as lf from './langfuse.js';
+import { gracefulKill, cwdToHash } from '../utils/platform.js';
 
 // Ensure providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -265,7 +266,7 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       lf.endTrace(session.id, session.usage);
       // Persist provider → session mapping so historical messages show the correct logo
       if (session.claudeSessionId) {
-        const projectDir = session.cwd.replace(/\//g, '-');
+        const projectDir = cwdToHash(session.cwd);
         upsertSessionProvider(projectDir, session.claudeSessionId, session.providerId);
       }
       return {
@@ -476,10 +477,8 @@ export function abortSession(sessionId: string) {
     session.abortController = undefined;
   }
   if (session.process) {
-    session.process.kill('SIGTERM');
-    const proc = session.process;
+    gracefulKill(session.process);
     setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* already dead */ }
       if (session.isStreaming && session.streamGeneration === generation) {
         session.isStreaming = false;
         session.process = null;

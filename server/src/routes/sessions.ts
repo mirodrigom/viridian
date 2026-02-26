@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { readdirSync, statSync, existsSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 import { createReadStream } from 'fs';
+import { getHomeDir, cwdToHash } from '../utils/platform.js';
 import { createInterface } from 'readline';
 import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
 import { getDb } from '../db/database.js';
@@ -25,7 +26,7 @@ interface SessionInfo {
   provider?: string;
 }
 
-const CLAUDE_DIR = join(process.env.HOME || '/home', '.claude', 'projects');
+const CLAUDE_DIR = join(getHomeDir(), '.claude', 'projects');
 
 /**
  * Scan a single JSONL file and extract session metadata.
@@ -157,7 +158,7 @@ router.get('/', async (req, res) => {
 
     // If project filter, find dirs that match exactly
     if (projectFilter) {
-      const encoded = projectFilter.replace(/\//g, '-');
+      const encoded = cwdToHash(projectFilter);
       projectDirs = projectDirs.filter(d => d === encoded);
     }
 

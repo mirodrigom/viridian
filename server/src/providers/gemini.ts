@@ -26,6 +26,7 @@ import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -72,17 +73,14 @@ function findGeminiBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which gemini 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('gemini');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   // Check common npm global locations
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const npmPaths = [
-    join(home, '.local', 'bin', 'gemini'),
+    ...getCommonBinaryPaths('gemini'),
     join(home, '.npm-global', 'bin', 'gemini'),
-    '/usr/local/bin/gemini',
   ];
   for (const p of npmPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -119,7 +117,7 @@ const geminiProvider: IProvider = {
       return { configured: true };
     }
     // 2. ~/.gemini/settings.json with a selectedAuthType (OAuth or other)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const settingsPath = join(home, '.gemini', 'settings.json');
     if (existsSync(settingsPath)) {
       try {

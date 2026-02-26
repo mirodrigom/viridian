@@ -15,6 +15,7 @@ import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync, appendFile
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { v4 as uuid } from 'uuid';
+import { getHomeDir, findBinary as findBinaryInPath, isWindows, cwdToHash } from '../utils/platform.js';
 
 const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
 function debugLog(msg: string) {
@@ -178,12 +179,17 @@ export function findClaudeBinary(): string {
   }
 
   // Search for native binary in VS Code extensions first (preferred over npm wrapper)
-  const home = process.env.HOME || '/home';
-  const searchPaths = [
-    join(home, '.var/app/com.visualstudio.code/data/vscode/extensions'),
-    join(home, '.vscode/extensions'),
-    join(home, '.vscode-server/extensions'),
-  ];
+  const home = getHomeDir();
+  const searchPaths = isWindows
+    ? [
+        join(home, '.vscode', 'extensions'),
+        join(home, '.vscode-server', 'extensions'),
+      ]
+    : [
+        join(home, '.var/app/com.visualstudio.code/data/vscode/extensions'),
+        join(home, '.vscode/extensions'),
+        join(home, '.vscode-server/extensions'),
+      ];
 
   for (const extDir of searchPaths) {
     try {
@@ -193,17 +199,16 @@ export function findClaudeBinary(): string {
         .sort()
         .reverse();
       for (const dir of matches) {
-        const binPath = join(extDir, dir, 'resources', 'native-binary', 'claude');
+        const binName = isWindows ? 'claude.exe' : 'claude';
+        const binPath = join(extDir, dir, 'resources', 'native-binary', binName);
         if (existsSync(binPath)) { resolvedPath = binPath; return resolvedPath; }
       }
     } catch { /* skip */ }
   }
 
   // Fall back to claude in PATH (may be a native install or npm wrapper)
-  try {
-    const result = execSync('which claude 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('claude');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   throw new Error(
     'Claude CLI binary not found. Set CLAUDE_PATH env var, install claude globally, or install the Claude Code VS Code extension.',
@@ -265,8 +270,8 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     // If the file is missing (e.g. session from another project dir, or a failed
     // session that never wrote its JSONL), Claude exits with code 1 immediately.
     // In that case, start a fresh session instead.
-    const home = process.env.HOME || '/home';
-    const cwdHash = options.cwd.replace(/\//g, '-');
+    const home = getHomeDir();
+    const cwdHash = cwdToHash(options.cwd);
     const sessionFile = join(home, '.claude', 'projects', cwdHash, `${options.sessionId}.jsonl`);
     if (existsSync(sessionFile)) {
       args.push('--resume', options.sessionId);

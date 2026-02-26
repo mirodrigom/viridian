@@ -6,6 +6,7 @@
 
 import { EventEmitter } from 'events';
 import { spawn, type ChildProcess } from 'child_process';
+import { isWindows } from '../utils/platform.js';
 
 export const projectEmitter = new EventEmitter();
 projectEmitter.setMaxListeners(100);
@@ -77,7 +78,12 @@ export function stopService(serviceId: string): void {
   if (!entry) return;
   try {
     // Kill entire process group so child processes (e.g. vite spawned by pnpm) also stop
-    process.kill(-entry.pid, 'SIGTERM');
+    if (isWindows) {
+      // Windows doesn't support process groups via negative PID
+      try { process.kill(entry.pid, 'SIGTERM'); } catch { /* already dead */ }
+    } else {
+      process.kill(-entry.pid, 'SIGTERM');
+    }
   } catch {
     // Process may have already exited — ensure map is clean
     runningProcesses.delete(serviceId);

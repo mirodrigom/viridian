@@ -204,7 +204,7 @@ router.post('/scripts/:id/run', (req: AuthRequest, res) => {
   proc.stderr?.on('data', (d: Buffer) => send('output', { stream: 'stderr', data: d.toString() }));
   proc.on('exit', (code) => { send('done', { exitCode: code }); res.end(); });
   proc.on('error', (err) => { send('error', { error: err.message }); res.end(); });
-  res.on('close', () => { try { proc.kill('SIGTERM'); } catch { /* ignore */ } });
+  res.on('close', () => { try { proc.kill(); } catch { /* ignore */ } });
 });
 
 // ─── Env file ─────────────────────────────────────────────────────────────────

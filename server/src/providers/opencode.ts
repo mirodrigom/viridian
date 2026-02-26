@@ -33,6 +33,7 @@ import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -81,16 +82,13 @@ function findOpenCodeBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which opencode 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('opencode');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const commonPaths = [
-    join(home, '.local', 'bin', 'opencode'),
+    ...getCommonBinaryPaths('opencode'),
     join(home, '.opencode', 'bin', 'opencode'),
-    '/usr/local/bin/opencode',
   ];
   for (const p of commonPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -130,7 +128,7 @@ const openCodeProvider: IProvider = {
       return { configured: true };
     }
     // OpenCode native config (user set up outside our app)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     if (
       existsSync(join(home, '.config', 'opencode', 'config.json')) ||
       existsSync(join(home, '.opencode', 'config.json'))
@@ -271,7 +269,7 @@ const openCodeProvider: IProvider = {
   },
 
   getSessionDir(): string | null {
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.opencode', 'sessions');
     return existsSync(dir) ? dir : null;
   },

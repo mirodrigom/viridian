@@ -20,6 +20,7 @@ import { findClaudeBinary, claudeQuery } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { getHomeDir } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ const claudeProvider: IProvider = {
 
   isConfigured() {
     // Claude stores auth in ~/.claude/ after running `claude` for the first time
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     if (existsSync(join(home, '.claude'))) return { configured: true };
     return {
       configured: false,
@@ -121,7 +122,7 @@ const claudeProvider: IProvider = {
   },
 
   getSessionDir(): string | null {
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.claude', 'projects');
     return existsSync(dir) ? dir : null;
   },

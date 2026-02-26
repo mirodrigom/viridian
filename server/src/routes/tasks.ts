@@ -6,6 +6,7 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
+import { getHomeDir, cwdToHash } from '../utils/platform.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -14,13 +15,13 @@ router.use(authMiddleware);
 function cleanupClaudeSession(sessionId: string | undefined, projectPath: string) {
   if (!sessionId) return;
   try {
-    const encodedCwd = projectPath.replace(/\//g, '-');
-    const jsonlPath = join(process.env.HOME || '/home', '.claude', 'projects', encodedCwd, `${sessionId}.jsonl`);
+    const encodedCwd = cwdToHash(projectPath);
+    const jsonlPath = join(getHomeDir(), '.claude', 'projects', encodedCwd, `${sessionId}.jsonl`);
     unlinkSync(jsonlPath);
   } catch { /* ignore if file doesn't exist */ }
   try {
     const db = getDb();
-    const encodedCwd = projectPath.replace(/\//g, '-');
+    const encodedCwd = cwdToHash(projectPath);
     db.prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(encodedCwd, sessionId);
   } catch { /* ignore */ }
 }

@@ -30,6 +30,7 @@ import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -79,17 +80,14 @@ function findCodexBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which codex 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('codex');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   // Check common install locations
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const commonPaths = [
-    join(home, '.local', 'bin', 'codex'),
+    ...getCommonBinaryPaths('codex'),
     join(home, '.npm-global', 'bin', 'codex'),
-    '/usr/local/bin/codex',
   ];
   for (const p of commonPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -138,7 +136,7 @@ const codexProvider: IProvider = {
     // Check for API key env vars
     if (process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY) return { configured: true };
     // Check for ~/.codex/ config directory (like Claude checks ~/.claude/)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     if (existsSync(join(home, '.codex'))) return { configured: true };
     return {
       configured: false,
@@ -321,7 +319,7 @@ const codexProvider: IProvider = {
 
   getSessionDir(): string | null {
     // Codex stores sessions in ~/.codex/sessions/
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.codex', 'sessions');
     return existsSync(dir) ? dir : null;
   },

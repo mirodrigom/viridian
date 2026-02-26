@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { getDefaultShell } from '../utils/platform.js';
 
 let pty: typeof import('node-pty') | null = null;
 
@@ -25,7 +26,7 @@ export async function createTerminal(cwd: string, cols = 80, rows = 24): Promise
   const mod = await loadPty();
   if (!mod) return null;
 
-  const shell = process.env.SHELL || '/bin/bash';
+  const shell = getDefaultShell();
   const id = uuid();
 
   const ptyProcess = mod.spawn(shell, [], {

@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { authMiddleware } from '../middleware/auth.js';
+import { getHomeDir, getDefaultShell, isWindows } from '../utils/platform.js';
 import { getProviderDTOs, getProvider } from '../providers/registry.js';
 import { saveProviderConfig, getProviderConfig, deleteProviderEnvVar } from '../db/database.js';
 import type { ProviderId } from '../providers/types.js';
@@ -127,8 +128,10 @@ router.post('/:id/install', (req, res) => {
     }
 
     const cmd = provider.info.installCommand;
-    const proc = spawn('bash', ['-c', cmd], {
-      env: { ...process.env, HOME: process.env.HOME },
+    const shell = getDefaultShell();
+    const shellArgs = isWindows && !shell.includes('bash') ? ['/c', cmd] : ['-c', cmd];
+    const proc = spawn(shell, shellArgs, {
+      env: { ...process.env, HOME: getHomeDir() },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -171,7 +174,7 @@ router.post('/:id/configure', (req, res) => {
     }
 
     const id = provider.info.id;
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
 
     if (id === 'gemini') {
       saveProviderConfig('gemini', { GEMINI_API_KEY: apiKey.trim() });

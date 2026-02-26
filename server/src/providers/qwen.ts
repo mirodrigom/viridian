@@ -31,6 +31,7 @@ import { spawn, execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -77,17 +78,14 @@ function findQwenBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which qwen 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('qwen');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   // Check common install locations
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const commonPaths = [
-    join(home, '.local', 'bin', 'qwen'),
+    ...getCommonBinaryPaths('qwen'),
     join(home, '.npm-global', 'bin', 'qwen'),
-    '/usr/local/bin/qwen',
   ];
   for (const p of commonPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -122,7 +120,7 @@ const qwenProvider: IProvider = {
     // Alibaba DashScope API key
     if (process.env.DASHSCOPE_API_KEY) return { configured: true };
     // ~/.qwen/settings.json (similar structure to ~/.gemini/settings.json)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const settingsPath = join(home, '.qwen', 'settings.json');
     if (existsSync(settingsPath)) {
       try {
@@ -266,7 +264,7 @@ const qwenProvider: IProvider = {
   },
 
   getSessionDir(): string | null {
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.qwen', 'sessions');
     return existsSync(dir) ? dir : null;
   },

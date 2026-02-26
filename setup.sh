@@ -55,7 +55,7 @@ if ! host "command -v node" &>/dev/null; then
 fi
 NODE_VER=$(host "node --version")
 MIN_MAJOR=20
-ACTUAL_MAJOR=$(echo "$NODE_VER" | grep -oP '(?<=v)\d+')
+ACTUAL_MAJOR=$(echo "$NODE_VER" | sed 's/v\([0-9]*\).*/\1/')
 if [ "$ACTUAL_MAJOR" -lt "$MIN_MAJOR" ]; then
   err "Node.js $NODE_VER is too old (need v${MIN_MAJOR}+). Run: fnm install 22"
   exit 1

@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { createTerminal, resizeTerminal, writeTerminal, destroyTerminal } from '../services/terminal.js';
+import { getHomeDir } from '../utils/platform.js';
 
 export function setupShellWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });
@@ -30,7 +31,7 @@ export function setupShellWs(server: Server) {
 
   wss.on('connection', async (ws: WebSocket, req) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
-    const cwd = url.searchParams.get('cwd') || process.env.HOME || '/home';
+    const cwd = url.searchParams.get('cwd') || getHomeDir();
 
     const session = await createTerminal(cwd);
     if (!session) {

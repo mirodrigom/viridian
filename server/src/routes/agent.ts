@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { createHash } from 'crypto';
 import { createSession, getSession, sendMessage, abortSession, removeSession, type SendMessageOptions } from '../services/claude.js';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
+import { getHomeDir } from '../utils/platform.js';
 import { verifyToken } from '../services/auth.js';
 import { getDb } from '../db/database.js';
 
@@ -73,7 +74,7 @@ router.post('/run', (req, res) => {
     return;
   }
 
-  const projectDir = cwd || process.env.HOME || '/home';
+  const projectDir = cwd || getHomeDir();
   const session = createSession(projectDir);
 
   // SSE headers
@@ -169,7 +170,7 @@ router.post('/run', (req, res) => {
 // POST /sessions — create a persistent session
 router.post('/sessions', (req, res) => {
   const { cwd } = req.body;
-  const projectDir = cwd || process.env.HOME || '/home';
+  const projectDir = cwd || getHomeDir();
   const session = createSession(projectDir);
   res.status(201).json({ sessionId: session.id, cwd: projectDir });
 });

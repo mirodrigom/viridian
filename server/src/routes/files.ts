@@ -4,6 +4,7 @@ import { basename, join } from 'path';
 import { existsSync } from 'fs';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getFileTree, getDirectoryChildren, getFileContent, saveFileContent, getLanguageFromPath, searchFiles } from '../services/files.js';
+import { getHomeDir } from '../utils/platform.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -11,7 +12,7 @@ router.use(authMiddleware);
 
 router.get('/tree', async (req, res) => {
   try {
-    const rootPath = (req.query.path as string) || process.env.HOME || '/home';
+    const rootPath = (req.query.path as string) || getHomeDir();
     const depth = Math.max(1, Math.min(10, parseInt(req.query.depth as string) || 1));
     const tree = await getFileTree(rootPath, depth);
     res.json({ tree, rootPath });
@@ -99,7 +100,7 @@ router.post('/clone', (req, res) => {
 
   // Determine target directory
   const repoName = basename(url).replace(/\.git$/, '');
-  const parentDir = targetDir || process.env.HOME || '/home';
+  const parentDir = targetDir || getHomeDir();
   const clonePath = join(parentDir, repoName);
 
   if (existsSync(clonePath)) {

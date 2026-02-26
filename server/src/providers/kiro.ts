@@ -31,6 +31,7 @@ import { registerProvider } from './registry.js';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -77,17 +78,14 @@ function findKiroBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which kiro-cli 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('kiro-cli');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   // Check common install locations
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const commonPaths = [
-    join(home, '.local', 'bin', 'kiro-cli'),
+    ...getCommonBinaryPaths('kiro-cli'),
     join(home, '.kiro', 'bin', 'kiro-cli'),
-    '/usr/local/bin/kiro-cli',
   ];
   for (const p of commonPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -137,7 +135,7 @@ const kiroProvider: IProvider = {
       return { configured: true };
     }
     // ~/.aws/credentials file (aws configure)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     if (existsSync(join(home, '.aws', 'credentials'))) return { configured: true };
     // Kiro-specific auth token
     if (existsSync(join(home, '.kiro', 'auth.json'))) return { configured: true };
@@ -249,7 +247,7 @@ const kiroProvider: IProvider = {
 
   getSessionDir(): string | null {
     // Kiro stores sessions per-directory; check global config dir
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.kiro', 'chat');
     return existsSync(dir) ? dir : null;
   },

@@ -34,6 +34,7 @@ import { getProviderConfig } from '../db/database.js';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -83,17 +84,14 @@ function findAiderBinary(): string {
     return resolvedPath;
   }
 
-  try {
-    const result = execSync('which aider 2>/dev/null', { encoding: 'utf8' }).trim();
-    if (result) { resolvedPath = result; return resolvedPath; }
-  } catch { /* not in PATH */ }
+  const inPath = findBinaryInPath('aider');
+  if (inPath) { resolvedPath = inPath; return resolvedPath; }
 
   // Check common install locations (pip, pipx)
-  const home = process.env.HOME || '/home';
+  const home = getHomeDir();
   const commonPaths = [
-    join(home, '.local', 'bin', 'aider'),
+    ...getCommonBinaryPaths('aider'),
     join(home, '.local', 'pipx', 'venvs', 'aider-chat', 'bin', 'aider'),
-    '/usr/local/bin/aider',
   ];
   for (const p of commonPaths) {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
@@ -181,7 +179,7 @@ const aiderProvider: IProvider = {
       stored['DEEPSEEK_API_KEY']
     ) return { configured: true };
     // Also accept ~/.aider.conf.yml (user set up Aider outside our app)
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     if (
       existsSync(join(home, '.aider.conf.yml')) ||
       existsSync(join(home, '.config', 'aider', 'aider.conf.yml'))
@@ -329,7 +327,7 @@ const aiderProvider: IProvider = {
   getSessionDir(): string | null {
     // Aider stores chat history in .aider.chat.history.md in the project dir,
     // but we create a centralized session dir for our use
-    const home = process.env.HOME || '/home';
+    const home = getHomeDir();
     const dir = join(home, '.aider', 'sessions');
     return dir; // Will be created on first use if needed
   },

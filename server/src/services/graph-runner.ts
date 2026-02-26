@@ -18,7 +18,7 @@ import { join } from 'path';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
 
 // Debug log to file for tracing delegation flow
-const DEBUG_LOG = '/tmp/graph-runner-debug.log';
+const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
 function debugLog(msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   const line = `[${ts}] ${msg}\n`;
