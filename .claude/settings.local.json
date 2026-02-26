@@ -17,7 +17,15 @@
       "Bash(ls:*)",
       "Bash(env:*)",
       "Bash(docker --version:*)",
-      "Bash(podman:*)"
+      "Bash(podman:*)",
+      "Bash(pnpm:*)",
+      "Bash(npx:*)",
+      "Bash(grep:*)",
+      "Bash(bun:*)",
+      "Bash(where.exe bun:*)",
+      "Bash(powershell:*)",
+      "Bash(npm root:*)",
+      "Bash(node:*)"
     ]
   }
 }

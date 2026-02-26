@@ -12,7 +12,7 @@
 
 import { spawn, execSync, type ChildProcess } from 'child_process';
 import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync, appendFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve as resolvePath } from 'path';
 import { tmpdir } from 'os';
 import { v4 as uuid } from 'uuid';
 import { getHomeDir, findBinary as findBinaryInPath, isWindows, cwdToHash } from '../utils/platform.js';
@@ -174,7 +174,9 @@ export function findClaudeBinary(): string {
   if (resolvedPath) return resolvedPath;
 
   if (process.env.CLAUDE_PATH && existsSync(process.env.CLAUDE_PATH)) {
-    resolvedPath = process.env.CLAUDE_PATH;
+    // resolvePath normalises forward slashes to backslashes on Windows,
+    // which is required for cmd.exe to execute .cmd wrappers.
+    resolvedPath = resolvePath(process.env.CLAUDE_PATH);
     return resolvedPath;
   }
 
@@ -334,10 +336,16 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   delete cleanEnv.CLAUDE_AGENT_SDK_VERSION;
   delete cleanEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING;
 
-  const proc = spawn(claudeBin, args, {
+  // On Windows, .cmd wrappers must run through cmd.exe (shell: true).
+  // The binary path must be quoted so cmd.exe handles spaces correctly.
+  const useShell = isWindows && claudeBin.endsWith('.cmd');
+  const spawnBin = useShell ? `"${claudeBin}"` : claudeBin;
+
+  const proc = spawn(spawnBin, args, {
     cwd: options.cwd,
     env: cleanEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
+    ...(useShell ? { shell: true } : {}),
   });
 
   // Keep stdin open for bidirectional communication (control_request/control_response)
@@ -436,7 +444,7 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   proc.stderr!.on('data', (chunk: Buffer) => {
     const text = chunk.toString();
     stderrAccumulated += text;
-    const trimmed = text.trim();
+    const trimmed = stripAnsi(text).trim();
     if (!trimmed) return;
     // Emit rate-limit signals immediately so the client can show the proper UI
     if (/rate.?limit|hit.?(?:your|the)?.?limit|you.?ve hit|usage.?limit|quota|too many requests|429|overloaded/i.test(trimmed)) {
@@ -498,12 +506,22 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
 
 // ─── Error extraction helper ─────────────────────────────────────────────────
 
+// ─── ANSI escape code stripping ─────────────────────────────────────────────
+
+/** Strip ANSI escape sequences (colors, cursor, etc.) from a string. */
+function stripAnsi(text: string): string {
+  // Matches: ESC[ ... final byte | ESC (non-[ sequences) | operating system commands
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*[A-Za-z]|\x1b[^[[]|\x1b\].*?(?:\x07|\x1b\\)/g, '');
+}
+
 /**
  * Extract the most useful error line from Claude CLI's stderr output.
  * Prefers lines that mention specific error conditions; falls back to the last non-empty line.
  */
 function extractClaudeError(stderr: string): string | null {
-  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+  const clean = stripAnsi(stderr);
+  const lines = clean.split('\n').map(l => l.trim()).filter(Boolean);
   if (!lines.length) return null;
   // Prefer lines with specific error keywords
   const errorLine = lines.findLast(l =>
