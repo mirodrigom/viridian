@@ -8,6 +8,18 @@ import { useRouter } from 'vue-router';
 import { uuid } from '@/lib/utils';
 import { playToolApprovalSound } from './useNotificationSound';
 
+/**
+ * Encode a raw cwd path into the directory name Claude CLI uses for session storage.
+ * Must match the server's cwdToHash() in server/src/utils/platform.ts.
+ */
+function cwdToHash(cwd: string): string {
+  // Windows paths contain colons and backslashes (C:\Users\...)
+  if (cwd.includes(':') || cwd.includes('\\')) {
+    return cwd.replace(/[:\\/]/g, '-').replace(/^-+/, '');
+  }
+  return cwd.replace(/\//g, '-');
+}
+
 export function useClaudeStream() {
   const chat = useChatStore();
   const settings = useSettingsStore();
@@ -226,7 +238,7 @@ export function useClaudeStream() {
       // Encode raw path → directory name (slashes → hyphens) to match the server's
       // ~/.claude/projects/<encoded-dir>/ layout used by the sessions REST API.
       if (!chat.activeProjectDir && chat.projectPath) {
-        chat.activeProjectDir = chat.projectPath.replace(/\//g, '-');
+        chat.activeProjectDir = cwdToHash(chat.projectPath);
       }
 
       // URL uses claudeSessionId (= JSONL filename) so page reloads & sidebar work
@@ -512,7 +524,7 @@ export function useClaudeStream() {
         // Prefer the already-encoded activeProjectDir; fall back to projectPath
         // (raw path → encode to match server's directory layout)
         const projectDir = chat.activeProjectDir
-          || (chat.projectPath ? chat.projectPath.replace(/\//g, '-') : null);
+          || (chat.projectPath ? cwdToHash(chat.projectPath) : null);
         if (fetchId && projectDir) {
           // Ensure activeProjectDir is persisted so future fetches work too
           if (!chat.activeProjectDir && projectDir) {
