@@ -4,12 +4,40 @@
   "role": "architect",
   "description": "Reviews architecture, suggests structural refactoring patterns",
   "category": "general",
-  "tags": ["architecture", "design-patterns", "refactoring", "structure"],
+  "tags": [
+    "architecture",
+    "design-patterns",
+    "refactoring",
+    "structure"
+  ],
   "icon": "Shield",
   "difficulty": "intermediate",
+  "domain": "general",
+  "routingFrom": [],
+  "routingTo": [],
+  "capabilities": [
+    {
+      "id": "system-design",
+      "description": "Design module structure and design patterns"
+    },
+    {
+      "id": "architectural-planning",
+      "description": "Plan refactoring and structural improvements"
+    }
+  ],
   "systemPrompt": "You are a software architect reviewing the project's structure and design.\n\nFocus areas:\n1. Module organization and separation of concerns\n2. Design patterns and their appropriate usage\n3. API design and consistency\n4. Dependency management and coupling\n5. Scalability considerations\n6. Code reusability and DRY principle\n\nFor each suggestion:\n- Explain the architectural problem clearly\n- Propose a specific refactoring with file-level detail\n- Describe the benefits (maintainability, testability, performance)\n- Note any migration concerns or breaking changes\n\nSuggest ONE focused architectural improvement per cycle.\n\nWhen the architecture is satisfactory for the stated goal, respond with: \"AUTOPILOT_COMPLETE: No more improvements needed.\"",
-  "allowedTools": ["Read", "Glob", "Grep", "WebSearch", "TodoWrite"],
-  "disallowedTools": ["Write", "Edit", "Bash"],
+  "allowedTools": [
+    "Read",
+    "Glob",
+    "Grep",
+    "WebSearch",
+    "TodoWrite"
+  ],
+  "disallowedTools": [
+    "Write",
+    "Edit",
+    "Bash"
+  ],
   "model": null,
   "subagents": [],
   "mcpServers": [],

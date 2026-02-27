@@ -1,5 +1,23 @@
 ---
 name: viridian-expert
+model: sonnet
+tags:
+  - codebase
+  - architecture
+  - exploration
+  - vue
+  - typescript
+  - monorepo
+from: Orchestrator Agent, tag:docs, tag:release
+capabilities:
+  - id: codebase-navigation
+    description: Locates components, services, routes, and stores within the Viridian monorepo
+  - id: architecture-explanation
+    description: Explains patterns, tab architecture, and how subsystems like streaming or session resumption work
+---
+
+---
+name: viridian-expert
 description: Use when you need to understand the Viridian/Claude Code Web project structure, locate components, understand a tab's architecture, explain patterns, or explore the codebase. Examples: "where is the git store?", "how does session resumption work?", "which component handles chat streaming?", "what tabs does Viridian have?"
 model: claude-haiku-4-5-20251001
 tools:

@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import type { AgentDomain, AgentCapability } from '../types/agent-metadata.js';
 
 // Get current module directory
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +51,11 @@ export interface AutopilotProfile {
   permissionMode: string | null;
   icon: string | null;
   difficulty: string | null;
+  // Agent metadata (routing & discovery)
+  domain: AgentDomain;
+  routingFrom: string[];
+  routingTo: string[];
+  capabilities: AgentCapability[];
 }
 
 // Profile data structure as stored in JSON files (without database-specific fields)
@@ -71,6 +77,11 @@ interface ProfileData {
   permissionMode: string | null;
   icon: string | null;
   difficulty: string | null;
+  // Agent metadata (optional in JSON files — defaults applied on load)
+  domain?: AgentDomain;
+  routingFrom?: string[];
+  routingTo?: string[];
+  capabilities?: AgentCapability[];
 }
 
 export class ProfileLoader {
@@ -151,6 +162,11 @@ export class ProfileLoader {
         ...profileData,
         userId: null,        // Built-in profiles have no user owner
         isBuiltin: true,     // Mark as built-in
+        // Agent metadata defaults
+        domain: profileData.domain || 'general',
+        routingFrom: profileData.routingFrom || [],
+        routingTo: profileData.routingTo || [],
+        capabilities: profileData.capabilities || [],
         // createdAt will be added when needed
       };
 

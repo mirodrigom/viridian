@@ -26,6 +26,13 @@ const data = computed(() => props.data as ExpertNodeData);
       <div v-if="data.description" class="truncate text-muted-foreground/70">
         {{ data.description.slice(0, 80) }}{{ data.description.length > 80 ? '...' : '' }}
       </div>
+      <div v-if="data.metadata?.tags?.length" class="flex flex-wrap gap-0.5 pt-0.5">
+        <span
+          v-for="tag in data.metadata.tags.slice(0, 4)" :key="tag"
+          class="rounded bg-chart-3/10 px-1 py-px text-[9px] text-chart-3/70"
+        >{{ tag }}</span>
+        <span v-if="data.metadata.tags.length > 4" class="text-[9px] text-muted-foreground">+{{ data.metadata.tags.length - 4 }}</span>
+      </div>
     </div>
   </BaseNode>
 </template>

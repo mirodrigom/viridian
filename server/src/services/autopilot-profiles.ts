@@ -6,6 +6,7 @@ import { getDb } from '../db/database.js';
 import { v4 as uuid } from 'uuid';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { ProfileLoader } from './profile-loader.js';
+import type { AgentDomain, AgentCapability } from '../types/agent-metadata.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -47,6 +48,11 @@ export interface AutopilotProfile {
   permissionMode: string | null;
   icon: string | null;
   difficulty: string | null;
+  // Agent metadata (routing & discovery)
+  domain: AgentDomain;
+  routingFrom: string[];
+  routingTo: string[];
+  capabilities: AgentCapability[];
 }
 
 // ─── Built-in Profile Loading ───────────────────────────────────────────────
@@ -67,8 +73,8 @@ export function seedBuiltinProfiles(): void {
     INSERT OR REPLACE INTO autopilot_profiles
       (id, user_id, name, role, description, system_prompt, allowed_tools, disallowed_tools,
        model, is_builtin, category, tags, subagents, mcp_servers, append_system_prompt,
-       max_turns, permission_mode, icon, difficulty)
-    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       max_turns, permission_mode, icon, difficulty, domain, routing_from, routing_to, capabilities)
+    VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const p of builtinProfiles) {
@@ -90,6 +96,10 @@ export function seedBuiltinProfiles(): void {
       p.permissionMode || null,
       p.icon || null,
       p.difficulty || null,
+      p.domain || 'general',
+      JSON.stringify(p.routingFrom || []),
+      JSON.stringify(p.routingTo || []),
+      JSON.stringify(p.capabilities || []),
     );
   }
 
@@ -133,6 +143,10 @@ export function createProfile(userId: number, data: {
   permissionMode?: string | null;
   icon?: string | null;
   difficulty?: string | null;
+  domain?: AgentDomain;
+  routingFrom?: string[];
+  routingTo?: string[];
+  capabilities?: AgentCapability[];
 }): AutopilotProfile {
   const db = getDb();
   const id = uuid();
@@ -140,8 +154,8 @@ export function createProfile(userId: number, data: {
     INSERT INTO autopilot_profiles
       (id, user_id, name, role, description, system_prompt, allowed_tools, disallowed_tools,
        model, is_builtin, category, tags, subagents, mcp_servers, append_system_prompt,
-       max_turns, permission_mode, icon, difficulty)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       max_turns, permission_mode, icon, difficulty, domain, routing_from, routing_to, capabilities)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     userId,
@@ -161,6 +175,10 @@ export function createProfile(userId: number, data: {
     data.permissionMode || null,
     data.icon || null,
     data.difficulty || null,
+    data.domain || 'general',
+    JSON.stringify(data.routingFrom || []),
+    JSON.stringify(data.routingTo || []),
+    JSON.stringify(data.capabilities || []),
   );
 
   return getProfile(id)!;
@@ -184,6 +202,10 @@ export function updateProfile(id: string, data: {
   permissionMode?: string | null;
   icon?: string | null;
   difficulty?: string | null;
+  domain?: AgentDomain;
+  routingFrom?: string[];
+  routingTo?: string[];
+  capabilities?: AgentCapability[];
 }): AutopilotProfile | null {
   const db = getDb();
   const existing = db.prepare('SELECT is_builtin FROM autopilot_profiles WHERE id = ?').get(id) as { is_builtin: number } | undefined;
@@ -208,6 +230,10 @@ export function updateProfile(id: string, data: {
   if (data.permissionMode !== undefined) { sets.push('permission_mode = ?'); vals.push(data.permissionMode); }
   if (data.icon !== undefined) { sets.push('icon = ?'); vals.push(data.icon); }
   if (data.difficulty !== undefined) { sets.push('difficulty = ?'); vals.push(data.difficulty); }
+  if (data.domain !== undefined) { sets.push('domain = ?'); vals.push(data.domain); }
+  if (data.routingFrom !== undefined) { sets.push('routing_from = ?'); vals.push(JSON.stringify(data.routingFrom)); }
+  if (data.routingTo !== undefined) { sets.push('routing_to = ?'); vals.push(JSON.stringify(data.routingTo)); }
+  if (data.capabilities !== undefined) { sets.push('capabilities = ?'); vals.push(JSON.stringify(data.capabilities)); }
 
   if (sets.length === 0) return getProfile(id);
 
@@ -240,12 +266,16 @@ function rowToProfile(row: Record<string, unknown>): AutopilotProfile {
     createdAt: row.created_at as string,
     category: (row.category as string) || 'general',
     tags: safeJsonParse<string[]>(row.tags as string, []),
-    subagents: safeJsonParse<unknown[]>(row.subagents as string, []),
-    mcpServers: safeJsonParse<unknown[]>(row.mcp_servers as string, []),
+    subagents: safeJsonParse<SubagentDefinition[]>(row.subagents as string, []),
+    mcpServers: safeJsonParse<McpServerReference[]>(row.mcp_servers as string, []),
     appendSystemPrompt: (row.append_system_prompt as string) || null,
     maxTurns: (row.max_turns as number) || null,
     permissionMode: (row.permission_mode as string) || null,
     icon: (row.icon as string) || null,
     difficulty: (row.difficulty as string) || null,
+    domain: ((row.domain as string) || 'general') as AgentDomain,
+    routingFrom: safeJsonParse<string[]>(row.routing_from as string, []),
+    routingTo: safeJsonParse<string[]>(row.routing_to as string, []),
+    capabilities: safeJsonParse<AgentCapability[]>(row.capabilities as string, []),
   };
 }

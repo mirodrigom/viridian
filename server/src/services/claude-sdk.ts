@@ -308,7 +308,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   args.push('--permission-mode', permMode);
 
   if (options.noTools) {
-    args.push('--tools', '');
+    // On Windows with shell: true, empty string args get dropped.
+    // Wrap in explicit quotes so cmd.exe preserves the empty argument.
+    args.push('--tools', isWindows ? '""' : '');
   } else if (options.tools?.length) {
     // --tools REPLACES the available tool set (e.g. --tools "Task" means ONLY Task)
     args.push('--tools', options.tools.join(','));

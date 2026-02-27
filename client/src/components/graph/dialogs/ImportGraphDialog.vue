@@ -16,9 +16,12 @@ import type {
   GraphExportData, ExportedNode, ExportedConnection,
   GraphNodeType, EdgeType, NodeData, SerializedNode, SerializedEdge, GraphEdgeData,
 } from '@/types/graph';
+import { useMetadataGenerator } from '@/composables/useMetadataGenerator';
+import { DEFAULT_AGENT_METADATA } from '@/types/agent-metadata';
 
 const open = defineModel<boolean>('open', { default: false });
 const graph = useGraphStore();
+const { generating, generateForGraph } = useMetadataGenerator();
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const parsed = ref<GraphExportData | null>(null);
@@ -168,6 +171,7 @@ function buildNodeData(exported: ExportedNode): NodeData {
         maxTokens: exported.maxTokens || 200000,
         allowedTools: exported.allowedTools || [],
         disallowedTools: exported.disallowedTools || [],
+        metadata: exported.metadata || { ...DEFAULT_AGENT_METADATA },
       };
     case 'subagent':
       return {
@@ -178,6 +182,7 @@ function buildNodeData(exported: ExportedNode): NodeData {
         systemPrompt: exported.systemPrompt || '',
         permissionMode: exported.permissionMode || 'bypassPermissions',
         taskDescription: exported.taskDescription || '',
+        metadata: exported.metadata || { ...DEFAULT_AGENT_METADATA },
       };
     case 'expert':
       return {
@@ -187,6 +192,7 @@ function buildNodeData(exported: ExportedNode): NodeData {
         model: exported.model || 'claude-opus-4-6',
         systemPrompt: exported.systemPrompt || '',
         specialty: exported.specialty || '',
+        metadata: exported.metadata || { ...DEFAULT_AGENT_METADATA },
       };
     case 'skill':
       return {
@@ -284,6 +290,25 @@ function onImport() {
 
   toast.success(`Imported "${name}" (${nodes.length} nodes)`);
   open.value = false;
+
+  // Auto-generate metadata for nodes that lack it
+  const executableTypes = new Set(['agent', 'subagent', 'expert']);
+  const nodesWithoutMeta = nodes.filter(
+    n => executableTypes.has(n.type) && (!n.data.metadata || n.data.metadata.tags?.length === 0),
+  );
+  if (nodesWithoutMeta.length > 0) {
+    toast.info('Generating agent metadata...', { duration: 10000, id: 'meta-gen' });
+    generateForGraph({ nodes, edges }).then((results) => {
+      for (const r of results) {
+        graph.updateNodeData(r.nodeId, { metadata: r.metadata } as Partial<NodeData>);
+      }
+      if (results.length > 0) {
+        toast.success(`Generated metadata for ${results.length} agent(s)`, { id: 'meta-gen' });
+      } else {
+        toast.dismiss('meta-gen');
+      }
+    });
+  }
 }
 </script>
 

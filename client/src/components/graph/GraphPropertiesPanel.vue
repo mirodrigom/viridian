@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, nextTick } from 'vue';
 import { useGraphStore } from '@/stores/graph';
 import { NODE_CONFIG } from '@/types/graph';
-import type { NodeData, AgentNodeData, SubagentNodeData, ExpertNodeData, SkillNodeData, McpNodeData, RuleNodeData } from '@/types/graph';
+import type { NodeData, AgentNodeData, SubagentNodeData, ExpertNodeData, SkillNodeData, McpNodeData, RuleNodeData, GraphEdgeData } from '@/types/graph';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -13,7 +14,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X, Loader2, ChevronRight } from 'lucide-vue-next';
+import {
+  Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, X, Loader2, ChevronRight,
+  Tags, ArrowDownToLine, ArrowUpFromLine, Plus, Globe,
+} from 'lucide-vue-next';
+import type { AgentMetadata, AgentDomain } from '@/types/agent-metadata';
+import { DEFAULT_AGENT_METADATA } from '@/types/agent-metadata';
 
 const graph = useGraphStore();
 
@@ -29,7 +35,86 @@ const MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ];
 
+const DOMAIN_OPTIONS: { value: AgentDomain; label: string }[] = [
+  { value: 'general', label: 'General' },
+  { value: 'frontend', label: 'Frontend' },
+  { value: 'backend', label: 'Backend' },
+  { value: 'devops', label: 'DevOps' },
+  { value: 'data', label: 'Data' },
+  { value: 'security', label: 'Security' },
+  { value: 'testing', label: 'Testing' },
+  { value: 'docs', label: 'Docs' },
+];
+
 const advancedOpen = ref(false);
+const tagInput = ref('');
+const tagInputEl = ref<HTMLInputElement | null>(null);
+
+const isExecutableNode = computed(() =>
+  data.value?.nodeType === 'agent' || data.value?.nodeType === 'subagent' || data.value?.nodeType === 'expert',
+);
+
+const metadata = computed<AgentMetadata>(() =>
+  (data.value as { metadata?: AgentMetadata })?.metadata || { ...DEFAULT_AGENT_METADATA },
+);
+
+// ─── From / To derived from graph edges ─────────────────────────────
+const fromNodes = computed(() => {
+  if (!node.value) return [];
+  return graph.edges
+    .filter(e => e.target === node.value!.id && (e.data as GraphEdgeData)?.edgeType === 'delegation')
+    .map(e => {
+      const n = graph.nodes.find(n => n.id === e.source);
+      return n ? (n.data as NodeData).label : null;
+    })
+    .filter(Boolean) as string[];
+});
+
+const toNodes = computed(() => {
+  if (!node.value) return [];
+  return graph.edges
+    .filter(e => e.source === node.value!.id && (e.data as GraphEdgeData)?.edgeType === 'delegation')
+    .map(e => {
+      const n = graph.nodes.find(n => n.id === e.target);
+      return n ? (n.data as NodeData).label : null;
+    })
+    .filter(Boolean) as string[];
+});
+
+// ─── Tag management ─────────────────────────────────────────────────
+function updateMeta(partial: Partial<AgentMetadata>) {
+  if (!node.value) return;
+  const updated = { ...metadata.value, ...partial };
+  graph.updateNodeData(node.value.id, { metadata: updated } as Partial<NodeData>);
+}
+
+function addTag() {
+  const raw = tagInput.value.trim().toLowerCase();
+  if (!raw) return;
+  // Support comma-separated input
+  const newTags = raw.split(',').map(t => t.trim()).filter(Boolean);
+  const existing = new Set(metadata.value.tags);
+  const toAdd = newTags.filter(t => !existing.has(t));
+  if (toAdd.length > 0) {
+    updateMeta({ tags: [...metadata.value.tags, ...toAdd] });
+  }
+  tagInput.value = '';
+}
+
+function removeTag(tag: string) {
+  updateMeta({ tags: metadata.value.tags.filter(t => t !== tag) });
+}
+
+function onTagKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    addTag();
+  }
+  if (e.key === 'Backspace' && tagInput.value === '' && metadata.value.tags.length > 0) {
+    removeTag(metadata.value.tags[metadata.value.tags.length - 1]);
+  }
+}
+
 const nodeId = computed(() => node.value?.id || null);
 
 function update(field: string, value: unknown) {
@@ -39,14 +124,11 @@ function update(field: string, value: unknown) {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+  <div class="flex h-full flex-col overflow-hidden border-l border-border bg-background">
     <!-- Properties form -->
     <template v-if="data && config">
-      <!-- Double-line divider -->
-      <div class="h-1.5 border-y border-border bg-muted/40" />
-
-      <!-- Section header -->
-      <div class="flex h-7 items-center border-b border-border bg-background px-3">
+      <!-- Section header (matches left sidebar style) -->
+      <div class="flex h-7 shrink-0 items-center border-b border-border px-3">
         <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</span>
         <div class="flex-1" />
         <button class="rounded p-0.5 hover:bg-accent" @click="graph.selectNode(null)">
@@ -55,12 +137,23 @@ function update(field: string, value: unknown) {
       </div>
 
       <!-- Node type header -->
-      <div class="flex h-8 items-center gap-2 border-b border-border px-3" :class="config.accentClass">
+      <div class="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3" :class="config.accentClass">
         <component :is="icons[data.nodeType]" class="h-3.5 w-3.5 shrink-0" />
         <span class="text-xs font-medium">{{ config.label }}</span>
       </div>
 
-      <ScrollArea class="flex-1">
+      <ScrollArea class="relative min-h-0 flex-1">
+        <!-- Blocking overlay while generating -->
+        <div
+          v-if="graph.generatingPrompt"
+          class="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-[1px]"
+        >
+          <div class="flex flex-col items-center gap-2">
+            <Loader2 class="h-5 w-5 animate-spin text-primary" />
+            <span class="text-xs text-muted-foreground">Generating...</span>
+          </div>
+        </div>
+
         <div class="space-y-4 p-3">
           <!-- Common: Label -->
           <div class="space-y-1.5">
@@ -68,16 +161,114 @@ function update(field: string, value: unknown) {
             <Input :model-value="data.label" class="h-8 text-sm" @update:model-value="update('label', $event)" />
           </div>
 
-          <!-- Common: Description (brief summary for planning prompts & skill indexes) -->
+          <!-- Common: Description (auto-generated from system prompt, read-only) -->
           <div class="space-y-1.5">
             <Label class="text-xs">Description</Label>
-            <Textarea
-              :model-value="data.description || ''"
-              class="min-h-[48px] max-h-[80px] overflow-y-auto !field-sizing-normal text-xs"
-              placeholder="Brief summary for planning prompts (1-2 sentences)..."
-              @update:model-value="update('description', $event)"
-            />
+            <p v-if="data.description" class="rounded-md border border-border/50 bg-muted/30 px-2.5 py-1.5 text-xs leading-relaxed text-muted-foreground">
+              {{ data.description }}
+            </p>
+            <p v-else class="text-[10px] italic text-muted-foreground/40">
+              Generate a system prompt to see description
+            </p>
           </div>
+
+          <!-- ─── Tags (agent/subagent/expert only, always visible) ──── -->
+          <template v-if="isExecutableNode">
+            <div class="space-y-1.5">
+              <Label class="flex items-center gap-1.5 text-xs">
+                <Tags class="h-3 w-3 text-muted-foreground" />
+                Tags
+              </Label>
+              <div
+                class="flex min-h-[32px] flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-within:ring-1 focus-within:ring-ring"
+                @click="tagInputEl?.focus()"
+              >
+                <Badge
+                  v-for="tag in metadata.tags"
+                  :key="tag"
+                  variant="secondary"
+                  class="gap-0.5 px-1.5 py-0 text-[10px]"
+                >
+                  {{ tag }}
+                  <button
+                    class="ml-0.5 rounded-full p-0 hover:bg-muted-foreground/20"
+                    @click.stop="removeTag(tag)"
+                  >
+                    <X class="h-2.5 w-2.5" />
+                  </button>
+                </Badge>
+                <input
+                  ref="tagInputEl"
+                  v-model="tagInput"
+                  class="min-w-[60px] flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50"
+                  placeholder="Add tag..."
+                  @keydown="onTagKeydown"
+                  @blur="addTag()"
+                />
+              </div>
+              <p class="text-[10px] text-muted-foreground/60">Press Enter or comma to add</p>
+            </div>
+
+            <!-- Domain -->
+            <div class="space-y-1.5">
+              <Label class="flex items-center gap-1.5 text-xs">
+                <Globe class="h-3 w-3 text-muted-foreground" />
+                Domain
+              </Label>
+              <Select :model-value="metadata.domain" @update:model-value="updateMeta({ domain: $event as AgentDomain })">
+                <SelectTrigger class="h-8 text-sm">
+                  <SelectValue placeholder="Select domain" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="opt in DOMAIN_OPTIONS" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <!-- From (read-only, derived from edges) -->
+            <div class="space-y-1.5">
+              <Label class="flex items-center gap-1.5 text-xs">
+                <ArrowDownToLine class="h-3 w-3 text-muted-foreground" />
+                From
+                <span class="text-[10px] text-muted-foreground/50">(incoming delegations)</span>
+              </Label>
+              <div v-if="fromNodes.length" class="flex flex-wrap gap-1">
+                <Badge
+                  v-for="lbl in fromNodes"
+                  :key="lbl"
+                  variant="outline"
+                  class="gap-1 px-1.5 py-0 text-[10px] text-primary"
+                >
+                  <ArrowDownToLine class="h-2.5 w-2.5" />
+                  {{ lbl }}
+                </Badge>
+              </div>
+              <p v-else class="text-[10px] italic text-muted-foreground/40">No incoming delegations</p>
+            </div>
+
+            <!-- To (read-only, derived from edges) -->
+            <div class="space-y-1.5">
+              <Label class="flex items-center gap-1.5 text-xs">
+                <ArrowUpFromLine class="h-3 w-3 text-muted-foreground" />
+                To
+                <span class="text-[10px] text-muted-foreground/50">(outgoing delegations)</span>
+              </Label>
+              <div v-if="toNodes.length" class="flex flex-wrap gap-1">
+                <Badge
+                  v-for="lbl in toNodes"
+                  :key="lbl"
+                  variant="outline"
+                  class="gap-1 px-1.5 py-0 text-[10px] text-chart-2"
+                >
+                  <ArrowUpFromLine class="h-2.5 w-2.5" />
+                  {{ lbl }}
+                </Badge>
+              </div>
+              <p v-else class="text-[10px] italic text-muted-foreground/40">No outgoing delegations</p>
+            </div>
+          </template>
 
           <Separator />
 
@@ -120,9 +311,6 @@ function update(field: string, value: unknown) {
                 :disabled="graph.generatingPrompt"
                 @update:model-value="update('systemPrompt', $event)"
               />
-              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
-              </p>
             </div>
           </template>
 
@@ -183,9 +371,6 @@ function update(field: string, value: unknown) {
                 :disabled="graph.generatingPrompt"
                 @update:model-value="update('promptTemplate', $event)"
               />
-              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
-              </p>
             </div>
           </template>
 
@@ -287,9 +472,6 @@ function update(field: string, value: unknown) {
                 :disabled="graph.generatingPrompt"
                 @update:model-value="update('ruleText', $event)"
               />
-              <p v-if="graph.generatingPrompt" class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 class="h-3 w-3 animate-spin" /> Generating prompt...
-              </p>
             </div>
           </template>
 

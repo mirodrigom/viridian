@@ -1,3 +1,5 @@
+import type { AgentMetadata } from './agent-metadata';
+
 // ─── Node Types ─────────────────────────────────────────────────────────
 export type GraphNodeType = 'agent' | 'subagent' | 'expert' | 'skill' | 'mcp' | 'rule';
 
@@ -17,6 +19,8 @@ export interface BaseNodeData {
   nodeType: GraphNodeType;
   label: string;
   description?: string;
+  /** Agent routing and discovery metadata. Only meaningful for agent/subagent/expert. */
+  metadata?: AgentMetadata;
 }
 
 export interface AgentNodeData extends BaseNodeData {
@@ -97,6 +101,8 @@ export interface GraphConfig {
   nodes: SerializedNode[];
   edges: SerializedEdge[];
   viewport?: { x: number; y: number; zoom: number };
+  /** When true, FROM/TO routing violations block execution instead of warning. */
+  strictRouting?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -147,6 +153,8 @@ export interface ExportedNode {
   ruleType?: 'allow' | 'deny' | 'guideline' | 'constraint';
   ruleText?: string;
   scope?: 'global' | 'project';
+  // Agent metadata (tags, from, to, capabilities, domain)
+  metadata?: AgentMetadata;
 }
 
 export interface ExportedConnection {

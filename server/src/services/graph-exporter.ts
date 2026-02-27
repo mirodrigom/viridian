@@ -7,6 +7,7 @@
  */
 
 import { resolveExecutionGraph, findRootNode } from './graph-runner.js';
+import type { AgentMetadata, AgentCapability } from '../types/agent-metadata.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -79,8 +80,21 @@ function renderYamlFrontmatter(data: Record<string, unknown>): string {
     if (value === undefined || value === null || value === '') continue;
     if (Array.isArray(value)) {
       if (value.length === 0) continue;
-      // Short arrays inline, long arrays as block
-      if (value.every(v => typeof v === 'string' && v.length < 40) && value.length <= 5) {
+      // Object arrays (e.g. capabilities) as block with nested keys
+      if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+        lines.push(`${key}:`);
+        for (const item of value) {
+          const obj = item as Record<string, unknown>;
+          const entries = Object.entries(obj);
+          if (entries.length > 0) {
+            lines.push(`  - ${entries[0][0]}: ${entries[0][1]}`);
+            for (let i = 1; i < entries.length; i++) {
+              lines.push(`    ${entries[i][0]}: ${entries[i][1]}`);
+            }
+          }
+        }
+      // Short string arrays inline, long arrays as block
+      } else if (value.every(v => typeof v === 'string' && v.length < 40) && value.length <= 5) {
         lines.push(`${key}: ${value.join(', ')}`);
       } else {
         lines.push(`${key}:`);
@@ -149,6 +163,16 @@ function generateAgentFile(
     .map(m => slugMap.get(m.id))
     .filter((s): s is string => !!s);
   if (mcpNames.length > 0) fm.mcpServers = mcpNames;
+
+  // Agent metadata (tags, domain, from, to, capabilities)
+  const meta = d.metadata as AgentMetadata | undefined;
+  if (meta) {
+    if (meta.tags?.length) fm.tags = meta.tags;
+    if (meta.domain && meta.domain !== 'general') fm.domain = meta.domain;
+    if (meta.from?.length) fm.from = meta.from;
+    if (meta.to?.length) fm.to = meta.to;
+    if (meta.capabilities?.length) fm.capabilities = meta.capabilities;
+  }
 
   // Build body from system prompt
   let body = (d.systemPrompt as string) || '';
@@ -230,29 +254,34 @@ function generateMcpJson(mcpNodes: GraphNode[], slugMap: Map<string, string>): E
   };
 }
 
-function generateClaudeMd(ruleNodes: GraphNode[], graphName: string): ExportedFile | null {
-  if (ruleNodes.length === 0) return null;
-
+function generateClaudeMd(ruleNodes: GraphNode[], graphName: string, rootSlug: string): ExportedFile {
   const lines: string[] = [];
-  lines.push(`# ${graphName} — Project Rules\n`);
+  lines.push(`# ${graphName}\n`);
   lines.push('> Auto-generated from Viridian graph export.\n');
 
-  // Group by ruleType
-  const grouped: Record<string, GraphNode[]> = {};
-  for (const r of ruleNodes) {
-    const type = (r.data.ruleType as string) || 'guideline';
-    if (!grouped[type]) grouped[type] = [];
-    grouped[type].push(r);
-  }
+  // Always reference the root/orchestrator agent
+  lines.push(`## Orchestrator\n`);
+  lines.push(`Use the \`${rootSlug}\` agent for all tasks. It is the entry point for this project's multi-agent workflow.\n`);
+  lines.push(`\`\`\`\nUse the ${rootSlug} agent to <your task>\n\`\`\`\n`);
 
-  for (const [type, rules] of Object.entries(grouped)) {
-    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}s\n`);
-    for (const r of rules) {
-      const label = (r.data.label as string) || 'Rule';
-      const text = (r.data.ruleText as string) || '';
-      lines.push(`- **${label}**: ${text}`);
+  // Group rules by ruleType
+  if (ruleNodes.length > 0) {
+    const grouped: Record<string, GraphNode[]> = {};
+    for (const r of ruleNodes) {
+      const type = (r.data.ruleType as string) || 'guideline';
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(r);
     }
-    lines.push('');
+
+    for (const [type, rules] of Object.entries(grouped)) {
+      lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}s\n`);
+      for (const r of rules) {
+        const label = (r.data.label as string) || 'Rule';
+        const text = (r.data.ruleText as string) || '';
+        lines.push(`- **${label}**: ${text}`);
+      }
+      lines.push('');
+    }
   }
 
   return { path: 'CLAUDE.md', content: lines.join('\n') };
@@ -334,13 +363,14 @@ export function exportGraphToClaude(
   const mcpFile = generateMcpJson(mcpNodes, slugMap);
   if (mcpFile) files.push(mcpFile);
 
-  // CLAUDE.md — aggregated rules
+  // README + CLAUDE.md need rootSlug
+  const rootSlug = slugMap.get(rootNode.id)!;
+
+  // CLAUDE.md — always generated, references root agent + aggregated rules
   const ruleNodes = graphData.nodes.filter(n => n.type === 'rule');
-  const claudeMd = generateClaudeMd(ruleNodes, graphName);
-  if (claudeMd) files.push(claudeMd);
+  files.push(generateClaudeMd(ruleNodes, graphName, rootSlug));
 
   // README
-  const rootSlug = slugMap.get(rootNode.id)!;
   files.push(generateReadme(
     graphName,
     rootSlug,

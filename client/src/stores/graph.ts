@@ -7,6 +7,8 @@ import type {
   SubagentNodeData, ExpertNodeData, SkillNodeData, RuleNodeData,
 } from '@/types/graph';
 import { CONNECTION_RULES } from '@/types/graph';
+import { DEFAULT_AGENT_METADATA, validateDelegationRouting } from '@/types/agent-metadata';
+import type { AgentMetadata } from '@/types/agent-metadata';
 import type { GraphTemplate } from '@/data/graphTemplates';
 import { apiFetch } from '@/lib/apiFetch';
 import { uuid } from '@/lib/utils';
@@ -73,6 +75,16 @@ export const useGraphStore = defineStore('graph', () => {
       // Prevent nodeType mutation — it must stay in sync with node.type (used by VueFlow for template selection)
       const { nodeType: _, ...safeUpdates } = updates as Record<string, unknown>;
       node.data = { ...node.data, ...safeUpdates };
+
+      // Auto-derive description from systemPrompt (skip during AI generation — it handles description separately at the end)
+      if ('systemPrompt' in safeUpdates && !generatingPrompt.value) {
+        const prompt = safeUpdates.systemPrompt as string;
+        node.data = {
+          ...node.data,
+          description: prompt?.trim() ? summarizePrompt(prompt.trim()) : '',
+        };
+      }
+
       isDirty.value = true;
     }
   }
@@ -101,10 +113,24 @@ export const useGraphStore = defineStore('graph', () => {
     const targetType = (targetNode.data as NodeData).nodeType;
 
     const rules = CONNECTION_RULES[sourceType];
-    if (!rules.some(rule => rule.targets.includes(targetType))) return false;
+    const matchingRule = rules.find(rule => rule.targets.includes(targetType));
+    if (!matchingRule) return false;
 
     // Prevent cycles: check if target can already reach source via existing edges
     if (wouldCreateCycle(connection.source, connection.target)) return false;
+
+    // Metadata-based routing validation for delegation edges
+    if (matchingRule.edgeType === 'delegation') {
+      const sourceData = sourceNode.data as NodeData;
+      const targetData = targetNode.data as NodeData;
+      const result = validateDelegationRouting(
+        sourceData.metadata as AgentMetadata | undefined,
+        sourceData.label,
+        targetData.metadata as AgentMetadata | undefined,
+        targetData.label,
+      );
+      if (!result.valid) return false;
+    }
 
     return true;
   }
@@ -340,6 +366,17 @@ export const useGraphStore = defineStore('graph', () => {
       type: 'custom',
       data: e.data,
     }));
+    // Backfill description for nodes that have a systemPrompt but empty description (legacy data)
+    for (const n of nodes.value) {
+      const d = n.data as NodeData;
+      if (!d.description && 'systemPrompt' in d) {
+        const prompt = (d as { systemPrompt: string }).systemPrompt;
+        if (prompt?.trim()) {
+          n.data = { ...d, description: summarizePrompt(prompt.trim()) };
+        }
+      }
+    }
+
     isDirty.value = false;
     graphVersion.value++;
   }
@@ -426,6 +463,12 @@ export const useGraphStore = defineStore('graph', () => {
       .filter(Boolean);
 
     return { parents, children };
+  }
+
+  function summarizePrompt(prompt: string): string {
+    const firstSentence = prompt.match(/^[^.!?\n]+[.!?]/)?.[0] || '';
+    if (firstSentence && firstSentence.length <= 200) return firstSentence.trim();
+    return prompt.slice(0, 200).trim() + '...';
   }
 
   async function generatePrompt(nodeId: string) {
@@ -528,6 +571,10 @@ export const useGraphStore = defineStore('graph', () => {
         updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
       } else {
         updateNodeData(nodeId, { [promptField]: accumulated.trim() } as Partial<NodeData>);
+        // Auto-generate description from system prompt
+        if (promptField === 'systemPrompt') {
+          updateNodeData(nodeId, { description: summarizePrompt(accumulated.trim()) } as Partial<NodeData>);
+        }
       }
     } catch (err) {
       console.error('Prompt generation failed:', err);
@@ -558,18 +605,21 @@ function createDefaultNodeData(type: GraphNodeType): NodeData {
         model: 'claude-opus-4-6', systemPrompt: '',
         permissionMode: 'bypassPermissions', maxTokens: 200000,
         allowedTools: [], disallowedTools: [],
+        metadata: { ...DEFAULT_AGENT_METADATA },
       };
     case 'subagent':
       return {
         nodeType: 'subagent', label: 'Subagent', description: '',
         model: 'claude-sonnet-4-6', systemPrompt: '',
         permissionMode: 'bypassPermissions', taskDescription: '',
+        metadata: { ...DEFAULT_AGENT_METADATA },
       };
     case 'expert':
       return {
         nodeType: 'expert', label: 'Expert', description: '',
         model: 'claude-opus-4-6', systemPrompt: '',
         specialty: '',
+        metadata: { ...DEFAULT_AGENT_METADATA },
       };
     case 'skill':
       return {

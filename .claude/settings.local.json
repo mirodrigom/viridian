@@ -25,7 +25,9 @@
       "Bash(where.exe bun:*)",
       "Bash(powershell:*)",
       "Bash(npm root:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)"
     ]
   }
 }

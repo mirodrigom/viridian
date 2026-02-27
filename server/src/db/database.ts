@@ -269,6 +269,12 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('autopilot_runs', 'agent_a_provider_session_id', "TEXT");
   safeAddColumn('autopilot_runs', 'agent_b_provider_session_id', "TEXT");
 
+  // ── Agent metadata (routing & discovery) ──
+  safeAddColumn('autopilot_profiles', 'domain', "TEXT DEFAULT 'general'");
+  safeAddColumn('autopilot_profiles', 'routing_from', "TEXT DEFAULT '[]'");
+  safeAddColumn('autopilot_profiles', 'routing_to', "TEXT DEFAULT '[]'");
+  safeAddColumn('autopilot_profiles', 'capabilities', "TEXT DEFAULT '[]'");
+
   // ── Management: project scoping ──
   safeAddColumn('management_services', 'project_path', "TEXT DEFAULT ''");
   safeAddColumn('management_scripts', 'project_path', "TEXT DEFAULT ''");

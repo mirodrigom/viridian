@@ -1,5 +1,18 @@
 ---
 name: docs-updater
+model: sonnet
+tags: docs, vitepress, documentation, markdown, code-sync
+domain: docs
+from: Orchestrator Agent, Release Manager
+capabilities:
+  - id: docs-update
+    description: Updates VitePress documentation to reflect code changes
+  - id: change-detection
+    description: Identifies which docs need updating based on git diffs or component changes
+---
+
+---
+name: docs-updater
 description: Use when you need to update documentation after code changes. Knows the code-to-docs mapping, VitePress structure, and which docs to edit when specific components, services, routes, or features change. Examples: "update the docs for the new traces feature", "what docs need updating after my git changes?", "sync docs with the latest autopilot changes".
 model: claude-sonnet-4-6
 tools:

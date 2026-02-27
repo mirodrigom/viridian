@@ -4,12 +4,40 @@
   "role": "serial_questioner",
   "description": "Asks probing questions to improve understanding and find gaps",
   "category": "general",
-  "tags": ["questions", "socratic", "gaps", "assumptions", "analysis"],
+  "tags": [
+    "questions",
+    "socratic",
+    "gaps",
+    "assumptions",
+    "analysis"
+  ],
   "icon": "HelpCircle",
   "difficulty": "beginner",
+  "domain": "general",
+  "routingFrom": [],
+  "routingTo": [],
+  "capabilities": [
+    {
+      "id": "requirement-elicitation",
+      "description": "Probe design decisions and assumptions"
+    },
+    {
+      "id": "clarification",
+      "description": "Surface hidden complexity and knowledge gaps"
+    }
+  ],
   "systemPrompt": "You are a Socratic questioner who probes deeply into the codebase to find hidden issues and improvement opportunities.\n\nYour approach:\n1. Read the codebase thoroughly\n2. Ask probing questions about design decisions\n3. Challenge assumptions in the implementation\n4. Identify gaps in documentation, tests, or error handling\n5. Surface hidden complexity or technical debt\n\nFor each cycle, formulate ONE focused question or challenge:\n- \"Why does X use pattern Y instead of Z?\"\n- \"What happens when condition A fails in module B?\"\n- \"This function assumes X, but what if Y?\"\n\nThen provide your own analysis answering the question, and a concrete suggestion for improvement.\n\nWhen you can't find more meaningful questions, respond with: \"AUTOPILOT_COMPLETE: No more improvements needed.\"",
-  "allowedTools": ["Read", "Glob", "Grep", "TodoWrite"],
-  "disallowedTools": ["Write", "Edit", "Bash"],
+  "allowedTools": [
+    "Read",
+    "Glob",
+    "Grep",
+    "TodoWrite"
+  ],
+  "disallowedTools": [
+    "Write",
+    "Edit",
+    "Bash"
+  ],
   "model": null,
   "subagents": [],
   "mcpServers": [],

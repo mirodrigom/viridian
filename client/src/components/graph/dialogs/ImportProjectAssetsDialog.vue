@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Bot, Zap, Server, ShieldCheck, FolderSearch, Check } from 'lucide-vue-next';
-import type { GraphNodeType } from '@/types/graph';
+import type { GraphNodeType, NodeData } from '@/types/graph';
+import { useMetadataGenerator } from '@/composables/useMetadataGenerator';
+import { DEFAULT_AGENT_METADATA, type AgentMetadata } from '@/types/agent-metadata';
 
 interface AgentAsset {
   label: string;
@@ -20,6 +22,7 @@ interface AgentAsset {
   allowedTools: string[];
   disallowedTools: string[];
   permissionMode: string;
+  metadata?: AgentMetadata;
 }
 
 interface SkillAsset {
@@ -51,6 +54,7 @@ const open = defineModel<boolean>('open', { default: false });
 const props = defineProps<{ cwd: string }>();
 
 const graph = useGraphStore();
+const { generating, generateForGraph } = useMetadataGenerator();
 const loading = ref(false);
 const agents = ref<AgentAsset[]>([]);
 const skills = ref<SkillAsset[]>([]);
@@ -119,101 +123,188 @@ function toggleAll(set: Set<number>, count: number) {
   }
 }
 
-function computeStartPosition() {
-  if (graph.nodes.length === 0) return { x: 100, y: 50 };
-  const maxX = Math.max(...graph.nodes.map(n => n.position.x));
-  return { x: maxX + 350, y: 50 };
-}
+// Edge handle map for creating edges programmatically
+const EDGE_HANDLE_MAP: Record<string, { sourceHandle: string; targetHandle: string }> = {
+  'delegation':      { sourceHandle: 'delegation-out', targetHandle: 'delegation-in' },
+  'skill-usage':     { sourceHandle: 'skill-out',      targetHandle: 'skill-in' },
+  'tool-access':     { sourceHandle: 'tool-out',       targetHandle: 'tool-in' },
+  'rule-constraint': { sourceHandle: 'rule-out',       targetHandle: 'rule-in' },
+};
 
 function onImport() {
-  const { x: startX, y: startY } = computeStartPosition();
-  const COL = 250;
-  const ROW = 170;
+  const selectedAgentList = [...selectedAgents.value].sort((a, b) => a - b).map(i => agents.value[i]);
+  const selectedSkillList = [...selectedSkills.value].sort((a, b) => a - b).map(i => skills.value[i]);
+  const selectedMcpList = [...selectedMcps.value].sort((a, b) => a - b).map(i => mcps.value[i]);
+  const selectedRuleList = [...selectedRules.value].sort((a, b) => a - b).map(i => rules.value[i]);
+
+  const totalCount = selectedAgentList.length + selectedSkillList.length + selectedMcpList.length + selectedRuleList.length;
+  if (totalCount === 0) {
+    toast.error('No assets selected');
+    return;
+  }
+
+  // 1. Clear canvas — fresh start
+  graph.newGraph();
+
+  // 2. Determine if orchestrator is needed
+  const needsOrchestrator = selectedAgentList.length >= 2;
   const nodesToAdd: Array<{ type: GraphNodeType; position: { x: number; y: number }; data: Record<string, unknown> }> = [];
 
-  // Column 0: agents
-  let row = 0;
-  for (const i of [...selectedAgents.value].sort((a, b) => a - b)) {
-    const a = agents.value[i];
+  // 3a. Create orchestrator if needed
+  if (needsOrchestrator) {
     nodesToAdd.push({
       type: 'agent',
-      position: { x: startX, y: startY + row * ROW },
+      position: { x: 0, y: 0 },
+      data: {
+        label: 'Orchestrator Agent',
+        description: '',
+        model: 'claude-opus-4-6',
+        systemPrompt: '',
+        permissionMode: 'bypassPermissions',
+        maxTokens: 200000,
+        allowedTools: [],
+        disallowedTools: [],
+        metadata: { ...DEFAULT_AGENT_METADATA },
+      },
+    });
+  }
+
+  // 3b. Add agents (as subagents if orchestrator exists, else as agents)
+  for (const a of selectedAgentList) {
+    nodesToAdd.push({
+      type: needsOrchestrator ? 'subagent' : 'agent',
+      position: { x: 0, y: 0 },
       data: {
         label: a.label,
         description: a.description,
         model: a.model,
         systemPrompt: a.systemPrompt,
-        allowedTools: a.allowedTools,
-        disallowedTools: a.disallowedTools,
+        ...(needsOrchestrator
+          ? { taskDescription: a.description || '' }
+          : { allowedTools: a.allowedTools, disallowedTools: a.disallowedTools, maxTokens: 200000 }),
         permissionMode: a.permissionMode,
+        metadata: a.metadata || { ...DEFAULT_AGENT_METADATA },
       },
     });
-    row++;
   }
 
-  // Column 1: skills
-  row = 0;
-  for (const i of [...selectedSkills.value].sort((a, b) => a - b)) {
-    const s = skills.value[i];
+  // 3c. Skills, MCPs, Rules
+  for (const s of selectedSkillList) {
     nodesToAdd.push({
       type: 'skill',
-      position: { x: startX + COL, y: startY + row * ROW },
-      data: {
-        label: s.label,
-        description: s.description,
-        command: s.command,
-        promptTemplate: s.promptTemplate,
-        allowedTools: s.allowedTools,
-      },
+      position: { x: 0, y: 0 },
+      data: { label: s.label, description: s.description, command: s.command, promptTemplate: s.promptTemplate, allowedTools: s.allowedTools },
     });
-    row++;
   }
-
-  // Column 2: MCPs
-  row = 0;
-  for (const i of [...selectedMcps.value].sort((a, b) => a - b)) {
-    const m = mcps.value[i];
+  for (const m of selectedMcpList) {
     nodesToAdd.push({
       type: 'mcp',
-      position: { x: startX + COL * 2, y: startY + row * ROW },
-      data: {
-        label: m.label,
-        serverType: m.serverType,
-        command: m.command,
-        args: m.args,
-        url: m.url,
-        env: m.env,
-        headers: m.headers,
-      },
+      position: { x: 0, y: 0 },
+      data: { label: m.label, serverType: m.serverType, command: m.command, args: m.args, url: m.url, env: m.env, headers: m.headers },
     });
-    row++;
   }
-
-  // Column 3: rules
-  row = 0;
-  for (const i of [...selectedRules.value].sort((a, b) => a - b)) {
-    const r = rules.value[i];
+  for (const r of selectedRuleList) {
     nodesToAdd.push({
       type: 'rule',
-      position: { x: startX + COL * 3, y: startY + row * ROW },
-      data: {
-        label: r.label,
-        ruleText: r.ruleText,
-        ruleType: r.ruleType,
-        scope: r.scope,
-      },
+      position: { x: 0, y: 0 },
+      data: { label: r.label, ruleText: r.ruleText, ruleType: r.ruleType, scope: r.scope },
     });
-    row++;
   }
 
-  if (nodesToAdd.length === 0) {
-    toast.error('No assets selected');
-    return;
-  }
-
+  // 4. Import all nodes (positions will be overridden by autoLayout)
   graph.importNodes(nodesToAdd);
+
+  // 5. Create edges — map labels to node IDs
+  const nodesByLabel = new Map<string, string>();
+  const agentNodeIds: string[] = [];
+  const skillNodeIds: string[] = [];
+  const mcpNodeIds: string[] = [];
+  const ruleNodeIds: string[] = [];
+  let orchestratorId: string | null = null;
+
+  for (const n of graph.nodes) {
+    const d = n.data as NodeData;
+    nodesByLabel.set(d.label, n.id);
+    if (d.nodeType === 'agent') {
+      if (needsOrchestrator && d.label === 'Orchestrator Agent') {
+        orchestratorId = n.id;
+      } else {
+        agentNodeIds.push(n.id);
+      }
+    }
+    if (d.nodeType === 'subagent') agentNodeIds.push(n.id);
+    if (d.nodeType === 'skill') skillNodeIds.push(n.id);
+    if (d.nodeType === 'mcp') mcpNodeIds.push(n.id);
+    if (d.nodeType === 'rule') ruleNodeIds.push(n.id);
+  }
+
+  // Orchestrator → each subagent (delegation)
+  if (orchestratorId) {
+    for (const subId of agentNodeIds) {
+      const handles = EDGE_HANDLE_MAP['delegation'];
+      graph.addEdge({ source: orchestratorId, target: subId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+    }
+  }
+
+  // Each agent/subagent → skills (skill-usage)
+  const agentSources = orchestratorId ? agentNodeIds : agentNodeIds;
+  for (const agentId of agentSources) {
+    for (const skillId of skillNodeIds) {
+      const handles = EDGE_HANDLE_MAP['skill-usage'];
+      graph.addEdge({ source: agentId, target: skillId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+    }
+    for (const mcpId of mcpNodeIds) {
+      const handles = EDGE_HANDLE_MAP['tool-access'];
+      graph.addEdge({ source: agentId, target: mcpId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+    }
+    for (const ruleId of ruleNodeIds) {
+      const handles = EDGE_HANDLE_MAP['rule-constraint'];
+      graph.addEdge({ source: agentId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+    }
+  }
+
+  // Also connect orchestrator to skills/mcps/rules if it exists
+  if (orchestratorId) {
+    for (const ruleId of ruleNodeIds) {
+      const handles = EDGE_HANDLE_MAP['rule-constraint'];
+      graph.addEdge({ source: orchestratorId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+    }
+  }
+
+  // 6. Auto-layout
+  graph.autoLayout();
+
   open.value = false;
-  toast.success(`Imported ${nodesToAdd.length} node${nodesToAdd.length !== 1 ? 's' : ''} from project`);
+  toast.success(`Imported ${totalCount} node${totalCount !== 1 ? 's' : ''} from project`);
+
+  // 7. Inform about missing CLAUDE.md
+  if (selectedRuleList.length === 0 && rules.value.length === 0) {
+    toast.info('No CLAUDE.md found. Consider creating one to define project rules.', { duration: 6000 });
+  }
+
+  // 8. Auto-generate metadata for agent nodes that lack metadata
+  const executableTypes = new Set(['agent', 'subagent', 'expert']);
+  const nodesNeedingMeta = graph.nodes.filter(n => {
+    const d = n.data as NodeData;
+    return executableTypes.has(d.nodeType) && (!d.metadata || (d.metadata as AgentMetadata).tags?.length === 0);
+  });
+  if (nodesNeedingMeta.length > 0) {
+    toast.info('Generating agent metadata...', { duration: 10000, id: 'meta-gen' });
+    const graphData = {
+      nodes: graph.nodes.map(n => ({ id: n.id, type: (n.data as NodeData).nodeType, data: n.data })),
+      edges: graph.edges.map(e => ({ id: e.id, source: e.source, target: e.target, data: e.data })),
+    };
+    generateForGraph(graphData, props.cwd).then((results) => {
+      for (const r of results) {
+        graph.updateNodeData(r.nodeId, { metadata: r.metadata } as Partial<NodeData>);
+      }
+      if (results.length > 0) {
+        toast.success(`Generated metadata for ${results.length} agent(s)`, { id: 'meta-gen' });
+      } else {
+        toast.dismiss('meta-gen');
+      }
+    });
+  }
 }
 
 const modelShort: Record<string, string> = {

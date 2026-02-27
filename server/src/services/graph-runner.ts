@@ -16,6 +16,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileS
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
+import { validateDelegationRouting as validateRouting } from '../types/agent-metadata.js';
+import type { AgentMetadata } from '../types/agent-metadata.js';
 
 // Debug log to file for tracing delegation flow
 const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
@@ -228,7 +230,7 @@ function getEdgeType(edge: GraphEdge): string {
  * Walk the graph to resolve each executable node's connections.
  * Returns a Map of nodeId → ResolvedNode.
  */
-export function resolveExecutionGraph(graphData: GraphData): Map<string, ResolvedNode> {
+export function resolveExecutionGraph(graphData: GraphData, options?: { strictRouting?: boolean }): Map<string, ResolvedNode> {
   const nodesById = new Map<string, GraphNode>();
   for (const node of graphData.nodes) {
     nodesById.set(node.id, node);
@@ -267,8 +269,22 @@ export function resolveExecutionGraph(graphData: GraphData): Map<string, Resolve
       }
     }
 
-    resolved.set(node.id, { node, skills, mcps, rules, delegates });
+    // Validate delegation routing constraints
     const nodeLabel = (node.data.label as string) || node.id;
+    const nodeMeta = node.data.metadata as AgentMetadata | undefined;
+    for (const del of delegates) {
+      const delLabel = (del.data.label as string) || del.id;
+      const delMeta = del.data.metadata as AgentMetadata | undefined;
+      const check = validateRouting(nodeMeta, nodeLabel, delMeta, delLabel);
+      if (!check.valid) {
+        if (options?.strictRouting) {
+          throw new Error(`Routing violation: ${check.reason}`);
+        }
+        debugLog(`[GraphRunner] ROUTING WARNING: ${check.reason}`);
+      }
+    }
+
+    resolved.set(node.id, { node, skills, mcps, rules, delegates });
     debugLog(`[GraphRunner] Resolved "${nodeLabel}" (${node.type}): delegates=[${delegates.map(d => d.data.label || d.id).join(', ')}], skills=[${skills.map(s => s.data.label || s.id).join(', ')}], rules=[${rules.map(r => r.data.label || r.id).join(', ')}], mcps=[${mcps.map(m => m.data.label || m.id).join(', ')}]`);
   }
 
@@ -410,9 +426,17 @@ function buildChildDescriptions(resolved: ResolvedNode): Record<string, { nodeId
 function buildPlanningPrompt(
   userTask: string,
   children: Record<string, { nodeId: string; description: string }>,
+  resolvedNodes?: Map<string, ResolvedNode>,
 ): string {
   const childList = Object.entries(children)
-    .map(([key, { description }]) => `- **${key}**: ${description}`)
+    .map(([key, { nodeId, description }]) => {
+      // Annotate with metadata tags if available
+      const res = resolvedNodes?.get(nodeId);
+      const meta = res?.node.data.metadata as AgentMetadata | undefined;
+      const tags = meta?.tags?.length ? ` [tags: ${meta.tags.join(', ')}]` : '';
+      const domain = meta?.domain && meta.domain !== 'general' ? ` (domain: ${meta.domain})` : '';
+      return `- **${key}**${domain}: ${description}${tags}`;
+    })
     .join('\n');
 
   return `You are a coordinator. Analyze the task below and assign subtasks to your team members.
@@ -774,7 +798,7 @@ async function executeNode(
     debugLog(`[GraphRunner] "${nodeLabel}" Phase 1: PLANNING`);
     ctx.emitter.emit('node_phase', { nodeId, phase: 'planning' });
 
-    const planPrompt = buildPlanningPrompt(prompt, children);
+    const planPrompt = buildPlanningPrompt(prompt, children, ctx.resolvedNodes);
     const planResult = await executeSinglePass(ctx, nodeId, planPrompt, { noTools: true });
     const assignments = parseDelegationPlan(planResult, children);
 
@@ -988,7 +1012,7 @@ export interface RunContext {
  * Entry point: run a graph with a given prompt.
  * Returns a RunContext whose emitter streams all events.
  */
-export function runGraph(graphData: GraphData, prompt: string, cwd: string): RunContext {
+export function runGraph(graphData: GraphData, prompt: string, cwd: string, options?: { strictRouting?: boolean }): RunContext {
   debugLog(`[GraphRunner] runGraph called with ${graphData.nodes.length} nodes, ${graphData.edges.length} edges, prompt="${prompt.slice(0, 100)}"`);
   debugLog(`[GraphRunner] Node types: ${graphData.nodes.map(n => `${n.data.label || n.id}(${n.type})`).join(', ')}`);
   debugLog(`[GraphRunner] Edges: ${graphData.edges.map(e => `${e.source}->${e.target} [${(e.data as Record<string, unknown>)?.edgeType || 'no-type'}]`).join(', ')}`);
@@ -997,7 +1021,7 @@ export function runGraph(graphData: GraphData, prompt: string, cwd: string): Run
   const emitter = new EventEmitter();
   const abortController = new AbortController();
 
-  const resolved = resolveExecutionGraph(graphData);
+  const resolved = resolveExecutionGraph(graphData, { strictRouting: options?.strictRouting });
   const rootNode = findRootNode(graphData, resolved);
 
   if (!rootNode) {

@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { toast } from 'vue-sonner';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
-  FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package,
+  FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package, FolderOutput,
   LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight, FolderSearch,
 } from 'lucide-vue-next';
 
@@ -19,6 +19,7 @@ const emit = defineEmits<{
   templates: [];
   import: [];
   importProject: [];
+  saveToProject: [];
   run: [];
   abort: [];
 }>();
@@ -219,6 +220,15 @@ async function onExportClaude() {
           </Button>
         </TooltipTrigger>
         <TooltipContent>Import from Project (.claude/)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="emit('saveToProject')">
+            <FolderOutput class="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Save to Project (.claude/)</TooltipContent>
       </Tooltip>
 
       <div class="mx-1 h-4 w-px bg-border" />

@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import archiver from 'archiver';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { exportGraphToClaude } from '../services/graph-exporter.js';
+import { generateMetadataForNodes } from '../services/metadata-generator.js';
+import type { MetadataGenerationInput } from '../services/metadata-generator.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -64,24 +66,48 @@ router.get('/', (req: AuthRequest, res) => {
 
 // ─── Project asset scanning helpers ─────────────────────────────────
 
-function parseFrontmatter(content: string): { fm: Record<string, string | string[]>; body: string } {
+type FmValue = string | string[] | Record<string, string>[];
+
+function parseFrontmatter(content: string): { fm: Record<string, FmValue>; body: string } {
   if (!content.startsWith('---\n')) return { fm: {}, body: content.trim() };
   const end = content.indexOf('\n---\n', 4);
   if (end === -1) return { fm: {}, body: content.trim() };
 
   const yamlStr = content.slice(4, end);
   const body = content.slice(end + 5).trim();
-  const fm: Record<string, string | string[]> = {};
+  const fm: Record<string, FmValue> = {};
   let currentArrayKey: string | null = null;
+  // Track whether the current array contains objects (e.g. capabilities)
+  let currentArrayIsObjects = false;
 
   for (const line of yamlStr.split('\n')) {
-    // Multi-line array item: "  - value"
+    // Multi-line array item: "  - key: value" (object) or "  - value" (string)
     if (currentArrayKey && /^\s+-\s+/.test(line)) {
       const item = line.replace(/^\s+-\s+/, '').trim();
-      (fm[currentArrayKey] as string[]).push(item);
+      // Check if this is an object item ("key: value")
+      const objMatch = item.match(/^([a-zA-Z_]\w*)\s*:\s*(.+)/);
+      if (objMatch) {
+        currentArrayIsObjects = true;
+        const arr = fm[currentArrayKey] as Record<string, string>[];
+        arr.push({ [objMatch[1]]: objMatch[2].trim() });
+      } else {
+        (fm[currentArrayKey] as string[]).push(item);
+      }
       continue;
     }
+    // Continuation of an object item: "    key: value" (indented but no dash)
+    if (currentArrayKey && currentArrayIsObjects && /^\s{4,}\S/.test(line)) {
+      const kvMatch = line.trim().match(/^([a-zA-Z_]\w*)\s*:\s*(.+)/);
+      if (kvMatch) {
+        const arr = fm[currentArrayKey] as Record<string, string>[];
+        if (arr.length > 0) {
+          arr[arr.length - 1][kvMatch[1]] = kvMatch[2].trim();
+        }
+        continue;
+      }
+    }
     currentArrayKey = null;
+    currentArrayIsObjects = false;
 
     const colonIdx = line.indexOf(':');
     if (colonIdx === -1) continue;
@@ -146,17 +172,39 @@ router.get('/project-assets', (req: AuthRequest, res) => {
           const content = readFileSync(join(agentsDir, file), 'utf8');
           const { fm, body } = parseFrontmatter(content);
           const slug = file.replace(/\.md$/, '');
-          const label = fm.name ? slugToLabel(fm.name) : slugToLabel(slug);
+          const label = fm.name ? slugToLabel(fm.name as string) : slugToLabel(slug);
           const toolsRaw = fm.tools || fm['allowed-tools'] || '';
           const disallowedRaw = fm.disallowedTools || '';
+
+          // Parse metadata fields from frontmatter
+          const tagsRaw = fm.tags || '';
+          const tags = Array.isArray(tagsRaw) ? tagsRaw as string[] : (typeof tagsRaw === 'string' && tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : []);
+          const fromRaw = fm.from || '';
+          const fromArr = Array.isArray(fromRaw) ? fromRaw as string[] : (typeof fromRaw === 'string' && fromRaw ? fromRaw.split(',').map(t => t.trim()).filter(Boolean) : []);
+          const toRaw = fm.to || '';
+          const toArr = Array.isArray(toRaw) ? toRaw as string[] : (typeof toRaw === 'string' && toRaw ? toRaw.split(',').map(t => t.trim()).filter(Boolean) : []);
+          const domain = (fm.domain as string) || 'general';
+          const capabilitiesRaw = fm.capabilities;
+          const capabilities = Array.isArray(capabilitiesRaw)
+            ? (capabilitiesRaw as Record<string, string>[]).map(c => ({
+                id: c.id || '',
+                description: c.description || '',
+              })).filter(c => c.id)
+            : [];
+
+          const metadata = (tags.length || fromArr.length || toArr.length || capabilities.length || domain !== 'general')
+            ? { metadataVersion: 1 as const, tags, domain, from: fromArr, to: toArr, capabilities }
+            : undefined;
+
           result.agents.push({
             label,
             description: fm.description || '',
             model: reverseMapModel((fm.model as string) || 'sonnet'),
             systemPrompt: body,
-            allowedTools: Array.isArray(toolsRaw) ? toolsRaw : (toolsRaw ? toolsRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
-            disallowedTools: Array.isArray(disallowedRaw) ? disallowedRaw : (disallowedRaw ? disallowedRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
+            allowedTools: Array.isArray(toolsRaw) ? toolsRaw as string[] : (typeof toolsRaw === 'string' && toolsRaw ? toolsRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
+            disallowedTools: Array.isArray(disallowedRaw) ? disallowedRaw as string[] : (typeof disallowedRaw === 'string' && disallowedRaw ? disallowedRaw.split(',').map(t => t.trim()).filter(Boolean) : []),
             permissionMode: (fm.permissionMode as string) || 'bypassPermissions',
+            ...(metadata ? { metadata } : {}),
           });
         } catch { /* skip unreadable */ }
       }
@@ -360,6 +408,56 @@ router.post('/export-claude', (req: AuthRequest, res) => {
   }
 });
 
+// ─── Save to project directory ──────────────────────────────────────────
+
+router.post('/save-to-project', (req: AuthRequest, res) => {
+  try {
+    const { graphData, name, projectPath, preview } = req.body;
+    if (!graphData?.nodes || !graphData?.edges) {
+      res.status(400).json({ error: 'graphData with nodes and edges is required' });
+      return;
+    }
+    if (!projectPath || typeof projectPath !== 'string') {
+      res.status(400).json({ error: 'projectPath is required' });
+      return;
+    }
+
+    const files = exportGraphToClaude(graphData, name || 'Untitled Graph');
+
+    // Skip README — not needed when saving in-place
+    const filtered = files.filter(f => f.path !== 'README.md');
+
+    const fileInfos = filtered.map(f => {
+      const fullPath = join(projectPath, f.path);
+      return { path: f.path, exists: existsSync(fullPath), content: f.content };
+    });
+
+    if (preview) {
+      res.json({ files: fileInfos.map(({ path, exists }) => ({ path, exists })) });
+      return;
+    }
+
+    const written: string[] = [];
+    const overwritten: string[] = [];
+
+    for (const f of fileInfos) {
+      const fullPath = join(projectPath, f.path);
+      mkdirSync(dirname(fullPath), { recursive: true });
+      if (f.exists) {
+        overwritten.push(f.path);
+      } else {
+        written.push(f.path);
+      }
+      writeFileSync(fullPath, f.content, 'utf8');
+    }
+
+    res.json({ ok: true, written, overwritten });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Save to project failed';
+    res.status(500).json({ error: msg });
+  }
+});
+
 // ─── AI prompt generation ───────────────────────────────────────────────
 
 interface PromptGenInput {
@@ -474,6 +572,7 @@ Rules:
 }
 
 router.post('/generate-prompt', async (req: AuthRequest, res) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const { nodeType } = req.body;
     if (!nodeType) {
@@ -523,6 +622,48 @@ router.post('/generate-prompt', async (req: AuthRequest, res) => {
       res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
       res.end();
     }
+  }
+});
+
+// ── POST /generate-metadata — auto-generate metadata for agent nodes ──
+
+router.post('/generate-metadata', async (req: AuthRequest, res) => {
+  try {
+    const { graphData, projectPath } = req.body;
+    if (!graphData?.nodes) {
+      res.status(400).json({ error: 'graphData with nodes is required' });
+      return;
+    }
+
+    const cwd = projectPath || process.cwd();
+
+    // Extract agent/subagent/expert nodes as generation inputs
+    const executableTypes = new Set(['agent', 'subagent', 'expert']);
+    const inputs: MetadataGenerationInput[] = graphData.nodes
+      .filter((n: Record<string, unknown>) => executableTypes.has(n.type as string))
+      .map((n: Record<string, unknown>) => {
+        const data = n.data as Record<string, unknown>;
+        return {
+          nodeId: n.id as string,
+          label: (data.label as string) || '',
+          description: (data.description as string) || undefined,
+          systemPrompt: (data.systemPrompt as string) || undefined,
+          specialty: (data.specialty as string) || undefined,
+          taskDescription: (data.taskDescription as string) || undefined,
+          nodeType: n.type as string,
+        };
+      });
+
+    if (inputs.length === 0) {
+      res.json({ results: [] });
+      return;
+    }
+
+    const results = await generateMetadataForNodes(inputs, cwd);
+    res.json({ results });
+  } catch (err) {
+    console.error('[graphs] generate-metadata error:', err);
+    res.status(500).json({ error: 'Failed to generate metadata' });
   }
 });
 

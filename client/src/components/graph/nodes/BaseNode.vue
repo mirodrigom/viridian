@@ -5,7 +5,7 @@ import type { NodeData } from '@/types/graph';
 import { NODE_CONFIG, CONNECTION_RULES } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
-import { X, Loader2, CheckCircle, XCircle } from 'lucide-vue-next';
+import { X, Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
@@ -31,6 +31,14 @@ const hasRunningParent = computed(() => {
   return graph.edges.some(
     e => e.target === props.id && runner.activeNodeIds.has(e.source),
   );
+});
+
+// Missing system prompt warning for agent/subagent/expert
+const PROMPT_TYPES = new Set(['agent', 'subagent', 'expert']);
+const missingPrompt = computed(() => {
+  if (!PROMPT_TYPES.has(props.data.nodeType)) return false;
+  const prompt = (props.data as Record<string, unknown>).systemPrompt as string | undefined;
+  return !prompt || prompt.trim() === '';
 });
 
 // Determine which source handles this node type has
@@ -95,6 +103,7 @@ function onDelete() {
     class="relative min-w-[200px] max-w-[280px] rounded-lg border bg-card text-card-foreground shadow-md transition-all"
     :class="[
       selected ? 'ring-2 ring-primary shadow-lg shadow-primary/10' : 'hover:shadow-lg',
+      missingPrompt && !execStatus ? 'border-yellow-500/40' : '',
       execStatus === 'running' ? 'ring-2 ring-yellow-500/70 shadow-lg shadow-yellow-500/10 exec-pulse' : '',
       execStatus === 'delegated' ? 'ring-1 ring-blue-400/40 border-dashed shadow-md shadow-blue-400/5 delegated-pulse' : '',
       execStatus === 'completed' ? 'ring-2 ring-green-500/50 shadow-lg shadow-green-500/10' : '',
@@ -103,7 +112,16 @@ function onDelete() {
     ]"
     @click="execStatus ? runner.selectExecution(id) : undefined"
   >
-    <!-- Execution status badge -->
+    <!-- Missing prompt warning badge (top-left) -->
+    <div
+      v-if="missingPrompt && !execStatus"
+      class="absolute -left-1.5 -top-1.5 z-10"
+      title="Missing system prompt"
+    >
+      <AlertTriangle class="h-4 w-4 text-yellow-500 drop-shadow" />
+    </div>
+
+    <!-- Execution status badge (top-right) -->
     <div v-if="execStatus" class="absolute -right-1.5 -top-1.5 z-10">
       <Loader2 v-if="execStatus === 'running'" class="h-4 w-4 animate-spin text-yellow-500 drop-shadow" />
       <div v-else-if="execStatus === 'delegated'" class="h-4 w-4 rounded-full border border-blue-400/50 bg-blue-400/10 animate-pulse" />

@@ -25,6 +25,7 @@ import RunGraphDialog from './dialogs/RunGraphDialog.vue';
 import TemplatesDialog from './dialogs/TemplatesDialog.vue';
 import ImportGraphDialog from './dialogs/ImportGraphDialog.vue';
 import ImportProjectAssetsDialog from './dialogs/ImportProjectAssetsDialog.vue';
+import SaveToProjectDialog from './dialogs/SaveToProjectDialog.vue';
 
 import AgentNode from './nodes/AgentNode.vue';
 import SubagentNode from './nodes/SubagentNode.vue';
@@ -49,6 +50,7 @@ const showRunDialog = ref(false);
 const showTemplatesDialog = ref(false);
 const showImportDialog = ref(false);
 const showImportProjectDialog = ref(false);
+const showSaveToProject = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 
 // Mobile responsive
@@ -241,18 +243,20 @@ function isValidConnection(connection: Connection): boolean {
   <div class="flex h-full flex-col">
     <!-- Desktop layout -->
     <ResizablePanelGroup v-if="!isMobile" direction="horizontal" class="flex-1">
-      <!-- Left sidebar: Palette + Properties -->
-      <ResizablePanel :default-size="runner.showRunnerPanel ? 14 : 16" :min-size="12" :max-size="25">
+      <!-- Left sidebar: Palette only -->
+      <ResizablePanel :default-size="12" :min-size="10" :max-size="18">
         <div class="flex h-full flex-col border-r border-border">
           <GraphPalette />
-          <GraphPropertiesPanel v-if="graph.selectedNode" class="flex-1" />
         </div>
       </ResizablePanel>
 
       <ResizableHandle />
 
       <!-- Canvas -->
-      <ResizablePanel :default-size="runner.showRunnerPanel ? 60 : 84" :min-size="35">
+      <ResizablePanel
+        :default-size="graph.selectedNode ? (runner.showRunnerPanel ? 46 : 68) : (runner.showRunnerPanel ? 62 : 88)"
+        :min-size="30"
+      >
         <div class="flex h-full flex-col">
           <GraphToolbar
             @fit-view="fitView()"
@@ -261,6 +265,7 @@ function isValidConnection(connection: Connection): boolean {
             @templates="showTemplatesDialog = true"
             @import="showImportDialog = true"
             @import-project="showImportProjectDialog = true"
+            @save-to-project="showSaveToProject = true"
             @run="showRunDialog = true"
             @abort="abortRun()"
           />
@@ -303,6 +308,14 @@ function isValidConnection(connection: Connection): boolean {
         </div>
       </ResizablePanel>
 
+      <!-- Right sidebar: Properties Panel (when node selected) -->
+      <template v-if="graph.selectedNode">
+        <ResizableHandle />
+        <ResizablePanel :default-size="20" :min-size="15" :max-size="30">
+          <GraphPropertiesPanel class="h-full" />
+        </ResizablePanel>
+      </template>
+
       <!-- Right sidebar: Runner Panel (collapsed by default) -->
       <template v-if="runner.showRunnerPanel">
         <ResizableHandle />
@@ -322,6 +335,7 @@ function isValidConnection(connection: Connection): boolean {
           @load="showLoadDialog = true"
           @templates="showTemplatesDialog = true"
           @import="showImportDialog = true"
+          @save-to-project="showSaveToProject = true"
           @run="showRunDialog = true"
           @abort="abortRun()"
         />
@@ -428,6 +442,7 @@ function isValidConnection(connection: Connection): boolean {
     <TemplatesDialog v-model:open="showTemplatesDialog" />
     <ImportGraphDialog v-model:open="showImportDialog" />
     <ImportProjectAssetsDialog v-model:open="showImportProjectDialog" :cwd="chat.projectPath || ''" />
+    <SaveToProjectDialog v-model:open="showSaveToProject" />
   </div>
 </template>
 

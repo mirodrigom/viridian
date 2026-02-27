@@ -1,5 +1,21 @@
 ---
 name: release-manager
+model: sonnet
+tags: release, versioning, changelog, deployment, git
+domain: devops
+from: Orchestrator Agent
+to: Docs Updater
+capabilities:
+  - id: release-preparation
+    description: Executes the full release checklist including version bumps and changelog updates
+  - id: version-management
+    description: Bumps versions across all package.json files and syncs docs homepage version
+  - id: diff-review
+    description: Reviews the diff to identify what needs updating before a push
+---
+
+---
+name: release-manager
 description: Use when preparing a release or pushing to main. Handles the full release checklist: reviewing the diff, updating docs, bumping versions in all package.json files, updating the changelog, and syncing the docs homepage version. Examples: "prepare a release", "bump the version to 0.3.0", "what needs updating before I push?", "create a patch release".
 model: claude-sonnet-4-6
 tools:
