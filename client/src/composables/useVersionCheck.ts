@@ -1,7 +1,6 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { apiFetch } from '@/lib/apiFetch';
 
-const GITHUB_REPO = 'mirodrigom/viridian';
 const CHECK_INTERVAL = 12 * 60 * 60 * 1000; // 12 hours
 const DISMISSED_KEY = 'version-update-dismissed';
 
@@ -25,10 +24,9 @@ export function useVersionCheck() {
 
   async function checkForUpdates() {
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
-        { headers: { Accept: 'application/vnd.github.v3+json' } },
-      );
+      // Use the server-side proxy to avoid CORS / 404 console noise
+      // from direct GitHub API calls to private or release-less repos.
+      const res = await apiFetch(`/api/version/latest`);
       if (!res.ok) return;
       const data = await res.json();
       const tag = (data.tag_name || '').replace(/^v/, '');

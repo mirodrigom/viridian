@@ -82,6 +82,34 @@ app.get('/api/version', (_req, res) => {
   res.json({ version: appVersion });
 });
 
+// Server-side GitHub release check – avoids browser console 404 noise
+// when the repo is private or has no published releases.
+const GITHUB_REPO = 'mirodrigom/viridian';
+let cachedLatestRelease: { tag_name?: string; fetchedAt: number } = { fetchedAt: 0 };
+const RELEASE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+app.get('/api/version/latest', async (_req, res) => {
+  try {
+    const now = Date.now();
+    if (now - cachedLatestRelease.fetchedAt < RELEASE_CACHE_TTL && cachedLatestRelease.tag_name) {
+      return res.json({ tag_name: cachedLatestRelease.tag_name });
+    }
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+      { headers: { Accept: 'application/vnd.github.v3+json' } },
+    );
+    if (!ghRes.ok) {
+      cachedLatestRelease = { fetchedAt: now };
+      return res.json({});
+    }
+    const data = await ghRes.json() as { tag_name?: string };
+    cachedLatestRelease = { tag_name: data.tag_name, fetchedAt: now };
+    res.json({ tag_name: data.tag_name });
+  } catch {
+    res.json({});
+  }
+});
+
 app.get('/api/me', authMiddleware, (req, res) => {
   const authReq = req as import('./middleware/auth.js').AuthRequest;
   res.json({ user: authReq.user });

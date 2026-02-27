@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { apiFetch } from '@/lib/apiFetch';
 import { useGraphStore } from '@/stores/graph';
@@ -8,6 +8,50 @@ import { useProviderStore } from '@/stores/provider';
 import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
 import type { RouteLocationNormalized } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
+import ViridianLogo from '@/components/icons/ViridianLogo.vue';
+import { Loader2 } from 'lucide-vue-next';
+
+// Fun loading messages shown while the project workspace initializes
+const loadingMessages = [
+  'Scanning the codebase...',
+  'Reading every single file (just kidding)...',
+  'Counting semicolons...',
+  'Untangling spaghetti code...',
+  'Asking the rubber duck for advice...',
+  'Compiling excuses for tech debt...',
+  'Negotiating with the git history...',
+  'Warming up the AI hamster wheel...',
+  'Translating code from human to machine...',
+  'Searching for missing semicolons...',
+  'Optimizing the coffee-to-code ratio...',
+  'Bribing the linter...',
+  'Refactoring the refactoring...',
+  'Checking if it works on my machine...',
+  'Deploying butterflies for the butterfly effect...',
+  'Convincing TypeScript everything is fine...',
+  'Feeding the neural networks...',
+  'Downloading more RAM...',
+];
+const currentLoadingMsg = ref(loadingMessages[Math.floor(Math.random() * loadingMessages.length)]);
+let loadingMsgTimer: ReturnType<typeof setInterval> | null = null;
+
+function startLoadingMessages() {
+  currentLoadingMsg.value = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+  loadingMsgTimer = setInterval(() => {
+    let next: string;
+    do {
+      next = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+    } while (next === currentLoadingMsg.value && loadingMessages.length > 1);
+    currentLoadingMsg.value = next;
+  }, 2500);
+}
+function stopLoadingMessages() {
+  if (loadingMsgTimer) {
+    clearInterval(loadingMsgTimer);
+    loadingMsgTimer = null;
+  }
+}
+onUnmounted(() => stopLoadingMessages());
 
 const chat = useChatStore();
 const graph = useGraphStore();
@@ -20,6 +64,13 @@ const router = useRouter();
 let loadAbort: AbortController | null = null;
 
 async function handleRoute(to: RouteLocationNormalized) {
+  // Show loading screen when first entering the project workspace
+  const isFirstLoad = !chat.isLoadingProject && to.name === 'project' && !to.params.sessionId;
+  if (isFirstLoad) {
+    chat.isLoadingProject = true;
+    startLoadingMessages();
+  }
+
   // Ensure a project path is set (falls back to /home if nothing stored)
   if (!chat.projectPath) {
     chat.setProjectPath('/home');
@@ -73,6 +124,14 @@ async function handleRoute(to: RouteLocationNormalized) {
         autopilot.selectedCycleNumber = Number(cycleNumber);
       }
     }
+  }
+
+  // Dismiss the loading screen with a minimum display time so it doesn't flash
+  if (isFirstLoad) {
+    setTimeout(() => {
+      chat.isLoadingProject = false;
+      stopLoadingMessages();
+    }, 1200);
   }
 }
 
@@ -152,5 +211,27 @@ async function loadSessionFromUrl(sessionId: string, signal?: AbortSignal) {
 </script>
 
 <template>
-  <AppLayout />
+  <!-- Project loading screen with rotating fun messages -->
+  <div v-if="chat.isLoadingProject" class="flex h-full items-center justify-center bg-background">
+    <div class="text-center">
+      <div class="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10">
+        <Loader2 class="h-10 w-10 animate-spin text-primary" />
+      </div>
+      <h2 class="mb-3 text-xl font-semibold text-foreground">Opening project</h2>
+      <Transition
+        mode="out-in"
+        enter-active-class="transition duration-300 ease-out"
+        enter-from-class="opacity-0 translate-y-1"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition duration-200 ease-in"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-1"
+      >
+        <p :key="currentLoadingMsg" class="text-sm text-muted-foreground">
+          {{ currentLoadingMsg }}
+        </p>
+      </Transition>
+    </div>
+  </div>
+  <AppLayout v-else />
 </template>

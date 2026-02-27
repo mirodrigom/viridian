@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { apiFetch } from '@/lib/apiFetch';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -7,6 +7,47 @@ import { Button } from '@/components/ui/button';
 import { useProviderLogo } from '@/composables/useProviderLogo';
 import { ArrowDown, Search, X, ChevronUp, ChevronDown, Loader2, CheckCircle2, Bug, Code2, Sparkles } from 'lucide-vue-next';
 import MessageBubble from './MessageBubble.vue';
+
+// Fun loading messages shown while a project/session is loading
+const loadingMessages = [
+  'Scanning the codebase...',
+  'Reading every single file (just kidding)...',
+  'Counting semicolons...',
+  'Untangling spaghetti code...',
+  'Asking the rubber duck for advice...',
+  'Compiling excuses for tech debt...',
+  'Negotiating with the git history...',
+  'Warming up the AI hamster wheel...',
+  'Translating code from human to machine...',
+  'Searching for missing semicolons...',
+  'Optimizing the coffee-to-code ratio...',
+  'Bribing the linter...',
+  'Refactoring the refactoring...',
+  'Checking if it works on my machine...',
+  'Deploying butterflies for the butterfly effect...',
+  'Convincing TypeScript everything is fine...',
+  'Feeding the neural networks...',
+  'Downloading more RAM...',
+];
+const currentLoadingMsg = ref(loadingMessages[Math.floor(Math.random() * loadingMessages.length)]);
+let loadingMsgTimer: ReturnType<typeof setInterval> | null = null;
+
+function startLoadingMessages() {
+  currentLoadingMsg.value = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+  loadingMsgTimer = setInterval(() => {
+    let next: string;
+    do {
+      next = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+    } while (next === currentLoadingMsg.value && loadingMessages.length > 1);
+    currentLoadingMsg.value = next;
+  }, 2500);
+}
+function stopLoadingMessages() {
+  if (loadingMsgTimer) {
+    clearInterval(loadingMsgTimer);
+    loadingMsgTimer = null;
+  }
+}
 import { playResponseCompleteSound } from '@/composables/useNotificationSound';
 
 const chat = useChatStore();
@@ -15,6 +56,14 @@ const scrollContainer = ref<any>(null);
 const showScrollBtn = ref(false);
 const isLoadingSession = ref(false); // Prevents handleScroll from overriding autoScroll during session load
 const isProgrammaticScroll = ref(false); // Prevents handleScroll from disabling autoScroll during programmatic scrolls
+
+// Toggle loading messages when isLoadingSession changes
+watch(() => chat.isLoadingSession, (loading) => {
+  if (loading) startLoadingMessages();
+  else stopLoadingMessages();
+}, { immediate: true });
+
+onUnmounted(() => stopLoadingMessages());
 
 // Search state
 const showSearch = ref(false);
@@ -102,7 +151,6 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
-import { onMounted, onUnmounted } from 'vue';
 onMounted(() => document.addEventListener('keydown', handleGlobalKeydown));
 onUnmounted(() => document.removeEventListener('keydown', handleGlobalKeydown));
 
@@ -154,6 +202,8 @@ watch(() => chat.isStreaming, (streaming) => {
     restoreTitle();
   } else if (hadStreaming) {
     hadStreaming = false;
+    // Don't fire completion when messages were cleared (session switch/new session)
+    if (chat.messages.length === 0) return;
     if (isAwaitingUserInput.value) {
       streamEndedWithPendingInput = true;
     } else {
@@ -449,8 +499,30 @@ onUnmounted(() => {
     </Transition>
 
     <ScrollArea ref="scrollContainer" class="h-full">
+      <!-- Loading project/session state -->
+      <div v-if="chat.isLoadingSession && chat.messages.length === 0" class="flex h-full items-center justify-center p-8">
+        <div class="text-center">
+          <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+            <Loader2 class="h-8 w-8 animate-spin text-primary" />
+          </div>
+          <h2 class="mb-2 text-lg font-semibold text-foreground">Loading project</h2>
+          <Transition
+            mode="out-in"
+            enter-active-class="transition duration-300 ease-out"
+            enter-from-class="opacity-0 translate-y-1"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition duration-200 ease-in"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 -translate-y-1"
+          >
+            <p :key="currentLoadingMsg" class="text-sm text-muted-foreground">
+              {{ currentLoadingMsg }}
+            </p>
+          </Transition>
+        </div>
+      </div>
       <!-- Empty state -->
-      <div v-if="chat.messages.length === 0 && !chat.isLoadingSession" class="flex h-full items-center justify-center p-8">
+      <div v-else-if="chat.messages.length === 0 && !chat.isLoadingSession" class="flex h-full items-center justify-center p-8">
         <div class="text-center">
           <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
             <component :is="activeLogo" :size="32" class="text-primary" />

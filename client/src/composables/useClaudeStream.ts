@@ -68,6 +68,12 @@ export function useClaudeStream() {
         awaitingNewSession = true;
         // Tell the server to detach the old emitter so stale events stop flowing
         send({ type: 'clear_session' });
+      } else if (oldId && newId && oldId !== newId) {
+        // sessionId changed directly from one session to another (e.g. loadSessionFromUrl
+        // calls clearMessages then immediately sets sessionId — Vue batches the intermediate
+        // null so the watcher sees A→B instead of A→null→B). Detach the old emitter.
+        send({ type: 'clear_session' });
+        awaitingNewSession = false;
       } else if (newId) {
         // sessionId was set (loading existing session or first response) — lift guard
         awaitingNewSession = false;

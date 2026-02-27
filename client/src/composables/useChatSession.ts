@@ -11,6 +11,7 @@ export interface TokenUsage {
  */
 export function useChatSession() {
   const isLoadingSession = ref(false);
+  const isLoadingProject = ref(false);
   const sessionId = ref<string | null>(sessionStorage.getItem('chat-sessionId'));
   const claudeSessionId = ref<string | null>(sessionStorage.getItem('chat-claudeSessionId'));
   const projectPath = ref<string | null>(sessionStorage.getItem('chat-projectPath'));
@@ -101,6 +102,7 @@ export function useChatSession() {
   return {
     // State
     isLoadingSession,
+    isLoadingProject,
     sessionId,
     claudeSessionId,
     projectPath,

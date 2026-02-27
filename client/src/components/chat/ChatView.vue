@@ -28,7 +28,7 @@ provide('sendSilentMessage', sendSilentMessage);
 const showToolsSettings = ref(false);
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
-const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') !== 'false');
+const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') === 'true');
 const isMobile = ref(false);
 
 // Persist traces sidebar state
