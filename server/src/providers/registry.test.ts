@@ -88,6 +88,7 @@ function createMockProvider(overrides: {
       description: `Mock ${name} provider`,
       website: `https://${id}.example.com`,
       binaryName: id,
+      installCommand: `npm install -g ${id}`,
     },
     models: [
       { id: `${id}-default`, label: `${name} Default`, description: 'Default model', isDefault: true },

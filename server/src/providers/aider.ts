@@ -47,6 +47,7 @@ const info: ProviderInfo = {
   binaryName: 'aider',
   envVarForPath: 'AIDER_PATH',
   installCommand: 'pip install -q uv && uv python install 3.12 && uv venv ~/.aider-venv --python 3.12 && uv pip install --python ~/.aider-venv/bin/python aider-chat && mkdir -p ~/.local/bin && ln -sf ~/.aider-venv/bin/aider ~/.local/bin/aider',
+  windowsInstallCommand: 'pip install -q uv && uv python install 3.12 && uv venv %USERPROFILE%\\.aider-venv --python 3.12 && uv pip install --python %USERPROFILE%\\.aider-venv\\Scripts\\python.exe aider-chat',
 };
 
 const models: ProviderModel[] = [

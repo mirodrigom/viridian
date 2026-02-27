@@ -24,7 +24,8 @@ export interface ProviderInfo {
   website: string;
   binaryName: string;        // CLI binary: "claude", "gemini", etc.
   envVarForPath?: string;    // Optional env var to override binary path
-  installCommand: string;    // Shell command to install the CLI
+  installCommand: string;    // Shell command to install the CLI (Unix default)
+  windowsInstallCommand?: string; // Optional Windows-specific install command
 }
 
 // ─── Models ─────────────────────────────────────────────────────────────

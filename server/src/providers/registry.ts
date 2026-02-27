@@ -6,6 +6,7 @@
  */
 
 import type { IProvider, ProviderId, ProviderInfoDTO } from './types.js';
+import { isWindows } from '../utils/platform.js';
 
 const providers = new Map<ProviderId, IProvider>();
 
@@ -60,6 +61,6 @@ export function getProviderDTOs(): ProviderInfoDTO[] {
     capabilities: p.capabilities,
     available: (() => { try { return p.isAvailable(); } catch { return false; } })(),
     configured: (() => { try { return p.isConfigured().configured; } catch { return true; } })(),
-    installCommand: p.info.installCommand,
+    installCommand: (isWindows && p.info.windowsInstallCommand) || p.info.installCommand,
   }));
 }

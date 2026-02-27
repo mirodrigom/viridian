@@ -33,7 +33,7 @@ import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { v4 as uuid } from 'uuid';
-import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths, findBinaryInWSL, isWindows } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -46,6 +46,7 @@ const info: ProviderInfo = {
   binaryName: 'opencode',
   envVarForPath: 'OPENCODE_PATH',
   installCommand: 'curl -fsSL https://opencode.ai/install | bash',
+  windowsInstallCommand: 'wsl bash -c "curl -fsSL https://opencode.ai/install | bash"',
 };
 
 const models: ProviderModel[] = [
@@ -94,8 +95,16 @@ function findOpenCodeBinary(): string {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
   }
 
+  // On Windows, try WSL as a last resort (OpenCode installer doesn't support MINGW64)
+  if (isWindows) {
+    const wslPath = findBinaryInWSL('opencode');
+    if (wslPath) { resolvedPath = wslPath; return resolvedPath; }
+  }
+
   throw new Error(
-    'OpenCode binary not found. Install it with: curl -fsSL https://opencode.ai/install | bash, or set OPENCODE_PATH env var.',
+    isWindows
+      ? 'OpenCode binary not found. On Windows, install via WSL: wsl bash -c "curl -fsSL https://opencode.ai/install | bash", or set OPENCODE_PATH env var.'
+      : 'OpenCode binary not found. Install it with: curl -fsSL https://opencode.ai/install | bash, or set OPENCODE_PATH env var.',
   );
 }
 

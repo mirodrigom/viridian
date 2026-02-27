@@ -112,6 +112,35 @@ export function cwdToHash(cwd: string): string {
 }
 
 /**
+ * Find a binary inside WSL — useful for tools installed via `curl | bash`
+ * that don't have native Windows installers.
+ *
+ * Returns the full Windows path to a WSL wrapper command, or null.
+ */
+export function findBinaryInWSL(name: string): string | null {
+  if (!isWindows) return null;
+  try {
+    const result = execSync(`wsl which ${name} 2>/dev/null`, { encoding: 'utf8' }).trim();
+    return result ? `wsl ${name}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if WSL is available on this Windows machine.
+ */
+export function isWSLAvailable(): boolean {
+  if (!isWindows) return false;
+  try {
+    execSync('wsl --status 2>NUL', { encoding: 'utf8', timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Common binary search paths — extends PATH-based lookup with well-known locations.
  * Returns an array of candidate paths to check with existsSync().
  */

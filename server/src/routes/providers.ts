@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { authMiddleware } from '../middleware/auth.js';
-import { getHomeDir, getDefaultShell, isWindows } from '../utils/platform.js';
+import { getHomeDir, getDefaultShell, isWindows, isWSLAvailable } from '../utils/platform.js';
 import { getProviderDTOs, getProvider } from '../providers/registry.js';
 import { saveProviderConfig, getProviderConfig, deleteProviderEnvVar } from '../db/database.js';
 import type { ProviderId } from '../providers/types.js';
@@ -127,7 +127,19 @@ router.post('/:id/install', (req, res) => {
       return;
     }
 
-    const cmd = provider.info.installCommand;
+    const cmd = (isWindows && provider.info.windowsInstallCommand)
+      ? provider.info.windowsInstallCommand
+      : provider.info.installCommand;
+
+    // Check if the Windows command requires WSL and it's not available
+    if (isWindows && cmd.startsWith('wsl ') && !isWSLAvailable()) {
+      res.status(500).json({
+        success: false,
+        output: `${provider.info.name} requires WSL (Windows Subsystem for Linux) to install on Windows.\n\nTo set up WSL, run in PowerShell as Administrator:\n  wsl --install\n\nThen restart your computer and try again.`,
+      });
+      return;
+    }
+
     const shell = getDefaultShell();
     const shellArgs = isWindows && !shell.includes('bash') ? ['/c', cmd] : ['-c', cmd];
     const proc = spawn(shell, shellArgs, {

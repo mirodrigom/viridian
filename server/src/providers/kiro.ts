@@ -31,7 +31,7 @@ import { registerProvider } from './registry.js';
 import { spawn, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths } from '../utils/platform.js';
+import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths, findBinaryInWSL, isWindows } from '../utils/platform.js';
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -44,6 +44,7 @@ const info: ProviderInfo = {
   binaryName: 'kiro-cli',
   envVarForPath: 'KIRO_PATH',
   installCommand: 'curl -fsSL https://cli.kiro.dev/install | bash',
+  windowsInstallCommand: 'wsl bash -c "curl -fsSL https://cli.kiro.dev/install | bash"',
 };
 
 const models: ProviderModel[] = [
@@ -91,8 +92,16 @@ function findKiroBinary(): string {
     if (existsSync(p)) { resolvedPath = p; return resolvedPath; }
   }
 
+  // On Windows, try WSL as a last resort (Kiro CLI doesn't have a native Windows installer)
+  if (isWindows) {
+    const wslPath = findBinaryInWSL('kiro-cli');
+    if (wslPath) { resolvedPath = wslPath; return resolvedPath; }
+  }
+
   throw new Error(
-    'Kiro CLI binary not found. Install it with: curl -fsSL https://cli.kiro.dev/install | bash, or set KIRO_PATH env var.',
+    isWindows
+      ? 'Kiro CLI binary not found. On Windows, install via WSL: wsl bash -c "curl -fsSL https://cli.kiro.dev/install | bash", or set KIRO_PATH env var.'
+      : 'Kiro CLI binary not found. Install it with: curl -fsSL https://cli.kiro.dev/install | bash, or set KIRO_PATH env var.',
   );
 }
 
