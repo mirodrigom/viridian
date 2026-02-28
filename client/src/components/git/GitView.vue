@@ -350,39 +350,40 @@ function formatDate(dateStr: string) {
 
     <!-- Controls view -->
     <div v-if="mobileView === 'controls'" class="flex flex-1 flex-col overflow-hidden">
-      <!-- Remote operations -->
-      <div class="flex items-center gap-1 border-b border-border px-3 py-1.5">
-        <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doFetch">
-          <Download class="h-3 w-3" /> Fetch
-        </Button>
-        <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doPull">
-          <ArrowDownToLine class="h-3 w-3" /> Pull
-        </Button>
-        <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doPush">
-          <ArrowUpFromLine class="h-3 w-3" /> Push
-        </Button>
-        <Loader2 v-if="git.remoteLoading" class="ml-auto h-3.5 w-3.5 animate-spin text-muted-foreground" />
-      </div>
-
-      <!-- Commit input -->
-      <div class="shrink-0 border-b border-border p-3">
-        <div class="mb-2">
-          <Textarea v-model="git.commitMessage" placeholder="Commit message..." class="min-h-[60px] resize-none text-sm" rows="2" />
-        </div>
-        <div class="flex gap-1.5">
-          <Button size="sm" class="flex-1" :disabled="!git.commitMessage.trim() || git.staged.length === 0" @click="git.doCommit">
-            Commit
-            <Badge v-if="git.staged.length > 0" variant="secondary" class="ml-1.5 h-4 px-1 text-[10px]">{{ git.staged.length }}</Badge>
-          </Button>
-          <Button variant="outline" size="sm" class="gap-1" :disabled="git.staged.length === 0 || git.generatingMessage" @click="git.generateCommitMessage">
-            <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
-            <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
-          </Button>
-        </div>
-      </div>
-
-      <!-- Scrollable: file list + branches + history -->
+      <!-- Single scrollable area for all controls on mobile -->
       <ScrollArea class="min-h-0 flex-1">
+        <!-- Remote operations -->
+        <div class="flex items-center gap-1 border-b border-border px-3 py-1.5">
+          <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doFetch">
+            <Download class="h-3 w-3" /> Fetch
+          </Button>
+          <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doPull">
+            <ArrowDownToLine class="h-3 w-3" /> Pull
+          </Button>
+          <Button variant="ghost" size="sm" class="h-7 gap-1 px-2 text-xs" :disabled="git.remoteLoading" @click="git.doPush">
+            <ArrowUpFromLine class="h-3 w-3" /> Push
+          </Button>
+          <Loader2 v-if="git.remoteLoading" class="ml-auto h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        </div>
+
+        <!-- Commit input -->
+        <div class="border-b border-border p-3">
+          <div class="mb-2">
+            <Textarea v-model="git.commitMessage" placeholder="Commit message..." class="min-h-[60px] resize-none text-sm" rows="2" />
+          </div>
+          <div class="flex gap-1.5">
+            <Button size="sm" class="flex-1" :disabled="!git.commitMessage.trim() || git.staged.length === 0" @click="git.doCommit">
+              Commit
+              <Badge v-if="git.staged.length > 0" variant="secondary" class="ml-1.5 h-4 px-1 text-[10px]">{{ git.staged.length }}</Badge>
+            </Button>
+            <Button variant="outline" size="sm" class="gap-1" :disabled="git.staged.length === 0 || git.generatingMessage" @click="git.generateCommitMessage">
+              <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
+              <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
+            </Button>
+          </div>
+        </div>
+
+        <!-- File status list -->
         <div class="border-b border-border p-3" @click="selectFileAndShowDiff">
           <GitStatus />
         </div>

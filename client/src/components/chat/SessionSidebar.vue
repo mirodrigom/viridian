@@ -158,7 +158,7 @@ async function deleteSession() {
       return;
     }
     sessions.value = sessions.value.filter(s => s.id !== session.id);
-    if (chat.sessionId === session.id) {
+    if (sidebarSessionId.value === session.id) {
       chat.clearMessages();
       router.replace({ name: 'project' });
     }
@@ -217,10 +217,13 @@ const filteredSessions = computed((): SessionItem[] => {
   return sortedSessions.value.filter(s => s.title.toLowerCase().includes(q));
 });
 
+// Session ID that matches the REST API format (JSONL filename = claudeSessionId)
+const sidebarSessionId = computed(() => chat.claudeSessionId || chat.sessionId);
+
 const hasUnsavedSession = computed(() => {
   if (!chat.messages.length) return false;
-  if (chat.sessionId) {
-    return !sessions.value.some(s => s.id === chat.sessionId);
+  if (sidebarSessionId.value) {
+    return !sessions.value.some(s => s.id === sidebarSessionId.value);
   }
   return true;
 });
@@ -265,7 +268,7 @@ function connectSessionsWs() {
         } | undefined;
 
         if (changed && changed.eventType === 'change') {
-          const match = changed.sessionId === chat.sessionId && changed.projectDir === chat.activeProjectDir;
+          const match = changed.sessionId === sidebarSessionId.value && changed.projectDir === chat.activeProjectDir;
           if (match && !chat.isStreaming) {
             fetchNewMessages(changed.projectDir);
           }
@@ -362,18 +365,18 @@ onUnmounted(() => {
         :key="session.id"
         class="group flex w-full cursor-pointer items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-accent"
         :class="{
-          'bg-accent/80 border-l-2 border-l-primary shadow-sm': session.id === chat.sessionId && !hasUnsavedSession,
-          'border-l-2 border-l-transparent': session.id !== chat.sessionId || hasUnsavedSession,
+          'bg-accent/80 border-l-2 border-l-primary shadow-sm': session.id === sidebarSessionId && !hasUnsavedSession,
+          'border-l-2 border-l-transparent': session.id !== sidebarSessionId || hasUnsavedSession,
         }"
         @click="resumeSession(session)"
       >
-        <Loader2 v-if="session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <Loader2 v-if="session.isStreaming || (chat.isStreaming && session.id === sidebarSessionId)" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         <MessageSquare v-else class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-xs text-foreground" :title="session.title">{{ session.title }}</p>
           <p class="flex items-center gap-1 text-[10px] text-muted-foreground">
             <Clock class="h-2.5 w-2.5" />
-            {{ (session.isStreaming || (chat.isStreaming && session.id === chat.sessionId)) ? 'Working...' : formatRelativeTime(session.lastActive) }}
+            {{ (session.isStreaming || (chat.isStreaming && session.id === sidebarSessionId)) ? 'Working...' : formatRelativeTime(session.lastActive) }}
           </p>
         </div>
         <div class="flex items-center gap-1">

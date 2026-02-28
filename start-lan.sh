@@ -15,20 +15,13 @@ fi
 # ── Bootstrap (runs setup.sh if anything is missing) ─────────────────────────
 bash "$SCRIPT_DIR/setup.sh"
 
-# Detect local IP — cross-platform via Node.js
-LAN_IP=$(node -e "
-const os = require('os');
-const nets = os.networkInterfaces();
-for (const name of Object.keys(nets)) {
-  for (const net of nets[name]) {
-    if (net.family === 'IPv4' && !net.internal) {
-      console.log(net.address);
-      process.exit(0);
-    }
-  }
-}
-console.log('127.0.0.1');
-")
+# Detect local IP
+if [ -f /.flatpak-info ]; then
+  LAN_IP=$(flatpak-spawn --host hostname -I 2>/dev/null | awk '{print $1}')
+else
+  LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+fi
+LAN_IP="${LAN_IP:-127.0.0.1}"
 
 
 # Server config
@@ -56,11 +49,20 @@ echo "============================================"
 echo ""
 
 # Start Langfuse — detect podman-compose or docker compose
+# When inside Flatpak, detect container runtimes on the HOST (not the sandbox)
 COMPOSE_CMD=""
-if command -v podman-compose &>/dev/null; then
-  COMPOSE_CMD="podman-compose"
-elif command -v docker &>/dev/null; then
-  COMPOSE_CMD="docker compose"
+if [ -f /.flatpak-info ]; then
+  if flatpak-spawn --host which podman-compose &>/dev/null; then
+    COMPOSE_CMD="podman-compose"
+  elif flatpak-spawn --host which docker &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+  fi
+else
+  if command -v podman-compose &>/dev/null; then
+    COMPOSE_CMD="podman-compose"
+  elif command -v docker &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+  fi
 fi
 
 if [ -n "$COMPOSE_CMD" ]; then
