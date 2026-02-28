@@ -14,6 +14,7 @@ import {
   getServiceStatus,
   getRunningEntry,
 } from '../services/project-manager.js';
+import { bootstrapProject } from '../services/project-bootstrap.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -229,6 +230,19 @@ router.put('/env', (req: AuthRequest, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to write file' });
+  }
+});
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+
+router.post('/bootstrap', (req: AuthRequest, res) => {
+  const { projectPath } = req.body as { projectPath?: string };
+  if (!projectPath) { res.status(400).json({ error: 'projectPath is required' }); return; }
+  try {
+    const result = bootstrapProject(req.user!.id, projectPath);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Bootstrap failed' });
   }
 });
 

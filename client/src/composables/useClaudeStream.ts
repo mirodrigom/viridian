@@ -29,6 +29,14 @@ export function useClaudeStream() {
 
   // Hoisted so cleanup() can clear it
   let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  let watchdogGraceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelWatchdogGrace() {
+    if (watchdogGraceTimer) {
+      clearTimeout(watchdogGraceTimer);
+      watchdogGraceTimer = null;
+    }
+  }
 
   /** Snapshot the active provider's id/name/icon at the moment a message is created.
    *  Stored directly on the message so the display never changes after the fact,
@@ -66,13 +74,19 @@ export function useClaudeStream() {
       if (oldId && !newId) {
         // sessionId went from something to null (clearMessages) — enable guard
         awaitingNewSession = true;
-        // Tell the server to detach the old emitter so stale events stop flowing
-        send({ type: 'clear_session' });
+        // Tell the server to detach the old emitter so stale events stop flowing.
+        // Suppressed during session reload (clear+re-set same session) to avoid
+        // detaching the emitter that check_session just wired up.
+        if (!chat.suppressClearSession) {
+          send({ type: 'clear_session' });
+        }
       } else if (oldId && newId && oldId !== newId) {
         // sessionId changed directly from one session to another (e.g. loadSessionFromUrl
         // calls clearMessages then immediately sets sessionId — Vue batches the intermediate
         // null so the watcher sees A→B instead of A→null→B). Detach the old emitter.
-        send({ type: 'clear_session' });
+        if (!chat.suppressClearSession) {
+          send({ type: 'clear_session' });
+        }
         awaitingNewSession = false;
       } else if (newId) {
         // sessionId was set (loading existing session or first response) — lift guard
@@ -90,10 +104,18 @@ export function useClaudeStream() {
     // watchdog checks just verify liveness and should fall back to fetchMissedMessages.
     let pendingReconnectCheck = false;
 
+    // Track whether the last check_session was sent by the periodic watchdog timer.
+    // The server's isStreaming can briefly be false between tool turns (result -> next
+    // sendMessage). Watchdog hitting this gap returns isStreaming: false prematurely.
+    // We apply a grace period for watchdog-sourced checks to avoid false "Response complete".
+    let pendingWatchdogCheck = false;
+    const WATCHDOG_GRACE_PERIOD = 5_000;
+
     watch(() => chat.isStreaming, (streaming) => {
       if (streaming && !wsStreamActive && activeSessionId && connected.value) {
         // Streaming was activated externally (REST API) — send check_session
         // to wire up the WebSocket listener for the ongoing stream.
+        pendingWatchdogCheck = false;
         send({ type: 'check_session', sessionId: activeSessionId });
       }
       if (!streaming) {
@@ -130,6 +152,7 @@ export function useClaudeStream() {
             // Mark as a reconnect check so session_status knows to do a full reload
             // if the session is still streaming (we may have missed events during disconnect).
             pendingReconnectCheck = isReconnect;
+            pendingWatchdogCheck = false;
             send({ type: 'check_session', sessionId: chat.sessionId });
           }
         }
@@ -147,6 +170,7 @@ export function useClaudeStream() {
       if (chat.isStreaming && connected.value && activeSessionId) {
         const elapsed = Date.now() - lastStreamActivity;
         if (elapsed > STREAM_INACTIVITY_THRESHOLD) {
+          pendingWatchdogCheck = true;
           send({ type: 'check_session', sessionId: activeSessionId });
         }
       }
@@ -159,6 +183,7 @@ export function useClaudeStream() {
 
     on('stream_start', (data: unknown) => {
       const d = (data || {}) as { sessionId?: string; provider?: string };
+      cancelWatchdogGrace();
       // On stream_start, adopt the session ID (for new sessions where chat.sessionId is still null)
       if (d.sessionId) {
         activeSessionId = d.sessionId;
@@ -192,6 +217,7 @@ export function useClaudeStream() {
 
     on('stream_delta', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      cancelWatchdogGrace();
       touchStreamActivity();
       const d = data as { text?: string };
       if (!d?.text) return; // malformed event tolerance
@@ -222,6 +248,7 @@ export function useClaudeStream() {
 
     on('stream_end', (data: unknown) => {
       if (!isForCurrentSession(data)) return;
+      cancelWatchdogGrace();
       needsNewAssistantMsg = false;
       const d = data as {
         sessionId?: string;
@@ -325,8 +352,8 @@ export function useClaudeStream() {
       // In other modes, tools start as 'pending' until the server auto-approves
       // or forwards a control_request for user approval.
       const INTERNAL_TOOLS = ['EnterPlanMode'];
-      // AskUserQuestion always requires user interaction, regardless of permission mode
-      const USER_INPUT_TOOLS = ['AskUserQuestion'];
+      // AskUserQuestion and ExitPlanMode always require user interaction, regardless of permission mode
+      const USER_INPUT_TOOLS = ['AskUserQuestion', 'ExitPlanMode'];
       const autoApproved = INTERNAL_TOOLS.includes(d.tool) ||
         (!USER_INPUT_TOOLS.includes(d.tool) && settings.permissionMode === 'bypassPermissions');
 
@@ -517,34 +544,55 @@ export function useClaudeStream() {
           chat.addMessage(msg);
         }
       } else {
-        // Session finished while we were disconnected — stop streaming UI
-        // and fetch any messages we missed
+        // Session reports not streaming. If this was a watchdog check (not a real
+        // reconnect or initial page load), the server may be in the brief gap
+        // between tool turns (result sets isStreaming=false before next sendMessage).
+        // Apply a grace period so stream_start/stream_delta can cancel this.
+        const wasWatchdog = pendingWatchdogCheck;
         pendingReconnectCheck = false;
-        if (chat.isStreaming) {
-          chat.finishStreaming();
-        }
-        // Use claudeSessionId (JSONL filename) for the REST lookup — the server UUID
-        // won't match any file. Fall back to projectPath if activeProjectDir wasn't set
-        // yet (e.g. stream_end never arrived to set it).
-        const fetchId = d.claudeSessionId || chat.claudeSessionId || d.sessionId;
-        // Prefer the already-encoded activeProjectDir; fall back to projectPath
-        // (raw path → encode to match server's directory layout)
-        const projectDir = chat.activeProjectDir
-          || (chat.projectPath ? cwdToHash(chat.projectPath) : null);
-        if (fetchId && projectDir) {
-          // Ensure activeProjectDir is persisted so future fetches work too
-          if (!chat.activeProjectDir && projectDir) {
-            chat.activeProjectDir = projectDir;
+        pendingWatchdogCheck = false;
+
+        const applyFinish = () => {
+          watchdogGraceTimer = null;
+          // Re-check: a stream event may have arrived during the grace period
+          if (chat.isStreaming) return;
+
+          const fetchId = d.claudeSessionId || chat.claudeSessionId || d.sessionId;
+          const projectDir = chat.activeProjectDir
+            || (chat.projectPath ? cwdToHash(chat.projectPath) : null);
+          if (fetchId && projectDir) {
+            if (!chat.activeProjectDir && projectDir) {
+              chat.activeProjectDir = projectDir;
+            }
+            fetchMissedMessages(fetchId, projectDir);
           }
-          fetchMissedMessages(fetchId, projectDir);
-        }
-        // Mark as idle so the UI shows a "Response complete" indicator
-        // for sessions loaded from disk (only when last msg is from assistant/system)
-        if (chat.messages.length > 0) {
-          const lastMsg = chat.messages[chat.messages.length - 1];
-          if (lastMsg && lastMsg.role !== 'user') {
-            chat.sessionLoadedIdle = true;
+          if (chat.messages.length > 0) {
+            const lastMsg = chat.messages[chat.messages.length - 1];
+            if (lastMsg && lastMsg.role !== 'user') {
+              chat.sessionLoadedIdle = true;
+            }
           }
+        };
+
+        if (wasWatchdog && chat.isStreaming) {
+          // Watchdog check hit between tool turns — defer with grace period.
+          // stream_start/stream_delta will call cancelWatchdogGrace() if stream resumes.
+          cancelWatchdogGrace();
+          watchdogGraceTimer = setTimeout(() => {
+            // After grace period, re-verify instead of blindly finishing
+            if (chat.isStreaming && activeSessionId && connected.value) {
+              send({ type: 'check_session', sessionId: activeSessionId });
+            } else {
+              applyFinish();
+            }
+          }, WATCHDOG_GRACE_PERIOD);
+        } else {
+          // Non-watchdog: initial page load or real reconnect — act immediately
+          cancelWatchdogGrace();
+          if (chat.isStreaming) {
+            chat.finishStreaming();
+          }
+          applyFinish();
         }
       }
     });
@@ -659,7 +707,7 @@ export function useClaudeStream() {
     if (answers && !questions) {
       console.warn(`[respondToTool] Answers provided but no questions found on tool input — server will need to use fallback`);
     }
-    const sent = send({ type: 'tool_response', requestId: controlRequestId, approved, answers, questions });
+    const sent = send({ type: 'tool_response', requestId: controlRequestId, approved, answers, questions, sessionId: chat.sessionId });
     if (!sent) {
       console.warn('[respondToTool] WebSocket send failed — tool response not delivered');
       // Don't update status since the response didn't go through.
@@ -838,6 +886,7 @@ export function useClaudeStream() {
   }
 
   function cleanup() {
+    cancelWatchdogGrace();
     if (watchdogTimer) clearInterval(watchdogTimer);
     disconnect();
   }

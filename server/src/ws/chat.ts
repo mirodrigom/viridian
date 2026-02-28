@@ -255,12 +255,17 @@ export function setupChatWs(server: Server) {
         }
 
         if (data.type === 'tool_response') {
-          if (!currentSessionId) {
-            console.warn('[Chat WS] Received tool_response but currentSessionId is null (WS reconnected?) — response dropped');
+          // Prefer currentSessionId (set by 'chat' or 'check_session'); fall back to
+          // sessionId sent by the client (in case WS reconnected and currentSessionId is null,
+          // e.g. server restart during plan review or long tool approval).
+          const targetSessionId = currentSessionId
+            || (data.sessionId ? getSession(data.sessionId)?.id : null);
+          if (!targetSessionId) {
+            console.warn('[Chat WS] Received tool_response but no valid session found (currentSessionId=null, client sessionId=%s)', data.sessionId);
             safeSend(ws, { type: 'error', error: 'Session disconnected. Please try answering again or reload the page.' });
           } else {
             const { requestId, approved, answers, questions } = data;
-            respondToPermission(currentSessionId, requestId, approved, answers, questions);
+            respondToPermission(targetSessionId, requestId, approved, answers, questions);
           }
         }
 

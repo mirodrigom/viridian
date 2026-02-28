@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { apiFetch } from '@/lib/apiFetch';
+import { useManagementStore } from '@/stores/management';
 import { toast } from 'vue-sonner';
 import { FileKey, RefreshCw, Save } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,16 @@ import WidgetShell from './WidgetShell.vue';
 import type { WidgetConfig } from '@/stores/management';
 
 defineProps<{ widget: WidgetConfig }>();
+
+const management = useManagementStore();
+const hasDiscoveredFiles = computed(() => management.envFiles.length > 0);
+const showDropdown = ref(false);
+
+function selectEnvFile(path: string) {
+  envPath.value = path;
+  showDropdown.value = false;
+  loadEnv();
+}
 
 const ENV_PATH_KEY = 'management_env_path';
 
@@ -77,15 +88,43 @@ function parsedLines() {
     </template>
 
     <div class="flex h-full flex-col">
-      <!-- Path input -->
-      <div class="flex items-center gap-2 border-b px-3 py-2 bg-muted/10 shrink-0">
-        <Input
-          v-model="envPath"
-          placeholder="/path/to/project/.env"
-          class="flex-1 h-7 text-xs font-mono"
-          @keydown.enter="loadEnv"
-        />
-        <Button size="sm" variant="outline" class="h-7 px-2 text-xs shrink-0" @click="loadEnv">Load</Button>
+      <!-- Path input with discovered files dropdown -->
+      <div class="relative border-b bg-muted/10 shrink-0">
+        <div class="flex items-center gap-2 px-3 py-2">
+          <div class="relative flex-1">
+            <Input
+              v-model="envPath"
+              placeholder="/path/to/project/.env"
+              class="h-7 text-xs font-mono w-full"
+              :class="hasDiscoveredFiles ? 'pr-7' : ''"
+              @keydown.enter="loadEnv"
+            />
+            <button
+              v-if="hasDiscoveredFiles"
+              class="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-muted"
+              @click="showDropdown = !showDropdown"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-muted-foreground transition-transform" :class="showDropdown ? 'rotate-180' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </div>
+          <Button size="sm" variant="outline" class="h-7 px-2 text-xs shrink-0" @click="loadEnv">Load</Button>
+        </div>
+        <!-- Dropdown of discovered env files -->
+        <div
+          v-if="showDropdown && hasDiscoveredFiles"
+          class="absolute left-3 right-3 top-full z-10 mt-0.5 rounded-md border bg-popover p-1 shadow-md"
+        >
+          <button
+            v-for="file in management.envFiles"
+            :key="file"
+            class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs font-mono hover:bg-accent text-left"
+            @click="selectEnvFile(file)"
+          >
+            <FileKey class="h-3 w-3 text-yellow-500 shrink-0" />
+            <span class="truncate">{{ file.split('/').pop() }}</span>
+            <span class="ml-auto text-[10px] text-muted-foreground truncate max-w-32">{{ file }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Content: syntax-highlighted textarea -->

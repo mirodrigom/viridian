@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import { basename, join } from 'path';
 import { existsSync } from 'fs';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getFileTree, getDirectoryChildren, getFileContent, saveFileContent, getLanguageFromPath, searchFiles } from '../services/files.js';
+import { getFileTree, getDirectoryChildren, getFileContent, saveFileContent, getLanguageFromPath, searchFiles, createDirectory } from '../services/files.js';
 import { getHomeDir } from '../utils/platform.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -83,6 +83,22 @@ router.get('/search', async (req, res) => {
   } catch (err) {
     console.warn('[files/search]', err);
     res.status(500).json({ error: 'Failed to search files' });
+  }
+});
+
+router.post('/mkdir', async (req, res) => {
+  try {
+    const { parentPath, name } = req.body;
+    if (!parentPath || !name) {
+      res.status(400).json({ error: 'parentPath and name are required' });
+      return;
+    }
+    const fullPath = await createDirectory(parentPath, name);
+    res.json({ path: fullPath });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create directory';
+    const status = message.includes('Invalid') || message.includes('traversal') ? 400 : 500;
+    res.status(status).json({ error: message });
   }
 });
 

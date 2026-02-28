@@ -22,6 +22,10 @@ export function useChatSession() {
   // Set when a session loaded from disk is confirmed not streaming (via check_session)
   const sessionLoadedIdle = ref(false);
 
+  // When true, prevents useClaudeStream from sending clear_session when sessionId changes.
+  // Used during session reload to avoid detaching the WS emitter that was just wired up.
+  const suppressClearSession = ref(false);
+
   // Pending prompt — set by other tabs (e.g. Tasks "Send to Chat") to pre-fill ChatInput
   const pendingPrompt = ref<string | null>(null);
 
@@ -110,6 +114,7 @@ export function useChatSession() {
     usage,
     sessionStartedAt,
     sessionLoadedIdle,
+    suppressClearSession,
     pendingPrompt,
 
     // Computed

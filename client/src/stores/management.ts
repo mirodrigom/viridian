@@ -80,6 +80,16 @@ function saveLayout(layout: WidgetConfig[]) {
   try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* ignore */ }
 }
 
+// ─── Bootstrap types ─────────────────────────────────────────────────────────
+
+export interface BootstrapResult {
+  scripts: { discovered: number; added: number; existing: number };
+  environments: { files: string[] };
+  services: { discovered: number; added: number; existing: number };
+}
+
+export type BootstrapStep = 'idle' | 'scripts' | 'environments' | 'services' | 'done';
+
 const MAX_LOG_LINES = 500;
 
 export const useManagementStore = defineStore('management', () => {
@@ -92,6 +102,9 @@ export const useManagementStore = defineStore('management', () => {
   const serviceLogs = ref<Map<string, string[]>>(new Map());
   const widgetLayout = ref<WidgetConfig[]>(loadLayout());
   const projectPath = ref<string | null>(null);
+  const envFiles = ref<string[]>([]);
+  const bootstrapStep = ref<BootstrapStep>('idle');
+  const bootstrapResult = ref<BootstrapResult | null>(null);
 
   // ─── WebSocket ────────────────────────────────────────────────────────────
   const { connected, connect, disconnect, send, on } = createStoreWebSocket('/ws/management');
@@ -225,6 +238,31 @@ export const useManagementStore = defineStore('management', () => {
   function selectService(id: string | null) { selectedServiceId.value = id; }
   function clearLogs(id: string) { serviceLogs.value.set(id, []); serviceLogs.value = new Map(serviceLogs.value); }
 
+  async function bootstrap(path: string): Promise<BootstrapResult | null> {
+    projectPath.value = path;
+    bootstrapStep.value = 'scripts';
+    bootstrapResult.value = null;
+    try {
+      const res = await apiFetch('/api/management/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: path }),
+      });
+      if (!res.ok) throw new Error('Bootstrap failed');
+      const result = await res.json() as BootstrapResult;
+      bootstrapResult.value = result;
+      envFiles.value = result.environments.files;
+      // Re-fetch to get the registered items
+      await Promise.all([fetchServices(), fetchScripts()]);
+      bootstrapStep.value = 'done';
+      return result;
+    } catch {
+      toast.error('Failed to bootstrap project');
+      bootstrapStep.value = 'idle';
+      return null;
+    }
+  }
+
   async function init(path?: string | null) {
     if (path !== undefined) projectPath.value = path;
     loading.value = true;
@@ -236,11 +274,12 @@ export const useManagementStore = defineStore('management', () => {
     // State
     services, scripts, processes, loading,
     selectedServiceId, serviceLogs, widgetLayout, projectPath,
+    envFiles, bootstrapStep, bootstrapResult,
     // Computed
     runningCount, selectedServiceLogs, sortedWidgets,
     connected,
     // Actions
-    init, fetchServices, addService, removeService, startService, stopService,
+    bootstrap, init, fetchServices, addService, removeService, startService, stopService,
     fetchScripts, addScript, removeScript,
     fetchProcesses,
     updateWidgetSize, reorderWidgets,

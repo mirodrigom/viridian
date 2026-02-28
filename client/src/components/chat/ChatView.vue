@@ -55,31 +55,32 @@ const hasSecondPanel = computed(() => chat.isPlanReviewActive || hasTodos.value)
 function handlePlanApprove() {
   const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
+  // Mark the ExitPlanMode tool as approved visually
   if (requestId) {
-    // Active control_request from ExitPlanMode — respond via CLI protocol
-    respondToTool(requestId, true);
-  } else {
-    // No active control_request (e.g. session loaded from history) — use chat message
-    sendMessage('Proceed with the plan.');
+    const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
+    if (msg?.toolUse) msg.toolUse.status = 'approved';
   }
+  // Always send a visible user message — starts a new --resume stream so
+  // Claude knows the plan was approved and continues with implementation.
+  sendMessage('Proceed with the plan.');
 }
 
 function handlePlanDeny() {
   const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
   if (requestId) {
-    respondToTool(requestId, false);
-  } else {
-    sendMessage('Cancel this plan. Do not proceed.');
+    const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
+    if (msg?.toolUse) msg.toolUse.status = 'rejected';
   }
+  sendMessage('Cancel this plan. Do not proceed.');
 }
 
 function handlePlanChange(feedback: string) {
   const requestId = chat.planReviewRequestId;
   chat.dismissPlanReview();
   if (requestId) {
-    // Deny the current plan, then send feedback for revision
-    respondToTool(requestId, false);
+    const msg = chat.messages.find(m => m.toolUse?.requestId === requestId);
+    if (msg?.toolUse) msg.toolUse.status = 'rejected';
   }
   sendMessage(`I'd like changes to the plan: ${feedback}`);
 }

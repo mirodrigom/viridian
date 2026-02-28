@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick } from 'vue';
 import { apiFetch } from '@/lib/apiFetch';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { FolderOpen, ChevronRight, ArrowUp, Home } from 'lucide-vue-next';
+import { Input } from '@/components/ui/input';
+import { FolderOpen, ChevronRight, ArrowUp, Home, FolderPlus, Check, X } from 'lucide-vue-next';
+import { toast } from 'vue-sonner';
 
 interface DirEntry {
   name: string;
@@ -76,6 +78,40 @@ function selectCurrent() {
   open.value = false;
 }
 
+const creatingFolder = ref(false);
+const newFolderName = ref('');
+const newFolderInput = ref<InstanceType<typeof Input> | null>(null);
+
+function startCreateFolder() {
+  creatingFolder.value = true;
+  newFolderName.value = '';
+  nextTick(() => {
+    (newFolderInput.value?.$el as HTMLInputElement)?.focus();
+  });
+}
+
+function cancelCreateFolder() {
+  creatingFolder.value = false;
+  newFolderName.value = '';
+}
+
+async function confirmCreateFolder() {
+  const name = newFolderName.value.trim();
+  if (!name) return;
+  try {
+    await apiFetch('/api/files/mkdir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parentPath: currentPath.value, name }),
+    });
+    creatingFolder.value = false;
+    newFolderName.value = '';
+    await fetchDir(currentPath.value);
+  } catch {
+    toast.error('Failed to create folder');
+  }
+}
+
 const isAtRoot = computed(() => currentPath.value === '/');
 
 const breadcrumbs = computed(() => {
@@ -89,7 +125,7 @@ const breadcrumbs = computed(() => {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="w-[90vw] sm:max-w-2xl">
+    <DialogContent class="w-[90vw] overflow-hidden sm:max-w-3xl">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <FolderOpen class="h-5 w-5" />
@@ -97,7 +133,7 @@ const breadcrumbs = computed(() => {
         </DialogTitle>
       </DialogHeader>
 
-      <!-- Breadcrumbs -->
+      <!-- Breadcrumbs + New Folder -->
       <div class="flex items-center gap-0.5 overflow-x-auto text-xs">
         <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="goHome">
           <Home class="h-3.5 w-3.5" />
@@ -119,6 +155,12 @@ const breadcrumbs = computed(() => {
             {{ bc.name }}
           </button>
         </template>
+        <div class="ml-auto shrink-0">
+          <Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-xs" @click="startCreateFolder" :disabled="creatingFolder">
+            <FolderPlus class="h-3.5 w-3.5" />
+            New Folder
+          </Button>
+        </div>
       </div>
 
       <!-- Directory listing -->
@@ -136,6 +178,24 @@ const breadcrumbs = computed(() => {
             <ArrowUp class="h-4 w-4 shrink-0 text-muted-foreground" />
             <span class="text-muted-foreground">..</span>
           </button>
+          <!-- New folder inline input -->
+          <div v-if="creatingFolder" class="flex items-center gap-1.5 px-2.5 py-1.5">
+            <FolderPlus class="h-4 w-4 shrink-0 text-primary/70" />
+            <Input
+              ref="newFolderInput"
+              v-model="newFolderName"
+              placeholder="Folder name"
+              class="h-7 text-sm"
+              @keydown.enter="confirmCreateFolder"
+              @keydown.escape="cancelCreateFolder"
+            />
+            <Button variant="ghost" size="sm" class="h-7 w-7 shrink-0 p-0" @click="confirmCreateFolder" :disabled="!newFolderName.trim()">
+              <Check class="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="sm" class="h-7 w-7 shrink-0 p-0" @click="cancelCreateFolder">
+              <X class="h-3.5 w-3.5" />
+            </Button>
+          </div>
           <!-- Directories -->
           <button
             v-for="dir in directories"
@@ -157,14 +217,12 @@ const breadcrumbs = computed(() => {
         </div>
       </ScrollArea>
 
-      <DialogFooter>
-        <div class="flex w-full items-center justify-between gap-3">
-          <span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ currentPath }}</span>
-          <Button @click="selectCurrent" class="shrink-0 gap-1.5">
-            <FolderOpen class="h-4 w-4" />
-            Select This Directory
-          </Button>
-        </div>
+      <DialogFooter class="!flex-col gap-2 sm:!flex-row sm:items-center sm:justify-between">
+        <span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{{ currentPath }}</span>
+        <Button @click="selectCurrent" class="shrink-0 gap-1.5">
+          <FolderOpen class="h-4 w-4" />
+          Select This Directory
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

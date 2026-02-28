@@ -328,12 +328,12 @@ function shouldAutoApprove(session: ProviderSession, toolName: string): boolean 
   const provider = getProvider(session.providerId);
   if (!provider.capabilities.supportsControlRequests) return true;
 
-  // AskUserQuestion always requires user interaction regardless of permission mode
+  // AskUserQuestion and ExitPlanMode always require user interaction regardless of permission mode
   if (toolName === 'AskUserQuestion') return false;
+  if (toolName === 'ExitPlanMode') return false;
 
   const mode = session.userPermissionMode || 'default';
   if (mode === 'bypassPermissions') return true;
-  if (toolName === 'ExitPlanMode') return false;
   if (mode === 'acceptEdits' && FILE_TOOLS.includes(toolName)) return true;
   if (mode === 'plan' && READ_ONLY_TOOLS.includes(toolName)) return true;
   return false;
@@ -413,11 +413,9 @@ function emitSDKMessage(session: ProviderSession, msg: SDKMessage) {
 
   // Start buffering as soon as we see AskUserQuestion or ExitPlanMode tool_use
   // since text can stream between tool_use and control_request.
-  // AskUserQuestion always buffers (requires user interaction regardless of mode).
-  // ExitPlanMode only buffers when not in bypassPermissions mode.
+  // Both always require user interaction regardless of permission mode.
   if (msg.type === 'tool_use') {
-    if (msg.tool === 'AskUserQuestion' ||
-        (msg.tool === 'ExitPlanMode' && session.userPermissionMode !== 'bypassPermissions')) {
+    if (msg.tool === 'AskUserQuestion' || msg.tool === 'ExitPlanMode') {
       session.pendingQuestionBuffer = [];
       session.pendingQuestionToolName = msg.tool;
     }

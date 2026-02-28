@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile, stat } from 'fs/promises';
+import { readdir, readFile, writeFile, stat, mkdir } from 'fs/promises';
 import { join, relative, extname } from 'path';
 
 export interface FileNode {
@@ -169,6 +169,18 @@ export async function searchFiles(rootPath: string, query: string, limit = 20): 
 
   await walk(rootPath, 6);
   return results;
+}
+
+export async function createDirectory(parentPath: string, name: string): Promise<string> {
+  if (!name || /[/\\]/.test(name)) {
+    throw new Error('Invalid folder name');
+  }
+  const fullPath = join(parentPath, name);
+  if (!fullPath.startsWith(parentPath)) {
+    throw new Error('Access denied: path traversal detected');
+  }
+  await mkdir(fullPath);
+  return fullPath;
 }
 
 export function getLanguageFromPath(filePath: string): string {

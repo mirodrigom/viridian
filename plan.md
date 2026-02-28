@@ -1,68 +1,135 @@
-# Plan: Documentación sincronizada con versión en cada push
+# Project Bootstrap Feature - Implementation Plan
 
-## Resumen
+## Overview
 
-Establecer un flujo donde antes de cada push a main, yo (Claude) actualice manualmente la documentación según los archivos cambiados, sugiera el tipo de bump semver, y haga el commit con todo sincronizado.
+When a user selects a project on the Dashboard, Viridian will **discover and register** scripts, environment files, and services into the management system — not auto-start them. A multi-step loader/spinner shows progress during this bootstrap.
 
-## Lo que NO se automatiza
+## Architecture
 
-No se crean scripts ni hooks. Todo el proceso lo manejo yo revisando los cambios antes de cada push.
+### Flow
+```
+DashboardPage → openProject(path)
+  → router.push('/project')
+    → ProjectPage handleRoute()
+      → NEW: bootstrapProject(path)
+        → Step 1: Discover & register scripts (from package.json)
+        → Step 2: Discover & register env files (.env*)
+        → Step 3: Discover & register services (from docker-compose, viridian.json)
+      → Loader shows progress per step
+      → Done → workspace ready with management populated
+```
 
-## Qué se necesita crear/modificar
+### Discovery Sources
+| Item         | Source                                     |
+|-------------|-------------------------------------------|
+| Scripts     | `package.json` → `scripts` field           |
+| Environments| Glob for `.env`, `.env.*` files in project root |
+| Services    | `docker-compose.yml` services + optional `viridian.json` |
 
-### 1. Agregar página de Changelog (`docs/guide/changelog.md`)
+### Optional: `viridian.json` config (project root)
+For explicit definitions beyond auto-discovery:
+```json
+{
+  "services": [
+    { "name": "Backend", "command": "pnpm dev:server", "cwd": "." }
+  ],
+  "scripts": [
+    { "name": "Setup", "command": "./setup.sh" }
+  ],
+  "env": [".env", ".env.local"]
+}
+```
 
-Crear una página de changelog que registre cada versión con:
-- Número de versión y fecha
-- Lista de cambios organizados por categoría (Added, Changed, Fixed, Removed)
-- Formato [Keep a Changelog](https://keepachangelog.com/)
-- Backfill de la versión actual (0.1.0) con un resumen de lo que existe
+---
 
-### 2. Registrar el changelog en la sidebar de VitePress
+## Changes
 
-Agregar entrada en `docs/.vitepress/config.ts` en la sección Guide del sidebar.
+### 1. Server: Bootstrap service
 
-### 3. Agregar badge de versión en `docs/index.md`
+**New file:** `server/src/services/project-bootstrap.ts`
 
-Mostrar la versión actual en la landing page de docs para que sea visible.
+Encapsulates discovery logic:
+- `discoverScripts(projectPath)` → reads package.json, parses scripts
+- `discoverEnvFiles(projectPath)` → globs for .env* files
+- `discoverServices(projectPath)` → reads docker-compose.yml + viridian.json
+- `registerDiscoveries(userId, projectPath, discoveries)` → upserts to DB, returns counts
 
-### 4. Documentar el flujo en mi memoria
+### 2. Server: Bootstrap endpoint
 
-Agregar instrucciones en MEMORY.md para que en cada sesión sepa que antes de un push debo:
+**File:** `server/src/routes/management.ts` (add new endpoint)
 
-1. Revisar `git diff main` para ver todos los archivos cambiados
-2. Identificar qué secciones de docs necesitan actualización según el mapeo:
-   - `client/src/components/chat/` → `docs/guide/chat.md`
-   - `client/src/components/editor/` → `docs/guide/editor.md`
-   - `client/src/components/git/` → `docs/guide/git.md`
-   - `client/src/components/terminal/` → `docs/guide/terminal.md`
-   - `client/src/components/tasks/` → `docs/guide/tasks.md`
-   - `client/src/components/autopilot/` → `docs/guide/autopilot.md`
-   - `client/src/components/graphs/` → `docs/guide/graphs.md`
-   - `server/src/routes/` → `docs/reference/api-endpoints.md` (auto-generate)
-   - `server/src/ws/` → `docs/reference/websocket-events.md` (auto-generate)
-   - `client/src/types/` → `docs/reference/typescript-types.md` (auto-generate)
-   - `server/src/services/` → `docs/architecture/overview.md`
-   - Nuevas features → `docs/guide/features.md`
-3. Actualizar los .md correspondientes
-4. Correr `pnpm docs:generate` para regenerar las API docs
-5. Sugerir bump semver:
-   - **patch**: bug fixes, tweaks menores, refactors internos
-   - **minor**: nueva funcionalidad, mejoras visibles al usuario
-   - **major**: breaking changes, reestructuración mayor
-6. Bumpar versión en `package.json` (root, server, client, docs)
-7. Actualizar `docs/guide/changelog.md` con los cambios de esta versión
-8. Commit todo junto y push
+**`POST /api/management/bootstrap`**
+- Body: `{ projectPath: string }`
+- Logic:
+  1. Read `package.json` → extract `scripts` → upsert into `management_scripts`
+  2. Glob `.env*` → return list of env file paths
+  3. Read `docker-compose.yml` if exists → extract services → upsert into `management_services`
+  4. Read `viridian.json` if exists → merge explicit definitions
+  5. Skip duplicates (check by `user_id + project_path + command`)
+- Returns:
+```json
+{
+  "scripts": { "discovered": 8, "added": 5, "existing": 3 },
+  "environments": { "files": [".env", ".env.local"] },
+  "services": { "discovered": 2, "added": 2, "existing": 0 }
+}
+```
 
-## Archivos a crear/modificar
+### 3. Client: Bootstrap loader component
 
-| Archivo | Acción |
-|---------|--------|
-| `docs/guide/changelog.md` | **Crear** - Página de changelog |
-| `docs/.vitepress/config.ts` | **Editar** - Agregar changelog al sidebar |
-| `docs/index.md` | **Editar** - Agregar badge de versión |
-| `MEMORY.md` | **Editar** - Agregar sección de flujo de release |
+**New file:** `client/src/components/layout/ProjectBootstrapLoader.vue`
 
-## Scope
+Replaces the current simple spinner in ProjectPage. Multi-step loader:
+```
+┌─────────────────────────────────┐
+│                                 │
+│         [Viridian Logo]         │
+│                                 │
+│     Opening project...          │
+│                                 │
+│  ✓ Scripts         8 found      │
+│  ⟳ Environments   loading...    │
+│  ○ Services        pending      │
+│                                 │
+│     ━━━━━━━━━━━━━━━━━░░░░░░░    │
+│                                 │
+└─────────────────────────────────┘
+```
 
-Minimal — solo crear la infraestructura (changelog + sidebar + badge + instrucciones). No se tocan scripts, hooks, ni CI. El proceso es 100% manual por mí en cada sesión.
+States per step: `pending` → `loading` (spinner) → `done` (checkmark + count)
+
+### 4. Client: Management store — bootstrap action
+
+**File:** `client/src/stores/management.ts`
+
+Add `bootstrap(projectPath)` action + `envFiles` state for discovered env paths.
+
+### 5. Client: ProjectPage integration
+
+**File:** `client/src/pages/ProjectPage.vue`
+
+Replace the simple 1.2s timeout with sequential bootstrap steps, each with minimum visible time so the user sees progress.
+
+### 6. Client: EnvWidget enhancement
+
+**File:** `client/src/components/management/EnvWidget.vue`
+
+Show discovered env files as a dropdown instead of requiring manual path input.
+
+---
+
+## Files summary
+
+| File | Action |
+|------|--------|
+| `server/src/services/project-bootstrap.ts` | **Create** — discovery + registration logic |
+| `server/src/routes/management.ts` | **Modify** — add `POST /bootstrap` endpoint |
+| `client/src/components/layout/ProjectBootstrapLoader.vue` | **Create** — multi-step loader UI |
+| `client/src/pages/ProjectPage.vue` | **Modify** — integrate bootstrap flow |
+| `client/src/stores/management.ts` | **Modify** — add bootstrap action + envFiles state |
+| `client/src/components/management/EnvWidget.vue` | **Modify** — show discovered env files dropdown |
+
+## Not in scope
+- Auto-starting services (user explicitly said no)
+- Modifying the DashboardPage selection flow
+- Changes to the graph/skill export system

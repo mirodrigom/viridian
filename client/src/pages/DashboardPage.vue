@@ -32,6 +32,8 @@ const showDirPicker = ref(false);
 
 // GitHub clone state
 const cloneUrl = ref('');
+const cloneTargetDir = ref('');
+const showCloneDirPicker = ref(false);
 const cloning = ref(false);
 const cloneProgress = ref('');
 const clonePercent = ref(0);
@@ -46,12 +48,13 @@ async function cloneRepo() {
   cloneError.value = '';
 
   try {
+    const targetDir = cloneTargetDir.value || settings.projectsDir;
     const res = await apiFetch('/api/files/clone', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ url, targetDir: settings.projectsDir }),
+      body: JSON.stringify({ url, targetDir }),
     });
 
     if (!res.ok && !res.headers.get('content-type')?.includes('text/event-stream')) {
@@ -103,6 +106,7 @@ async function cloneRepo() {
 onMounted(() => {
   settings.init();
   projectPath.value = settings.projectsDir;
+  cloneTargetDir.value = settings.projectsDir;
   const saved = localStorage.getItem('recentPaths');
   if (saved) recentPaths.value = JSON.parse(saved);
 });
@@ -262,6 +266,18 @@ function logout() {
                 Clone
               </Button>
             </div>
+            <!-- Clone target directory -->
+            <div class="flex items-center gap-2">
+              <Label class="shrink-0 text-xs text-muted-foreground">Clone to:</Label>
+              <div class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-muted/30 px-2.5 py-1.5">
+                <FolderOpen class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span class="truncate font-mono text-xs text-foreground">{{ cloneTargetDir || settings.projectsDir }}</span>
+              </div>
+              <Button variant="outline" size="sm" @click="showCloneDirPicker = true" class="shrink-0 gap-1" :disabled="cloning">
+                <Search class="h-3.5 w-3.5" />
+                Browse
+              </Button>
+            </div>
             <!-- Clone progress -->
             <div v-if="cloning" class="space-y-1.5">
               <div class="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -288,6 +304,11 @@ function logout() {
       v-model:open="showDirPicker"
       :initial-path="settings.projectsDir"
       @select="(path: string) => { projectPath = path; openProject(path); }"
+    />
+    <DirectoryPicker
+      v-model:open="showCloneDirPicker"
+      :initial-path="cloneTargetDir || settings.projectsDir"
+      @select="(path: string) => { cloneTargetDir = path; }"
     />
     <OnboardingWizard @complete="openProject" />
   </div>
