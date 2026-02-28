@@ -44,7 +44,7 @@ const info: ProviderInfo = {
   binaryName: 'kiro-cli',
   envVarForPath: 'KIRO_PATH',
   installCommand: 'curl -fsSL https://cli.kiro.dev/install | bash',
-  windowsInstallCommand: 'wsl bash -c "curl -fsSL https://cli.kiro.dev/install | bash"',
+  windowsInstallCommand: 'wsl -u root bash -c "apt-get update -qq && apt-get install -y -qq unzip curl" && wsl bash -c "curl -fsSL https://cli.kiro.dev/install | bash"',
 };
 
 const models: ProviderModel[] = [
@@ -70,6 +70,13 @@ const capabilities: ProviderCapabilities = {
 // ─── Binary resolution ──────────────────────────────────────────────────
 
 let resolvedPath: string | null = null;
+/** True when the resolved binary lives inside WSL and must be spawned via `wsl`. */
+let isWSLBinary = false;
+
+function clearResolvedPath(): void {
+  resolvedPath = null;
+  isWSLBinary = false;
+}
 
 function findKiroBinary(): string {
   if (resolvedPath) return resolvedPath;
@@ -95,7 +102,11 @@ function findKiroBinary(): string {
   // On Windows, try WSL as a last resort (Kiro CLI doesn't have a native Windows installer)
   if (isWindows) {
     const wslPath = findBinaryInWSL('kiro-cli');
-    if (wslPath) { resolvedPath = wslPath; return resolvedPath; }
+    if (wslPath) {
+      resolvedPath = wslPath;
+      isWSLBinary = true;
+      return resolvedPath;
+    }
   }
 
   throw new Error(
@@ -135,6 +146,7 @@ const kiroProvider: IProvider = {
   },
 
   findBinary(): string {
+    clearResolvedPath();
     return findKiroBinary();
   },
 
@@ -158,20 +170,24 @@ const kiroProvider: IProvider = {
     const kiroBin = findKiroBinary();
 
     // Build args: kiro-cli chat --no-interactive [trust flags] "prompt"
-    const args = ['chat', '--no-interactive'];
+    const kiroArgs = ['chat', '--no-interactive'];
 
     // Trust/permission flags
-    args.push(...getTrustFlags(options.permissionMode));
+    kiroArgs.push(...getTrustFlags(options.permissionMode));
 
     // Session resume
     if (options.sessionId) {
-      args.push('--resume');
+      kiroArgs.push('--resume');
     }
 
     // The prompt goes last as positional argument
-    args.push(options.prompt);
+    kiroArgs.push(options.prompt);
 
-    const proc = spawn(kiroBin, args, {
+    // If the binary is inside WSL, spawn via `wsl` with the Linux path
+    const spawnCmd = isWSLBinary ? 'wsl' : kiroBin;
+    const spawnArgs = isWSLBinary ? [kiroBin, ...kiroArgs] : kiroArgs;
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],

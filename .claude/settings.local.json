@@ -27,7 +27,8 @@
       "Bash(npm root:*)",
       "Bash(node:*)",
       "Bash(cat:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(wsl:*)"
     ]
   }
 }

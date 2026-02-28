@@ -115,16 +115,40 @@ export function cwdToHash(cwd: string): string {
  * Find a binary inside WSL — useful for tools installed via `curl | bash`
  * that don't have native Windows installers.
  *
- * Returns the full Windows path to a WSL wrapper command, or null.
+ * Uses a login shell so ~/.local/bin and other profile-configured paths are included.
+ * Also checks common install locations directly in case PATH isn't configured yet.
+ * Returns the absolute Linux path (e.g. "/home/user/.local/bin/kiro-cli") or null.
+ * Callers should spawn via: spawn('wsl', [resolvedPath, ...args])
  */
 export function findBinaryInWSL(name: string): string | null {
   if (!isWindows) return null;
   try {
-    const result = execSync(`wsl which ${name} 2>/dev/null`, { encoding: 'utf8' }).trim();
-    return result ? `wsl ${name}` : null;
-  } catch {
-    return null;
+    // Use interactive login shell (-lic) so both ~/.profile and ~/.bashrc PATH additions are loaded
+    const result = execSync(`wsl bash -lic "which ${name}" 2>/dev/null`, { encoding: 'utf8', timeout: 10000 }).trim();
+    if (result) return result;
+  } catch { /* not in PATH */ }
+
+  // Check common WSL install locations directly (PATH may not be configured yet)
+  const commonWSLPaths = [
+    `$HOME/.local/bin/${name}`,
+    `/usr/local/bin/${name}`,
+    `/usr/bin/${name}`,
+  ];
+  for (const wslPath of commonWSLPaths) {
+    try {
+      const code = execSync(`wsl test -f ${wslPath} && echo found`, { encoding: 'utf8', timeout: 5000 }).trim();
+      if (code === 'found') {
+        // Resolve $HOME to actual path
+        if (wslPath.startsWith('$HOME')) {
+          const home = execSync('wsl bash -c "echo $HOME"', { encoding: 'utf8', timeout: 5000 }).trim();
+          return wslPath.replace('$HOME', home);
+        }
+        return wslPath;
+      }
+    } catch { /* not found */ }
   }
+
+  return null;
 }
 
 /**

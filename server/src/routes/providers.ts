@@ -144,8 +144,11 @@ router.post('/:id/install', (req, res) => {
     const shellArgs = isWindows && !shell.includes('bash') ? ['/c', cmd] : ['-c', cmd];
     const proc = spawn(shell, shellArgs, {
       env: { ...process.env, HOME: getHomeDir() },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    // Close stdin immediately so commands like sudo -n fail fast instead of hanging
+    proc.stdin.end();
 
     let output = '';
     proc.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
@@ -164,6 +167,13 @@ router.post('/:id/install', (req, res) => {
 
     proc.on('error', (err) => {
       res.status(500).json({ success: false, output: err.message });
+    });
+
+    // If client disconnects, kill the install process
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        try { proc.kill(); } catch { /* already dead */ }
+      }
     });
   } catch {
     res.status(404).json({ error: `Provider "${req.params.id}" not found` });

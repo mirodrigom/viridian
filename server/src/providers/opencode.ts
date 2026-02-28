@@ -46,7 +46,7 @@ const info: ProviderInfo = {
   binaryName: 'opencode',
   envVarForPath: 'OPENCODE_PATH',
   installCommand: 'curl -fsSL https://opencode.ai/install | bash',
-  windowsInstallCommand: 'wsl bash -c "curl -fsSL https://opencode.ai/install | bash"',
+  windowsInstallCommand: 'wsl -u root bash -c "apt-get update -qq && apt-get install -y -qq unzip curl" && wsl bash -c "curl -fsSL https://opencode.ai/install | bash"',
 };
 
 const models: ProviderModel[] = [
@@ -74,6 +74,12 @@ const capabilities: ProviderCapabilities = {
 // ─── Binary resolution ──────────────────────────────────────────────────
 
 let resolvedPath: string | null = null;
+let isWSLBinary = false;
+
+function clearResolvedPath(): void {
+  resolvedPath = null;
+  isWSLBinary = false;
+}
 
 function findOpenCodeBinary(): string {
   if (resolvedPath) return resolvedPath;
@@ -98,7 +104,11 @@ function findOpenCodeBinary(): string {
   // On Windows, try WSL as a last resort (OpenCode installer doesn't support MINGW64)
   if (isWindows) {
     const wslPath = findBinaryInWSL('opencode');
-    if (wslPath) { resolvedPath = wslPath; return resolvedPath; }
+    if (wslPath) {
+      resolvedPath = wslPath;
+      isWSLBinary = true;
+      return resolvedPath;
+    }
   }
 
   throw new Error(
@@ -125,6 +135,7 @@ const openCodeProvider: IProvider = {
   },
 
   findBinary(): string {
+    clearResolvedPath();
     return findOpenCodeBinary();
   },
 
@@ -152,21 +163,25 @@ const openCodeProvider: IProvider = {
     const opencodeBin = findOpenCodeBinary();
 
     // Build args: opencode run --format json [flags] "prompt"
-    const args = ['run', '--format', 'json'];
+    const opencodeArgs = ['run', '--format', 'json'];
 
     if (options.model) {
-      args.push('--model', options.model);
+      opencodeArgs.push('--model', options.model);
     }
 
     // Session resume
     if (options.sessionId) {
-      args.push('--session', options.sessionId);
+      opencodeArgs.push('--session', options.sessionId);
     }
 
     // The prompt goes last
-    args.push(options.prompt);
+    opencodeArgs.push(options.prompt);
 
-    const proc = spawn(opencodeBin, args, {
+    // If the binary is inside WSL, spawn via `wsl` with the Linux path
+    const spawnCmd = isWSLBinary ? 'wsl' : opencodeBin;
+    const spawnArgs = isWSLBinary ? [opencodeBin, ...opencodeArgs] : opencodeArgs;
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
