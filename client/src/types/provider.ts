@@ -22,6 +22,8 @@ export interface ProviderCapabilities {
   supportsControlRequests: boolean;
   supportsSubagents: boolean;
   supportsPlanMode: boolean;
+  /** False when the CLI ignores --model and uses its own default. UI disables the selector. */
+  supportsModelSelection?: boolean;
   supportedPermissionModes: string[];
   customFeatures: string[];
 }

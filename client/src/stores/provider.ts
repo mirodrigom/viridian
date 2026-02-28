@@ -15,6 +15,7 @@ const DEFAULT_CAPABILITIES: ProviderCapabilities = {
   supportsControlRequests: true,
   supportsSubagents: true,
   supportsPlanMode: true,
+  supportsModelSelection: true,
   supportedPermissionModes: ['bypassPermissions', 'acceptEdits', 'plan', 'default'],
   customFeatures: [],
 };
@@ -75,6 +76,14 @@ export const useProviderStore = defineStore('provider', () => {
   const activeCapabilities = computed<ProviderCapabilities>(() =>
     activeProvider.value.capabilities
   );
+
+  // Capability helpers for UI adaptation
+  const supportsThinking = computed(() => activeCapabilities.value.supportsThinking);
+  const supportsPlanMode = computed(() => activeCapabilities.value.supportsPlanMode);
+  const supportsPermissionModes = computed(() => activeCapabilities.value.supportsPermissionModes);
+  const supportsImages = computed(() => activeCapabilities.value.supportsImages);
+  const supportsSubagents = computed(() => activeCapabilities.value.supportsSubagents);
+  const supportsModelSelection = computed(() => activeCapabilities.value.supportsModelSelection !== false);
 
   const availableProviders = computed<ProviderInfo[]>(() =>
     providers.value.filter(p => p.available)
@@ -212,6 +221,12 @@ export const useProviderStore = defineStore('provider', () => {
     activeProvider,
     activeModels,
     activeCapabilities,
+    supportsThinking,
+    supportsPlanMode,
+    supportsPermissionModes,
+    supportsImages,
+    supportsSubagents,
+    supportsModelSelection,
     availableProviders,
     configuredProviders,
     activeProviderName,

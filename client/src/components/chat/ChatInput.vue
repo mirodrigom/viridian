@@ -825,8 +825,12 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     <TooltipProvider :delay-duration="300">
       <div class="mb-1 sm:mb-2 flex flex-wrap items-center justify-center gap-0.5 sm:gap-1 md:gap-2">
         <!-- Model selector -->
-        <Select :model-value="settings.model" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
-          <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.modelLabel">
+        <Select :model-value="settings.model" :disabled="!providerStore.supportsModelSelection" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
+          <SelectTrigger
+            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
+            :class="{ 'opacity-50 cursor-not-allowed': !providerStore.supportsModelSelection }"
+            :title="providerStore.supportsModelSelection ? settings.modelLabel : settings.modelLabel + ' (model selection not available for this provider)'"
+          >
             <Cpu class="h-3 w-3 sm:hidden" />
             <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
           </SelectTrigger>
@@ -857,7 +861,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
             <span class="hidden sm:inline">{{ effectivePermissionLabel }}</span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="p in PERMISSION_OPTIONS" :key="p.value" :value="p.value">
+            <SelectItem v-for="p in PERMISSION_OPTIONS.filter(o => providerStore.activeCapabilities.supportedPermissionModes.includes(o.value))" :key="p.value" :value="p.value">
               <div class="flex items-center gap-2">
                 <span>{{ p.icon }}</span>
                 <div>
@@ -869,8 +873,8 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           </SelectContent>
         </Select>
 
-        <!-- Thinking mode -->
-        <Select :model-value="settings.thinkingMode" @update:model-value="(v: any) => { settings.thinkingMode = v; settings.save(); }">
+        <!-- Thinking mode (hidden when provider doesn't support it) -->
+        <Select v-if="providerStore.supportsThinking" :model-value="settings.thinkingMode" @update:model-value="(v: any) => { settings.thinkingMode = v; settings.save(); }">
           <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.thinkingLabel">
             <Brain class="h-3 w-3" />
             <span class="hidden sm:inline">{{ settings.thinkingLabel }}</span>
@@ -885,8 +889,8 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           </SelectContent>
         </Select>
 
-        <!-- Context usage (progress bar) -->
-        <Tooltip>
+        <!-- Context usage (progress bar) — hidden when provider doesn't report token usage -->
+        <Tooltip v-if="chat.usage.inputTokens > 0 || chat.usage.outputTokens > 0 || chat.messages.length === 0">
           <TooltipTrigger as-child>
             <div class="flex h-8 sm:h-auto items-center gap-1.5 rounded-md bg-muted/50 px-2 py-0.5 cursor-default shrink-0">
               <span class="text-[10px] tabular-nums text-muted-foreground">

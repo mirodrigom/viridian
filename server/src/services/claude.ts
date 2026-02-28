@@ -16,6 +16,7 @@ import { getProvider } from '../providers/registry.js';
 import { upsertSessionProvider } from '../db/database.js';
 import * as lf from './langfuse.js';
 import { gracefulKill, cwdToHash } from '../utils/platform.js';
+import { initSessionFile, appendUserMessage, appendAssistantMessage, cleanupSession } from './session-writer.js';
 
 // Ensure providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -70,10 +71,14 @@ setInterval(() => {
 }, 5 * 60_000).unref();
 
 export function createSession(cwd: string, claudeSessionId?: string, providerId: ProviderId = 'claude'): ProviderSession {
+  // For non-Claude providers that don't generate their own session IDs,
+  // assign one now so sessions can be persisted to JSONL and linked to traces.
+  const effectiveSessionId = claudeSessionId ?? (providerId !== 'claude' ? uuid() : undefined);
+
   const session: ProviderSession = {
     id: uuid(),
     providerId,
-    claudeSessionId,
+    claudeSessionId: effectiveSessionId,
     process: null,
     cwd,
     emitter: new EventEmitter(),
@@ -85,6 +90,12 @@ export function createSession(cwd: string, claudeSessionId?: string, providerId:
     lastActivity: Date.now(),
     streamGeneration: 0,
   };
+
+  // Initialize synthetic JSONL file for non-Claude providers
+  if (effectiveSessionId && providerId !== 'claude') {
+    initSessionFile(effectiveSessionId, cwd);
+  }
+
   activeSessions.set(session.id, session);
   return session;
 }
@@ -132,6 +143,12 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
   const generation = ++session.streamGeneration;
 
   session.accumulatedText = '';
+
+  // Persist user message for non-Claude providers (Claude CLI writes its own JSONL)
+  if (session.providerId !== 'claude' && session.claudeSessionId) {
+    appendUserMessage(session.claudeSessionId, prompt);
+  }
+
   session.emitter.emit('stream_start');
 
   lf.startTrace({
@@ -217,10 +234,14 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
  */
 function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: string; data: unknown } | null {
   switch (msg.type) {
-    case 'text_delta':
-      session.accumulatedText += msg.text;
-      lf.recordTextDelta(session.id, msg.text);
-      return { event: 'stream_delta', data: { text: msg.text } };
+    case 'text_delta': {
+      // Strip ANSI escape codes from CLI-based providers (Kiro, Codex, etc.)
+      const cleanText = msg.text.replace(/\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07]*\x07/g, '');
+      if (!cleanText) return null;  // Skip empty chunks after stripping
+      session.accumulatedText += cleanText;
+      lf.recordTextDelta(session.id, cleanText);
+      return { event: 'stream_delta', data: { text: cleanText } };
+    }
     case 'thinking_start':
       return { event: 'thinking_start', data: {} };
     case 'thinking_delta':
@@ -264,6 +285,10 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       session.lastActivity = Date.now();
       session.stdinWrite = undefined;
       lf.endTrace(session.id, session.usage);
+      // Persist assistant response for non-Claude providers
+      if (session.providerId !== 'claude' && session.claudeSessionId && session.accumulatedText) {
+        appendAssistantMessage(session.claudeSessionId, session.accumulatedText);
+      }
       // Persist provider → session mapping so historical messages show the correct logo
       if (session.claudeSessionId) {
         const projectDir = cwdToHash(session.cwd);
@@ -526,6 +551,10 @@ export function getStreamingClaudeSessionIds(): Set<string> {
 }
 
 export function removeSession(sessionId: string) {
+  const session = activeSessions.get(sessionId);
+  if (session?.claudeSessionId) {
+    cleanupSession(session.claudeSessionId);
+  }
   abortSession(sessionId);
   activeSessions.delete(sessionId);
 }

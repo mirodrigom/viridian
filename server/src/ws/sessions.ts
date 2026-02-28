@@ -64,10 +64,11 @@ export function setupSessionsWs(server: Server) {
   const watcher = watch(CLAUDE_DIR, {
     ignoreInitial: true,
     depth: 1,
-    usePolling: true,
-    interval: 2000,
-    binaryInterval: 2000,
-    awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 300 },
+    // Use native fs.watch instead of polling to avoid "Access is denied" errors
+    // on Windows when Claude CLI locks .jsonl files during writes
+    usePolling: false,
+    // NOTE: Do NOT use awaitWriteFinish — it internally stat-polls locked files
+    // and triggers "Access is denied" on Windows. We already debounce events below.
   });
 
   watcher.on('ready', () => {
@@ -78,6 +79,10 @@ export function setupSessionsWs(server: Server) {
   });
 
   watcher.on('error', (err: unknown) => {
+    // On Windows, "Access is denied" (EPERM) is expected when Claude CLI locks .jsonl files during writes
+    const code = (err as NodeJS.ErrnoException)?.code;
+    const msg = (err as Error)?.message ?? String(err);
+    if (code === 'EPERM' || code === 'EACCES' || msg.includes('Access is denied')) return;
     console.error(`[sessions-ws] Watcher error:`, err);
   });
 
@@ -89,7 +94,10 @@ export function setupSessionsWs(server: Server) {
     if (!isJsonlFile(filePath)) return;
 
     // Extract projectDir and sessionId from the path
-    const relative = filePath.replace(CLAUDE_DIR + '/', '');
+    // Normalize separators for Windows (chokidar may use \ or /)
+    const normalized = filePath.replace(/\\/g, '/');
+    const baseDir = CLAUDE_DIR.replace(/\\/g, '/');
+    const relative = normalized.replace(baseDir + '/', '');
     const parts = relative.split('/');
     const changedFile = parts.length === 2
       ? { projectDir: parts[0], sessionId: parts[1]!.replace('.jsonl', ''), eventType }

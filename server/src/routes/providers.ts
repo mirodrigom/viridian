@@ -181,6 +181,152 @@ router.post('/:id/install', (req, res) => {
 });
 
 /**
+ * POST /api/providers/:id/login — Trigger CLI-based login (device code flow).
+ *
+ * For providers like Kiro that use OAuth/device-code auth instead of API keys.
+ * Runs the CLI login command and captures the device code URL from stdout/stderr.
+ * Returns: { success, output, loginUrl?, deviceCode? }
+ */
+router.post('/:id/login', (req, res) => {
+  try {
+    const provider = getProvider(req.params.id as ProviderId);
+    const id = provider.info.id;
+
+    if (id !== 'kiro') {
+      res.status(400).json({ error: `Provider "${id}" does not support CLI login.` });
+      return;
+    }
+
+    const { license, identityProvider, region } = req.body as {
+      license?: 'free' | 'pro';
+      identityProvider?: string;
+      region?: string;
+    };
+
+    // Determine how to invoke kiro-cli login
+    let spawnCmd: string;
+    let spawnArgs: string[];
+    let needsStdinNewlines = false;
+
+    try {
+      const binary = provider.findBinary();
+      const loginArgs = ['login', '--use-device-flow'];
+
+      // License type: 'free' for Builder ID/Google/GitHub, 'pro' for Identity Center
+      if (license) loginArgs.push('--license', license);
+      if (license === 'pro' && identityProvider) loginArgs.push('--identity-provider', identityProvider);
+      if (license === 'pro' && region) loginArgs.push('--region', region);
+
+      // findBinary for WSL returns a Linux path like /home/user/.local/bin/kiro-cli
+      if (isWindows && binary.startsWith('/')) {
+        // Kiro CLI has a bug where --region is not applied to the SSO OIDC endpoint
+        // in non-TTY (remote) mode. Workaround: wrap with `script -qc` to provide
+        // a pseudo-TTY, then pipe Enter keys to accept the pre-filled prompt values.
+        if (license === 'pro') {
+          const kiroCmd = [binary, ...loginArgs].join(' ');
+          spawnCmd = 'wsl';
+          spawnArgs = ['--', 'script', '-qc', kiroCmd, '/dev/null'];
+          needsStdinNewlines = true;  // Press Enter to accept pre-filled Start URL + Region
+        } else {
+          spawnCmd = 'wsl';
+          spawnArgs = [binary, ...loginArgs];
+        }
+      } else {
+        spawnCmd = binary;
+        spawnArgs = loginArgs;
+      }
+    } catch {
+      res.status(500).json({ success: false, output: 'Kiro CLI not found. Install it first.' });
+      return;
+    }
+
+    // When spawning via WSL, don't pass Windows HOME — let WSL use its own home
+    const isWSLSpawn = spawnCmd === 'wsl';
+    const spawnEnv = isWSLSpawn
+      ? { ...process.env }  // WSL ignores Windows HOME and uses its own
+      : { ...process.env, HOME: getHomeDir() };
+
+    console.log(`[kiro-login] Spawning: ${spawnCmd} ${spawnArgs.join(' ')}`);
+
+    const proc = spawn(spawnCmd, spawnArgs, {
+      env: spawnEnv,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (needsStdinNewlines) {
+      // Send Enter keys after a short delay to accept the pre-filled prompts
+      // (Start URL and Region are pre-filled from --identity-provider and --region flags)
+      setTimeout(() => {
+        try { proc.stdin.write('\n'); } catch { /* process may have exited */ }
+        setTimeout(() => {
+          try { proc.stdin.write('\n'); proc.stdin.end(); } catch { /* process may have exited */ }
+        }, 500);
+      }, 1000);
+    } else {
+      proc.stdin.end();
+    }
+
+    let output = '';
+    let loginUrl: string | undefined;
+    let deviceCode: string | undefined;
+
+    function parseOutput(rawText: string) {
+      // Strip ANSI escape codes (from `script` pseudo-TTY wrapper)
+      const text = rawText.replace(/\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07]*\x07|\x1B\[[\?]?[0-9;]*[a-zA-Z]/g, '');
+      output += text;
+      console.log(`[kiro-login] Output: ${text.trim()}`);
+      // Look for the device code URL (e.g., https://view.awsapps.com/start/#/device?user_code=XXXX-XXXX)
+      const urlMatch = text.match(/(https:\/\/[^\s]+user_code=[^\s]+)/);
+      if (urlMatch) loginUrl = urlMatch[1];
+      // Look for device code pattern (e.g., XXXX-XXXX)
+      const codeMatch = text.match(/(?:Code|code)[:\s]+([A-Z0-9]{4}-[A-Z0-9]{4})/);
+      if (codeMatch) deviceCode = codeMatch[1];
+      // Also try the URL to extract the code
+      if (!deviceCode && loginUrl) {
+        const urlCodeMatch = loginUrl.match(/user_code=([A-Z0-9]{4}-[A-Z0-9]{4})/);
+        if (urlCodeMatch) deviceCode = urlCodeMatch[1];
+      }
+    }
+
+    proc.stdout.on('data', (chunk: Buffer) => parseOutput(chunk.toString()));
+    proc.stderr.on('data', (chunk: Buffer) => parseOutput(chunk.toString()));
+
+    // Give the login command time to output the device code, then respond
+    // The process will keep running in the background waiting for the user to authenticate
+    const timeout = setTimeout(() => {
+      if (!res.writableEnded) {
+        res.json({ success: true, output, loginUrl, deviceCode, message: 'Login initiated. Complete authentication in your browser.' });
+      }
+    }, 8000);
+
+    proc.on('close', (code) => {
+      clearTimeout(timeout);
+      if (!res.writableEnded) {
+        if (code === 0) {
+          res.json({ success: true, output, loginUrl, deviceCode, message: 'Authentication complete.' });
+        } else {
+          // Login process might finish quickly if already authenticated or on error
+          res.json({ success: code === 0, output, loginUrl, deviceCode });
+        }
+      }
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      if (!res.writableEnded) {
+        res.status(500).json({ success: false, output: err.message });
+      }
+    });
+
+    req.on('close', () => {
+      // Don't kill the login process if client disconnects — let auth complete
+    });
+  } catch {
+    res.status(404).json({ error: `Provider "${req.params.id}" not found` });
+  }
+});
+
+/**
  * POST /api/providers/:id/configure — Save API key credentials for a provider.
  * Body: { apiKey: string, envVarName?: string }
  * `envVarName` is used by multi-backend providers (Aider) to specify which key to set.

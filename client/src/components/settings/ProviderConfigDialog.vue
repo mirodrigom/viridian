@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import {
   Key, Loader2, ExternalLink, Terminal, FlaskConical,
-  CheckCircle, XCircle, Trash2, Info,
+  CheckCircle, XCircle, Trash2, Info, Github, Building2, Chrome,
 } from 'lucide-vue-next';
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
@@ -35,6 +35,103 @@ const saving = ref(false);
 const testing = ref(false);
 const deleting = ref<string | null>(null);  // envVarName being deleted
 const configuredKeys = ref<Record<string, string>>({});  // masked values
+
+// ─── Login flow state (for Kiro-style device code auth) ──────────────────
+const loginLoading = ref(false);
+const loginUrl = ref<string | null>(null);
+const loginDeviceCode = ref<string | null>(null);
+const loginMessage = ref('');
+const loginDone = ref(false);
+const loginStep = ref<'choose' | 'waiting'>('choose');
+// Pro (Identity Center) fields
+const idcStartUrl = ref('');
+const idcRegion = ref('us-east-1');
+
+async function startLoginFlow(license: 'free' | 'pro') {
+  if (!props.provider || loginLoading.value) return;
+  loginLoading.value = true;
+  loginUrl.value = null;
+  loginDeviceCode.value = null;
+  loginMessage.value = 'Starting login...';
+  loginDone.value = false;
+  loginStep.value = 'waiting';
+
+  try {
+    const body: Record<string, string> = { license };
+    if (license === 'pro') {
+      if (idcStartUrl.value.trim()) body.identityProvider = idcStartUrl.value.trim();
+      if (idcRegion.value.trim()) body.region = idcRegion.value.trim();
+    }
+
+    const res = await apiFetch(`/api/providers/${props.provider.id}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as {
+      success: boolean;
+      output?: string;
+      loginUrl?: string;
+      deviceCode?: string;
+      message?: string;
+    };
+
+    if (!data.success && !data.loginUrl) {
+      // Login failed (e.g. invalid identity provider URL) — stay on choose step
+      loginStep.value = 'choose';
+      const rawError = (data.output || data.message || '').trim();
+      loginMessage.value = rawError.includes('dispatch failure')
+        ? 'Login failed. Check your Identity Center Start URL and region, then try again.'
+        : rawError || 'Login failed.';
+      toast.error(loginMessage.value);
+      return;
+    }
+
+    loginUrl.value = data.loginUrl || null;
+    loginDeviceCode.value = data.deviceCode || null;
+    loginMessage.value = data.message || data.output || '';
+
+    if (data.loginUrl) {
+      window.open(data.loginUrl, '_blank');
+    }
+
+    if (data.success && !data.loginUrl) {
+      loginDone.value = true;
+      toast.success(`${props.provider.name} authenticated!`);
+      await providerStore.fetchProviders();
+      emit('configured', true, []);
+    }
+  } catch (err) {
+    loginStep.value = 'choose';
+    loginMessage.value = err instanceof Error ? err.message : 'Login failed';
+    toast.error(`Failed to start ${props.provider?.name} login`);
+  } finally {
+    loginLoading.value = false;
+  }
+}
+
+async function checkLoginStatus() {
+  if (!props.provider) return;
+  loginLoading.value = true;
+  loginMessage.value = 'Checking authentication...';
+
+  try {
+    await providerStore.fetchProviders();
+    const updated = providerStore.providers.find(p => p.id === props.provider!.id);
+    if (updated?.configured) {
+      loginDone.value = true;
+      loginMessage.value = 'Authentication successful!';
+      toast.success(`${props.provider.name} authenticated!`);
+      emit('configured', true, []);
+    } else {
+      loginMessage.value = 'Not authenticated yet. Complete the login in your browser, then click "Check again".';
+    }
+  } catch {
+    loginMessage.value = 'Failed to check status.';
+  } finally {
+    loginLoading.value = false;
+  }
+}
 
 interface TestResult {
   label: string;
@@ -62,6 +159,7 @@ interface EnvVarOption {
 
 interface ProviderSetup {
   instructionsOnly?: boolean;
+  loginFlow?: boolean;
   envVar?: EnvVarOption;
   envVarOptions?: EnvVarOption[];
   note?: string;
@@ -131,14 +229,7 @@ const PROVIDER_SETUPS: Record<string, ProviderSetup> = {
     note: 'Set the key for the LLM you want Aider to use. You can add multiple keys for different models.',
   },
   kiro: {
-    instructionsOnly: true,
-    instructions: [
-      { step: 'Install AWS CLI from https://aws.amazon.com/cli/' },
-      { step: 'Run `aws configure` and enter your Access Key ID, Secret Key, and region' },
-      { step: 'Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in your environment' },
-      { step: 'Ensure your IAM user/role has Amazon Bedrock access permissions' },
-      { step: 'Restart this app — Kiro will be detected automatically' },
-    ],
+    loginFlow: true,
   },
   qwen: {
     envVar: {
@@ -247,6 +338,12 @@ watch(() => props.provider?.id, (newId, oldId) => {
 watch(open, (isOpen) => {
   if (isOpen) {
     fetchConfiguredKeys();
+    // Reset login flow state
+    loginStep.value = 'choose';
+    loginUrl.value = null;
+    loginDeviceCode.value = null;
+    loginMessage.value = '';
+    loginDone.value = false;
   } else {
     testResults.value = [];
     apiKey.value = '';
@@ -436,8 +533,138 @@ async function save() {
         </DialogDescription>
       </DialogHeader>
 
-      <!-- Instructions-only providers (Claude, Kiro) -->
-      <div v-if="setup?.instructionsOnly" class="space-y-4 py-1">
+      <!-- Login flow providers (Kiro — device code auth) -->
+      <div v-if="setup?.loginFlow" class="space-y-4 py-1">
+        <!-- Step 1: Choose login type -->
+        <template v-if="loginStep === 'choose' && !loginDone">
+          <div class="space-y-2">
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="loginLoading"
+              @click="startLoginFlow('free')"
+              class="w-full justify-start h-10"
+            >
+              <Chrome class="mr-2.5 h-4 w-4 text-muted-foreground" />
+              Sign in with Google
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="loginLoading"
+              @click="startLoginFlow('free')"
+              class="w-full justify-start h-10"
+            >
+              <Github class="mr-2.5 h-4 w-4 text-muted-foreground" />
+              Sign in with GitHub
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="loginLoading"
+              @click="startLoginFlow('free')"
+              class="w-full justify-start h-10"
+            >
+              <svg class="mr-2.5 h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M18.75 11.35a4.32 4.32 0 0 1-.79-.06 3.93 3.93 0 0 1-.73-.2 4.02 4.02 0 0 1-.65-.34 3.9 3.9 0 0 1-.57-.45 3.93 3.93 0 0 1-.79-1.23 3.95 3.95 0 0 1-.28-1.47c0-.53.1-1.03.28-1.48a3.93 3.93 0 0 1 2.01-2.02 3.95 3.95 0 0 1 1.52-.3c.53 0 1.03.1 1.48.3a3.93 3.93 0 0 1 2.02 2.02c.19.45.28.95.28 1.48s-.1 1.02-.28 1.47a3.93 3.93 0 0 1-2.02 2.02 3.93 3.93 0 0 1-1.48.29zM5.25 11.35c-.53 0-1.03-.1-1.48-.29a3.93 3.93 0 0 1-2.02-2.02A3.92 3.92 0 0 1 1.47 7.6c0-.53.1-1.03.28-1.48a3.93 3.93 0 0 1 2.02-2.02 3.95 3.95 0 0 1 1.48-.3c.53 0 1.03.1 1.48.3a3.93 3.93 0 0 1 2.02 2.02c.19.45.28.95.28 1.48s-.1 1.02-.28 1.47a3.93 3.93 0 0 1-2.02 2.02 3.93 3.93 0 0 1-1.48.29zM12 20.2a3.93 3.93 0 0 1-1.48-.29 3.93 3.93 0 0 1-2.02-2.02 3.92 3.92 0 0 1-.28-1.47c0-.53.1-1.03.28-1.48a3.93 3.93 0 0 1 2.02-2.02A3.95 3.95 0 0 1 12 12.62c.53 0 1.03.1 1.48.3a3.93 3.93 0 0 1 2.02 2.02c.19.45.28.95.28 1.48s-.1 1.02-.28 1.47a3.93 3.93 0 0 1-2.02 2.02A3.93 3.93 0 0 1 12 20.2z"/></svg>
+              Sign in with AWS Builder ID
+            </Button>
+
+            <div class="relative my-3">
+              <div class="absolute inset-0 flex items-center"><span class="w-full border-t" /></div>
+              <div class="relative flex justify-center text-xs"><span class="bg-background px-2 text-muted-foreground">or</span></div>
+            </div>
+
+            <div class="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                :disabled="loginLoading || !idcStartUrl.trim()"
+                @click="startLoginFlow('pro')"
+                class="w-full justify-start h-10"
+              >
+                <Building2 class="mr-2.5 h-4 w-4 text-muted-foreground" />
+                Sign in with your organization identity
+              </Button>
+              <div class="pl-1 space-y-1.5">
+                <Input
+                  v-model="idcStartUrl"
+                  type="text"
+                  placeholder="Start URL (e.g. https://my-org.awsapps.com/start)"
+                  class="h-8 text-xs font-mono"
+                />
+                <Input
+                  v-model="idcRegion"
+                  type="text"
+                  placeholder="Region (default: us-east-1)"
+                  class="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Step 2: Waiting for auth -->
+        <template v-if="loginStep === 'waiting' && loginUrl && !loginDone">
+          <div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+            <p class="text-xs font-medium text-amber-400">Complete authentication in your browser</p>
+            <p v-if="loginDeviceCode" class="text-sm text-foreground">
+              Code: <span class="font-mono font-bold text-lg">{{ loginDeviceCode }}</span>
+            </p>
+            <a
+              :href="loginUrl"
+              target="_blank"
+              rel="noopener"
+              class="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              <ExternalLink class="h-3 w-3" />
+              Open login page
+            </a>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="loginLoading"
+            @click="checkLoginStatus"
+            class="w-full"
+          >
+            <Loader2 v-if="loginLoading" class="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            <CheckCircle v-else class="mr-1.5 h-3.5 w-3.5" />
+            {{ loginLoading ? 'Checking...' : 'I\'ve completed login — check status' }}
+          </Button>
+        </template>
+
+        <!-- Loading without URL yet -->
+        <template v-if="loginStep === 'waiting' && !loginUrl && !loginDone && loginLoading">
+          <div class="flex items-center gap-2 py-4 justify-center">
+            <Loader2 class="h-4 w-4 animate-spin text-muted-foreground" />
+            <p class="text-sm text-muted-foreground">{{ loginMessage }}</p>
+          </div>
+        </template>
+
+        <!-- Done -->
+        <template v-if="loginDone">
+          <div class="rounded-lg border border-green-500/30 bg-green-500/5 p-3 flex items-center gap-2">
+            <CheckCircle class="h-4 w-4 text-green-500" />
+            <p class="text-sm text-green-500 font-medium">{{ loginMessage }}</p>
+          </div>
+        </template>
+
+        <p v-if="loginMessage && !loginDone && !loginUrl && !loginLoading" class="text-xs text-muted-foreground">{{ loginMessage }}</p>
+
+        <div class="flex justify-end gap-2 pt-1">
+          <Button v-if="loginStep === 'waiting' && !loginDone" variant="ghost" size="sm" @click="loginStep = 'choose'; loginUrl = null; loginDeviceCode = null">
+            Back
+          </Button>
+          <Button variant="outline" size="sm" @click="open = false">
+            {{ loginDone ? 'Done' : 'Close' }}
+          </Button>
+        </div>
+      </div>
+
+      <!-- Instructions-only providers (Claude) -->
+      <div v-else-if="setup?.instructionsOnly" class="space-y-4 py-1">
         <ol class="space-y-2">
           <li
             v-for="(item, i) in setup.instructions"

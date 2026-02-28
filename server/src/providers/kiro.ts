@@ -28,10 +28,154 @@ import type {
 } from './types.js';
 import type { SDKMessage } from '../services/claude-sdk.js';
 import { registerProvider } from './registry.js';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, type SpawnOptionsWithoutStdio } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { v4 as uuid } from 'uuid';
 import { getHomeDir, findBinary as findBinaryInPath, getCommonBinaryPaths, findBinaryInWSL, isWindows } from '../utils/platform.js';
+
+// ─── Kiro output parser ─────────────────────────────────────────────────
+// Kiro CLI outputs plain text with ANSI codes. We parse it into structured
+// SDKMessage events so the Viridian UI renders tool use, diffs, etc. properly.
+
+/** Strip all ANSI escape codes from a string. */
+function stripAnsi(text: string): string {
+  return text.replace(/\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07]*\x07|\x1B\[[\?]?[0-9;]*[a-zA-Z]|[\x00-\x08\x0B\x0E-\x1F]/g, '');
+}
+
+/** Tool use pattern: lines ending with "(using tool: <name>)" */
+const TOOL_USE_RE = /\(using tool:\s*(\w+)\)\s*$/;
+
+/** Tool completion: " - Completed in X.Xs" */
+const TOOL_COMPLETED_RE = /^\s*-\s*Completed in [\d.]+s\s*$/;
+
+/** Tool success: line with ✓ (checkmark character, may have ANSI around it) */
+const TOOL_SUCCESS_RE = /[✓✔]/;
+
+/** Tool failure: line with ✗ or ✘ */
+const TOOL_FAILURE_RE = /[✗✘]/;
+
+/** Assistant text: lines starting with "> " (Kiro prefixes assistant output with colored "> ") */
+const ASSISTANT_PREFIX_RE = /^>\s?/;
+
+/** Map Kiro tool names → Claude tool names for consistent UI rendering. */
+const TOOL_NAME_MAP: Record<string, string> = {
+  read: 'Read',
+  write: 'Write',
+  edit: 'Edit',
+  glob: 'Glob',
+  grep: 'Grep',
+  shell: 'Bash',
+  web_search: 'WebSearch',
+  web_fetch: 'WebFetch',
+  thinking: 'Thinking',
+  todo: 'TodoWrite',
+};
+
+/**
+ * Stateful parser that processes raw Kiro stdout lines and calls push()
+ * with the appropriate SDKMessage events.
+ */
+function createKiroParser(push: (msg: SDKMessage) => void) {
+  let inToolBlock = false;
+  let currentToolName = '';
+  let currentToolId = '';
+  let toolOutputLines: string[] = [];
+  /** Buffer to accumulate partial lines from chunks that don't end with \n */
+  let lineBuffer = '';
+
+  function flushTool() {
+    if (!inToolBlock) return;
+    inToolBlock = false;
+    currentToolName = '';
+    currentToolId = '';
+    toolOutputLines = [];
+  }
+
+  function processLine(rawLine: string) {
+    const line = stripAnsi(rawLine).trimEnd();
+    if (!line) return;
+
+    // Check for tool invocation header: "Reading file: /path (using tool: read)"
+    const toolMatch = line.match(TOOL_USE_RE);
+    if (toolMatch) {
+      // Flush any previous tool block
+      flushTool();
+
+      const rawToolName = toolMatch[1]!;
+      const toolName = TOOL_NAME_MAP[rawToolName] || rawToolName;
+      currentToolName = toolName;
+      currentToolId = uuid();
+      inToolBlock = true;
+      toolOutputLines = [];
+
+      // Extract the description part before "(using tool: ...)"
+      const description = line.replace(TOOL_USE_RE, '').trim();
+
+      // Emit a tool_use event with mapped name for consistent UI rendering
+      push({
+        type: 'tool_use',
+        tool: toolName,
+        requestId: currentToolId,
+        input: { description },
+      });
+      return;
+    }
+
+    // Inside a tool block — accumulate output
+    if (inToolBlock) {
+      // Tool completion line — emit result and close tool block
+      if (TOOL_COMPLETED_RE.test(line)) {
+        flushTool();
+        return;
+      }
+
+      // Tool success/failure status lines — skip (info already in tool_use)
+      if (TOOL_SUCCESS_RE.test(line) || TOOL_FAILURE_RE.test(line)) {
+        return;
+      }
+
+      // "Purpose: ..." line for shell/write tools — skip
+      if (line.startsWith('Purpose:')) return;
+
+      // "Creating: ..." line for write tool — skip
+      if (line.startsWith('Creating:')) return;
+
+      // Everything else is tool output — skip it (user sees tool_use in trace)
+      return;
+    }
+
+    // Assistant text: strip the "> " prefix Kiro uses
+    const assistantLine = line.replace(ASSISTANT_PREFIX_RE, '');
+
+    // Only emit non-empty assistant text
+    if (assistantLine) {
+      push({ type: 'text_delta', text: assistantLine + '\n' });
+    }
+  }
+
+  return {
+    /** Feed a raw chunk from stdout. Handles partial lines across chunks. */
+    feed(chunk: string) {
+      lineBuffer += chunk;
+      const lines = lineBuffer.split('\n');
+      // Last element may be incomplete (no trailing \n), keep it in buffer
+      lineBuffer = lines.pop() || '';
+      for (const line of lines) {
+        processLine(line);
+      }
+    },
+
+    /** Flush any remaining buffered content (call on process close). */
+    flush() {
+      if (lineBuffer) {
+        processLine(lineBuffer);
+        lineBuffer = '';
+      }
+      flushTool();
+    },
+  };
+}
 
 // ─── Provider metadata ──────────────────────────────────────────────────
 
@@ -54,7 +198,7 @@ const models: ProviderModel[] = [
 ];
 
 const capabilities: ProviderCapabilities = {
-  supportsThinking: true,          // Has experimental thinking tool
+  supportsThinking: false,         // Thinking tool exists but output is plain text (no structured events)
   supportsToolUse: true,           // read, write, shell, glob, grep, etc.
   supportsPermissionModes: true,   // --trust-all-tools vs --trust-tools
   supportsImages: false,           // No --image flag; reads images via read tool
@@ -63,6 +207,7 @@ const capabilities: ProviderCapabilities = {
   supportsControlRequests: false,  // Trust is flag-based, not stdin
   supportsSubagents: true,         // delegate, use_subagent tools
   supportsPlanMode: false,
+  supportsModelSelection: false,   // No --model flag; uses chat.defaultModel setting
   supportedPermissionModes: ['bypassPermissions', 'default'],
   customFeatures: ['steering', 'custom_agents', 'knowledge_base', 'mcp', 'tangent_mode'],
 };
@@ -155,14 +300,25 @@ const kiroProvider: IProvider = {
     if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
       return { configured: true };
     }
-    // ~/.aws/credentials file (aws configure)
     const home = getHomeDir();
+    // ~/.aws/credentials file (aws configure)
     if (existsSync(join(home, '.aws', 'credentials'))) return { configured: true };
-    // Kiro-specific auth token
+    // Kiro-specific auth token (native)
     if (existsSync(join(home, '.kiro', 'auth.json'))) return { configured: true };
+
+    // If running via WSL, check auth inside WSL
+    if (isWSLBinary) {
+      try {
+        const result = execSync('wsl bash -lc "kiro-cli whoami" 2>/dev/null', { encoding: 'utf8', timeout: 10000 }).trim();
+        if (result && !result.includes('not logged in') && !result.includes('error')) {
+          return { configured: true };
+        }
+      } catch { /* not authenticated in WSL */ }
+    }
+
     return {
       configured: false,
-      reason: 'No AWS credentials found. Run `aws configure` or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
+      reason: 'Kiro is not authenticated. Click Configure to log in.',
     };
   },
 
@@ -224,12 +380,14 @@ const kiroProvider: IProvider = {
 
     let hasEmittedText = false;
 
+    // Use the structured parser to split tool-use output from assistant text
+    const parser = createKiroParser((msg) => {
+      hasEmittedText = true;
+      push(msg);
+    });
+
     proc.stdout!.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      if (text) {
-        hasEmittedText = true;
-        push({ type: 'text_delta', text });
-      }
+      parser.feed(chunk.toString());
     });
 
     proc.stderr!.on('data', (chunk: Buffer) => {
@@ -241,6 +399,9 @@ const kiroProvider: IProvider = {
     });
 
     proc.on('close', (code) => {
+      // Flush any remaining buffered content before emitting result
+      parser.flush();
+
       if (code && code !== 0 && !hasEmittedText) {
         push({ type: 'error', error: `Kiro exited unexpectedly (exit code ${code}).` });
       }

@@ -152,7 +152,7 @@ export class ProfileLoader {
       }
 
       // Validate category matches directory structure
-      const expectedCategory = filePath.split('/').slice(-2, -1)[0]; // Get parent directory name
+      const expectedCategory = filePath.split(/[\\/]/).slice(-2, -1)[0]; // Get parent directory name
       if (profileData.category !== expectedCategory) {
         console.warn(`Category mismatch in ${filePath}: expected '${expectedCategory}', got '${profileData.category}'`);
       }

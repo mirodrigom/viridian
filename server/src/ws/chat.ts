@@ -174,6 +174,8 @@ export function setupChatWs(server: Server) {
             }
           } catch { /* isConfigured() not critical — proceed */ }
 
+          // Always use the validated cwd from client (Viridian's active project)
+          // Fall back to home dir only if cwd is invalid/missing
           const projectDir = validateCwd(cwd) || getHomeDir();
 
           let session = sessionId ? getSession(sessionId) : null;
