@@ -63,6 +63,24 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   function removeNode(id: string) {
+    // If removing a rule container, unparent all children first
+    const removedNode = nodes.value.find(n => n.id === id);
+    if (removedNode) {
+      const d = removedNode.data as NodeData;
+      if (d.nodeType === 'rule' && (d as RuleNodeData).isContainer) {
+        for (const child of nodes.value) {
+          if (child.parentNode === id) {
+            // Convert relative position to absolute
+            child.position = {
+              x: child.position.x + removedNode.position.x,
+              y: child.position.y + removedNode.position.y,
+            };
+            delete child.parentNode;
+            delete child.extent;
+          }
+        }
+      }
+    }
     nodes.value = nodes.value.filter(n => n.id !== id);
     edges.value = edges.value.filter(e => e.source !== id && e.target !== id);
     if (selectedNodeId.value === id) selectedNodeId.value = null;
@@ -270,7 +288,140 @@ export const useGraphStore = defineStore('graph', () => {
     graphVersion.value++;
   }
 
+  /** Build map of ruleId → childIds from rule-constraint edges */
+  function getRuleChildrenMap(): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    for (const edge of edges.value) {
+      const edgeData = edge.data as GraphEdgeData;
+      if (edgeData?.edgeType === 'rule-constraint') {
+        // edge.source = agent/subagent/expert, edge.target = rule
+        const ruleId = edge.target;
+        const childId = edge.source;
+        if (!map.has(ruleId)) map.set(ruleId, []);
+        map.get(ruleId)!.push(childId);
+      }
+    }
+    return map;
+  }
+
+  /** Apply visual grouping: rule containers wrap their child nodes using Vue Flow parentNode */
+  function applyRuleContainers() {
+    const HEADER_HEIGHT = 48;
+    const PADDING = 24;
+    const CHILD_WIDTH = 260;
+    const CHILD_HEIGHT = 160;
+    const CHILD_GAP_H = 20;  // horizontal gap between children in same layer
+    const LAYER_GAP = 30;    // vertical gap between layers
+
+    // Layer order inside rule container: agent on top, subagent middle, expert bottom
+    const LAYER_ORDER: GraphNodeType[] = ['agent', 'subagent', 'expert'];
+
+    const ruleChildren = getRuleChildrenMap();
+
+    // First: clear container state for all rules
+    for (const node of nodes.value) {
+      const d = node.data as NodeData;
+      if (d.nodeType === 'rule') {
+        (d as RuleNodeData).isContainer = false;
+      }
+    }
+
+    // Clear parentNode from all nodes (fresh calculation)
+    for (const node of nodes.value) {
+      if (node.parentNode) {
+        const parent = nodes.value.find(n => n.id === node.parentNode);
+        if (parent) {
+          node.position = {
+            x: node.position.x + parent.position.x,
+            y: node.position.y + parent.position.y,
+          };
+        }
+        delete node.parentNode;
+        delete node.extent;
+      }
+      delete node.style;
+    }
+
+    // Apply container grouping
+    for (const [ruleId, childIds] of ruleChildren) {
+      if (childIds.length === 0) continue;
+      const ruleNode = nodes.value.find(n => n.id === ruleId);
+      if (!ruleNode) continue;
+
+      (ruleNode.data as RuleNodeData).isContainer = true;
+
+      // Group children by type into layers
+      const childNodes = childIds
+        .map(id => nodes.value.find(n => n.id === id))
+        .filter((n): n is typeof nodes.value[number] => n != null);
+
+      const layerMap = new Map<GraphNodeType, typeof childNodes>();
+      for (const child of childNodes) {
+        const nt = (child.data as NodeData).nodeType;
+        if (!layerMap.has(nt)) layerMap.set(nt, []);
+        layerMap.get(nt)!.push(child);
+      }
+
+      // Build ordered layers (agent → subagent → expert, then any others)
+      const orderedLayers: typeof childNodes[] = [];
+      for (const lt of LAYER_ORDER) {
+        const layerNodes = layerMap.get(lt);
+        if (layerNodes && layerNodes.length > 0) {
+          orderedLayers.push(layerNodes);
+          layerMap.delete(lt);
+        }
+      }
+      // Any remaining types not in LAYER_ORDER
+      for (const remaining of layerMap.values()) {
+        if (remaining.length > 0) orderedLayers.push(remaining);
+      }
+
+      // Calculate container dimensions: widest layer determines width
+      let maxLayerWidth = 0;
+      for (const layer of orderedLayers) {
+        const layerWidth = layer.length * CHILD_WIDTH + (layer.length - 1) * CHILD_GAP_H;
+        if (layerWidth > maxLayerWidth) maxLayerWidth = layerWidth;
+      }
+      const containerWidth = PADDING * 2 + maxLayerWidth;
+      const containerHeight = HEADER_HEIGHT + PADDING * 2 +
+        orderedLayers.length * CHILD_HEIGHT +
+        (orderedLayers.length - 1) * LAYER_GAP;
+
+      ruleNode.style = { width: `${containerWidth}px`, height: `${containerHeight}px` };
+
+      // Position children layer by layer, centered horizontally
+      let currentY = HEADER_HEIGHT + PADDING;
+      for (const layer of orderedLayers) {
+        const layerWidth = layer.length * CHILD_WIDTH + (layer.length - 1) * CHILD_GAP_H;
+        let startX = PADDING + (maxLayerWidth - layerWidth) / 2; // center the layer
+
+        for (const child of layer) {
+          child.parentNode = ruleId;
+          child.extent = 'parent';
+          child.position = { x: startX, y: currentY };
+          startX += CHILD_WIDTH + CHILD_GAP_H;
+        }
+        currentY += CHILD_HEIGHT + LAYER_GAP;
+      }
+    }
+
+    isDirty.value = true;
+  }
+
   function autoLayout() {
+    const ruleChildren = getRuleChildrenMap();
+    // Collect IDs of nodes that will be parented inside rule containers
+    const parentedNodeIds = new Set<string>();
+    for (const childIds of ruleChildren.values()) {
+      for (const id of childIds) parentedNodeIds.add(id);
+    }
+    // Container rule IDs (rules that have children)
+    const containerRuleIds = new Set<string>();
+    for (const [ruleId, childIds] of ruleChildren) {
+      if (childIds.length > 0) containerRuleIds.add(ruleId);
+    }
+
+    // Layers: exclude parented nodes (they go inside containers) and container rules (positioned separately)
     const layers: GraphNodeType[][] = [
       ['agent'],
       ['subagent'],
@@ -286,9 +437,15 @@ export const useGraphStore = defineStore('graph', () => {
     const positionedNodes = new Map<string, { x: number; y: number }>();
 
     for (const layerTypes of layers) {
-      const layerNodes = nodes.value.filter(n =>
-        layerTypes.includes((n.data as NodeData).nodeType),
-      );
+      const layerNodes = nodes.value.filter(n => {
+        const nt = (n.data as NodeData).nodeType;
+        if (!layerTypes.includes(nt)) return false;
+        // Exclude nodes that will be parented inside a container
+        if (parentedNodeIds.has(n.id)) return false;
+        // Exclude container rules (positioned after their children)
+        if (containerRuleIds.has(n.id)) return false;
+        return true;
+      });
       if (layerNodes.length === 0) continue;
 
       // Sort children by their parent's x position to cluster related nodes
@@ -310,6 +467,33 @@ export const useGraphStore = defineStore('graph', () => {
       }
       y += VERTICAL_GAP;
     }
+
+    // Position container rules below everything else, centered
+    const containerRules = nodes.value.filter(n => containerRuleIds.has(n.id));
+    if (containerRules.length > 0) {
+      const CONTAINER_GAP = 40;
+      // First pass: apply containers to calculate sizes
+      applyRuleContainers();
+
+      let totalContainerWidth = 0;
+      for (const cr of containerRules) {
+        const w = parseInt(cr.style?.width || '600');
+        totalContainerWidth += w + CONTAINER_GAP;
+      }
+      totalContainerWidth -= CONTAINER_GAP;
+
+      let cx = -(totalContainerWidth / 2);
+      for (const cr of containerRules) {
+        const w = parseInt(cr.style?.width || '600');
+        cr.position = { x: cx, y: y + 40 };
+        positionedNodes.set(cr.id, cr.position);
+        cx += w + CONTAINER_GAP;
+      }
+
+      // Re-apply containers now that positions are set
+      applyRuleContainers();
+    }
+
     isDirty.value = true;
     graphVersion.value++;
   }
@@ -334,6 +518,9 @@ export const useGraphStore = defineStore('graph', () => {
         type: (n.data as NodeData).nodeType,
         position: n.position,
         data: n.data as NodeData,
+        ...(n.parentNode && { parentNode: n.parentNode }),
+        ...(n.extent && { extent: n.extent as string }),
+        ...(n.style && { style: n.style as Record<string, string> }),
       })),
       edges: edges.value.map(e => ({
         id: e.id,
@@ -356,6 +543,9 @@ export const useGraphStore = defineStore('graph', () => {
       type: n.data.nodeType ?? n.type, // data.nodeType is the source of truth
       position: n.position,
       data: n.data,
+      ...(n.parentNode && { parentNode: n.parentNode }),
+      ...(n.extent && { extent: n.extent }),
+      ...(n.style && { style: n.style }),
     }));
     edges.value = config.edges.map(e => ({
       id: e.id,
@@ -591,7 +781,7 @@ export const useGraphStore = defineStore('graph', () => {
     addNode, removeNode, updateNodeData, updateNodePosition, selectNode,
     canConnect, getEdgeType, addEdge, removeEdge,
     fetchGraphList, loadGraph, saveGraph, deleteGraph,
-    newGraph, loadTemplate, importNodes, autoLayout, serialize, deserialize, generatePrompt,
+    newGraph, loadTemplate, importNodes, autoLayout, applyRuleContainers, serialize, deserialize, generatePrompt,
   };
 });
 

@@ -161,7 +161,8 @@ router.get('/project-assets', (req: AuthRequest, res) => {
       skills: unknown[];
       mcps: unknown[];
       rules: unknown[];
-    } = { agents: [], skills: [], mcps: [], rules: [] };
+      hasClaudeMd: boolean;
+    } = { agents: [], skills: [], mcps: [], rules: [], hasClaudeMd: false };
 
     // ── Agents (.claude/agents/*.md) ─────────────────────────────────
     const agentsDir = join(cwd, '.claude', 'agents');
@@ -255,8 +256,10 @@ router.get('/project-assets', (req: AuthRequest, res) => {
     // ── Rules (CLAUDE.md) ────────────────────────────────────────────
     const claudeMdFile = join(cwd, 'CLAUDE.md');
     if (existsSync(claudeMdFile)) {
+      result.hasClaudeMd = true;
       try {
         const content = readFileSync(claudeMdFile, 'utf8');
+        const rulesBeforeCount = result.rules.length;
         let currentSection = 'guideline';
         for (const line of content.split('\n')) {
           if (line.startsWith('## ')) {
@@ -290,6 +293,16 @@ router.get('/project-assets', (req: AuthRequest, res) => {
               scope: 'project',
             });
           }
+        }
+        // Fallback: if CLAUDE.md exists but no bullet-point rules were parsed,
+        // import the entire file as a single guideline rule
+        if (result.rules.length === rulesBeforeCount && content.trim()) {
+          result.rules.push({
+            label: 'CLAUDE.md',
+            ruleText: content.trim(),
+            ruleType: 'guideline',
+            scope: 'project',
+          });
         }
       } catch { /* skip */ }
     }

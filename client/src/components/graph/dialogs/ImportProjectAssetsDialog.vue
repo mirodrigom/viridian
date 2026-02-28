@@ -60,6 +60,7 @@ const agents = ref<AgentAsset[]>([]);
 const skills = ref<SkillAsset[]>([]);
 const mcps = ref<McpAsset[]>([]);
 const rules = ref<RuleAsset[]>([]);
+const hasClaudeMd = ref(false);
 
 const selectedAgents = ref(new Set<number>());
 const selectedSkills = ref(new Set<number>());
@@ -95,6 +96,7 @@ async function fetchAssets() {
     skills.value = data.skills || [];
     mcps.value = data.mcps || [];
     rules.value = data.rules || [];
+    hasClaudeMd.value = data.hasClaudeMd || false;
 
     // Auto-select all by default
     agents.value.forEach((_, i) => selectedAgents.value.add(i));
@@ -150,8 +152,16 @@ function onImport() {
   const needsOrchestrator = selectedAgentList.length >= 2;
   const nodesToAdd: Array<{ type: GraphNodeType; position: { x: number; y: number }; data: Record<string, unknown> }> = [];
 
-  // 3a. Create orchestrator if needed
-  if (needsOrchestrator) {
+  // 3a. Check if any imported agent IS an orchestrator (by label or metadata)
+  const orchestratorIndex = needsOrchestrator
+    ? selectedAgentList.findIndex(a =>
+        /orchestrator/i.test(a.label) ||
+        (a.metadata as AgentMetadata)?.domain === 'orchestrator')
+    : -1;
+  const importedOrchestrator = orchestratorIndex >= 0 ? selectedAgentList[orchestratorIndex] : null;
+
+  // 3b. Create synthetic orchestrator only if needed AND none was found in imports
+  if (needsOrchestrator && !importedOrchestrator) {
     nodesToAdd.push({
       type: 'agent',
       position: { x: 0, y: 0 },
@@ -169,17 +179,19 @@ function onImport() {
     });
   }
 
-  // 3b. Add agents (as subagents if orchestrator exists, else as agents)
+  // 3c. Add agents — promote imported orchestrator to top-level agent, rest as subagents
   for (const a of selectedAgentList) {
+    const isTheOrchestrator = importedOrchestrator && a === importedOrchestrator;
+    const nodeType: GraphNodeType = isTheOrchestrator ? 'agent' : (needsOrchestrator ? 'subagent' : 'agent');
     nodesToAdd.push({
-      type: needsOrchestrator ? 'subagent' : 'agent',
+      type: nodeType,
       position: { x: 0, y: 0 },
       data: {
         label: a.label,
         description: a.description,
         model: a.model,
         systemPrompt: a.systemPrompt,
-        ...(needsOrchestrator
+        ...(nodeType === 'subagent'
           ? { taskDescription: a.description || '' }
           : { allowedTools: a.allowedTools, disallowedTools: a.disallowedTools, maxTokens: 200000 }),
         permissionMode: a.permissionMode,
@@ -216,58 +228,58 @@ function onImport() {
 
   // 5. Create edges — map labels to node IDs
   const nodesByLabel = new Map<string, string>();
-  const agentNodeIds: string[] = [];
+  const executableNodeIds: string[] = []; // agents, subagents, experts (non-orchestrator)
   const skillNodeIds: string[] = [];
   const mcpNodeIds: string[] = [];
   const ruleNodeIds: string[] = [];
   let orchestratorId: string | null = null;
 
+  const executableTypes = new Set(['agent', 'subagent', 'expert']);
   for (const n of graph.nodes) {
     const d = n.data as NodeData;
     nodesByLabel.set(d.label, n.id);
     if (d.nodeType === 'agent') {
-      if (needsOrchestrator && d.label === 'Orchestrator Agent') {
+      const orchestratorLabel = importedOrchestrator ? importedOrchestrator.label : 'Orchestrator Agent';
+      if (needsOrchestrator && d.label === orchestratorLabel) {
         orchestratorId = n.id;
-      } else {
-        agentNodeIds.push(n.id);
+        continue;
       }
     }
-    if (d.nodeType === 'subagent') agentNodeIds.push(n.id);
+    if (executableTypes.has(d.nodeType)) executableNodeIds.push(n.id);
     if (d.nodeType === 'skill') skillNodeIds.push(n.id);
     if (d.nodeType === 'mcp') mcpNodeIds.push(n.id);
     if (d.nodeType === 'rule') ruleNodeIds.push(n.id);
   }
 
-  // Orchestrator → each subagent (delegation)
+  // Orchestrator → each subagent/expert (delegation)
   if (orchestratorId) {
-    for (const subId of agentNodeIds) {
+    for (const subId of executableNodeIds) {
       const handles = EDGE_HANDLE_MAP['delegation'];
       graph.addEdge({ source: orchestratorId, target: subId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }
 
-  // Each agent/subagent → skills (skill-usage)
-  const agentSources = orchestratorId ? agentNodeIds : agentNodeIds;
-  for (const agentId of agentSources) {
+  // Each executable node → skills (skill-usage), mcps (tool-access)
+  for (const nodeId of executableNodeIds) {
     for (const skillId of skillNodeIds) {
       const handles = EDGE_HANDLE_MAP['skill-usage'];
-      graph.addEdge({ source: agentId, target: skillId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+      graph.addEdge({ source: nodeId, target: skillId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
     for (const mcpId of mcpNodeIds) {
       const handles = EDGE_HANDLE_MAP['tool-access'];
-      graph.addEdge({ source: agentId, target: mcpId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
-    }
-    for (const ruleId of ruleNodeIds) {
-      const handles = EDGE_HANDLE_MAP['rule-constraint'];
-      graph.addEdge({ source: agentId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+      graph.addEdge({ source: nodeId, target: mcpId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }
 
-  // Also connect orchestrator to skills/mcps/rules if it exists
-  if (orchestratorId) {
+  // Rules → ALL executable nodes (orchestrator + agents + subagents + experts)
+  // Rules are global constraints that apply to every executable node
+  const allExecutableIds = orchestratorId
+    ? [orchestratorId, ...executableNodeIds]
+    : executableNodeIds;
+  for (const nodeId of allExecutableIds) {
     for (const ruleId of ruleNodeIds) {
       const handles = EDGE_HANDLE_MAP['rule-constraint'];
-      graph.addEdge({ source: orchestratorId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
+      graph.addEdge({ source: nodeId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }
 
@@ -277,13 +289,12 @@ function onImport() {
   open.value = false;
   toast.success(`Imported ${totalCount} node${totalCount !== 1 ? 's' : ''} from project`);
 
-  // 7. Inform about missing CLAUDE.md
-  if (selectedRuleList.length === 0 && rules.value.length === 0) {
+  // 7. Inform about missing CLAUDE.md (only if the file doesn't exist at all)
+  if (!hasClaudeMd.value) {
     toast.info('No CLAUDE.md found. Consider creating one to define project rules.', { duration: 6000 });
   }
 
   // 8. Auto-generate metadata for agent nodes that lack metadata
-  const executableTypes = new Set(['agent', 'subagent', 'expert']);
   const nodesNeedingMeta = graph.nodes.filter(n => {
     const d = n.data as NodeData;
     return executableTypes.has(d.nodeType) && (!d.metadata || (d.metadata as AgentMetadata).tags?.length === 0);

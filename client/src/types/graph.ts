@@ -73,6 +73,8 @@ export interface RuleNodeData extends BaseNodeData {
   ruleType: 'allow' | 'deny' | 'guideline' | 'constraint';
   ruleText: string;
   scope: 'global' | 'project';
+  /** When true, this rule renders as a group container holding child nodes */
+  isContainer?: boolean;
 }
 
 export type NodeData =
@@ -112,6 +114,11 @@ export interface SerializedNode {
   type: GraphNodeType;
   position: { x: number; y: number };
   data: NodeData;
+  /** Vue Flow parent-child nesting for rule containers */
+  parentNode?: string;
+  extent?: string;
+  /** Explicit dimensions for container nodes */
+  style?: { width?: string; height?: string };
 }
 
 export interface SerializedEdge {

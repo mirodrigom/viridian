@@ -5,7 +5,7 @@ import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
 import { Background } from '@vue-flow/background';
 import type { Connection, NodeDragEvent } from '@vue-flow/core';
-import type { GraphNodeType } from '@/types/graph';
+import type { GraphNodeType, RuleNodeData } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useGraphRunner } from '@/composables/useGraphRunner';
@@ -77,8 +77,22 @@ const {
 watch(
   () => graph.graphVersion,
   async () => {
-    setNodes(graph.nodes.map(n => ({ ...n })));
-    setEdges(graph.edges.map(e => ({ ...e })));
+    // Sort: parent (container) nodes before children for correct z-order
+    const sorted = [...graph.nodes].sort((a, b) => {
+      if (a.parentNode && !b.parentNode) return 1;
+      if (!a.parentNode && b.parentNode) return -1;
+      return 0;
+    });
+    setNodes(sorted.map(n => ({ ...n })));
+    // Hide rule-constraint edges when child is inside the rule container
+    setEdges(graph.edges.filter(e => {
+      const ed = e.data as { edgeType?: string };
+      if (ed?.edgeType === 'rule-constraint') {
+        const sourceNode = graph.nodes.find(n => n.id === e.source);
+        if (sourceNode?.parentNode === e.target) return false; // containment replaces the edge
+      }
+      return true;
+    }).map(e => ({ ...e })));
     await nextTick();
     // Allow VueFlow to measure and render nodes before adjusting viewport
     setTimeout(() => {
@@ -299,7 +313,7 @@ function isValidConnection(connection: Connection): boolean {
             <Background :gap="15" :size="1" pattern-color="var(--border)" />
             <MiniMap
               class="!bottom-4 !right-4"
-              :node-color="() => 'var(--primary)'"
+              :node-color="(n: any) => (n.data as RuleNodeData)?.isContainer ? 'transparent' : 'var(--primary)'"
               :mask-color="'oklch(0.13 0.012 155 / 80%)'"
             />
             <Controls class="!bottom-4 !left-4" />
@@ -370,7 +384,7 @@ function isValidConnection(connection: Connection): boolean {
             <Background :gap="15" :size="1" pattern-color="var(--border)" />
             <MiniMap
               class="!bottom-16 !right-4"
-              :node-color="() => 'var(--primary)'"
+              :node-color="(n: any) => (n.data as RuleNodeData)?.isContainer ? 'transparent' : 'var(--primary)'"
               :mask-color="'oklch(0.13 0.012 155 / 80%)'"
             />
             <Controls class="!bottom-16 !left-4" />
