@@ -18,8 +18,11 @@ bash "$SCRIPT_DIR/setup.sh"
 # Detect local IP
 if [ -f /.flatpak-info ]; then
   LAN_IP=$(flatpak-spawn --host hostname -I 2>/dev/null | awk '{print $1}')
-else
+elif hostname -I &>/dev/null; then
   LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+else
+  # Windows / MINGW fallback
+  LAN_IP=$(ipconfig 2>/dev/null | grep -m1 'IPv4' | awk -F': ' '{print $2}' | tr -d '\r')
 fi
 LAN_IP="${LAN_IP:-127.0.0.1}"
 

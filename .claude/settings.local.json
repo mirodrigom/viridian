@@ -30,7 +30,9 @@
       "Bash(head:*)",
       "Bash(wsl:*)",
       "Bash(cmd.exe:*)",
-      "Bash(ip -4 addr show)"
+      "Bash(ip -4 addr show)",
+      "Bash(echo exit: $?:*)",
+      "Bash(ipconfig)"
     ]
   }
 }

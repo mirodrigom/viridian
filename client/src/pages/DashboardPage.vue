@@ -29,6 +29,8 @@ const { currentVersion, latestVersion, updateAvailable, dismiss: dismissUpdate }
 const projectPath = ref('');
 const recentPaths = ref<string[]>([]);
 const showDirPicker = ref(false);
+const opening = ref(false);
+const openingPath = ref('');
 
 // GitHub clone state
 const cloneUrl = ref('');
@@ -113,7 +115,10 @@ onMounted(() => {
 
 function openProject(path?: string) {
   const target = path || projectPath.value;
-  if (!target.trim()) return;
+  if (!target.trim() || opening.value) return;
+
+  opening.value = true;
+  openingPath.value = target;
 
   // Remember the base dir for next time
   settings.projectsDir = target;
@@ -206,13 +211,14 @@ function logout() {
                   {{ projectPath || 'Select a project directory...' }}
                 </span>
               </div>
-              <Button variant="outline" @click="showDirPicker = true" class="shrink-0 gap-1">
+              <Button variant="outline" @click="showDirPicker = true" :disabled="opening" class="shrink-0 gap-1">
                 <Search class="h-4 w-4" />
                 Browse
               </Button>
-              <Button @click="openProject()" :disabled="!projectPath.trim()" class="gap-1">
-                Open
-                <ArrowRight class="h-4 w-4" />
+              <Button @click="openProject()" :disabled="!projectPath.trim() || opening" class="gap-1">
+                <Loader2 v-if="opening && !openingPath" class="h-4 w-4 animate-spin" />
+                <template v-else>Open</template>
+                <ArrowRight v-if="!opening" class="h-4 w-4" />
               </Button>
             </div>
 
@@ -226,17 +232,24 @@ function logout() {
                 <button
                   v-for="path in recentPaths"
                   :key="path"
-                  class="group flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2.5 text-left transition-all hover:border-border hover:bg-accent"
+                  class="group flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-all"
+                  :class="opening && openingPath === path
+                    ? 'border-primary/40 bg-primary/5'
+                    : opening
+                      ? 'pointer-events-none border-transparent opacity-50'
+                      : 'border-transparent hover:border-border hover:bg-accent'"
+                  :disabled="opening"
                   @click="openProject(path)"
                 >
-                  <FolderOpen class="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Loader2 v-if="opening && openingPath === path" class="h-4 w-4 shrink-0 animate-spin text-primary" />
+                  <FolderOpen v-else class="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div class="min-w-0 flex-1">
                     <div class="truncate text-sm font-medium text-foreground">
                       {{ path.split('/').pop() }}
                     </div>
                     <div class="truncate text-xs text-muted-foreground">{{ path }}</div>
                   </div>
-                  <ArrowRight class="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                  <ArrowRight v-if="!(opening && openingPath === path)" class="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
               </div>
             </div>
