@@ -11,6 +11,11 @@ import { getHomeDir, cwdToHash } from '../utils/platform.js';
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
+/** Normalize path separators to forward slashes for consistent DB matching. */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 /** Delete the JSONL session file that Claude CLI creates, so it doesn't appear in the chat sidebar. */
 function cleanupClaudeSession(sessionId: string | undefined, projectPath: string) {
   if (!sessionId) return;
@@ -71,7 +76,7 @@ router.get('/', (req: AuthRequest, res) => {
 
   const db = getDb();
   let sql = 'SELECT * FROM tasks WHERE user_id = ? AND project_path = ?';
-  const params: unknown[] = [req.user!.id, project];
+  const params: unknown[] = [req.user!.id, normalizePath(project)];
 
   if (status && typeof status === 'string') {
     sql += ' AND status = ?';
@@ -115,14 +120,15 @@ router.post('/', (req: AuthRequest, res) => {
 
   const db = getDb();
   const id = randomUUID();
+  const normalizedProject = normalizePath(project);
   const maxOrder = db.prepare(
     'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM tasks WHERE user_id = ? AND project_path = ? AND parent_id IS ?',
-  ).get(req.user!.id, project, parentId || null) as { next: number };
+  ).get(req.user!.id, normalizedProject, parentId || null) as { next: number };
 
   db.prepare(`
     INSERT INTO tasks (id, user_id, project_path, title, description, details, priority, parent_id, dependency_ids, sort_order)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user!.id, project, title, description || '', details || '', priority || 'medium', parentId || null, JSON.stringify(dependencyIds || []), maxOrder.next);
+  `).run(id, req.user!.id, normalizedProject, title, description || '', details || '', priority || 'medium', parentId || null, JSON.stringify(dependencyIds || []), maxOrder.next);
 
   const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow;
   res.status(201).json(rowToTask(row));
@@ -224,6 +230,7 @@ type ParsedTask = {
 
 /** Parse JSON task lines from Claude output and save them to the DB. */
 function saveTasksToDb(fullText: string, prdSnippet: string, userId: number, project: string): ReturnType<typeof rowToTask>[] {
+  project = normalizePath(project);
   const parsedTasks: ParsedTask[] = [];
   for (const line of fullText.split('\n')) {
     const trimmed = line.trim();

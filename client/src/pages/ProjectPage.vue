@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useProviderStore } from '@/stores/provider';
+import { useDiagramsStore } from '@/stores/diagrams';
 import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router';
 import type { RouteLocationNormalized } from 'vue-router';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -16,6 +17,7 @@ const chat = useChatStore();
 const management = useManagementStore();
 const graph = useGraphStore();
 const autopilot = useAutopilotStore();
+const diagramsStore = useDiagramsStore();
 const providerStore = useProviderStore();
 const route = useRoute();
 const router = useRouter();
@@ -60,6 +62,17 @@ async function handleRoute(to: RouteLocationNormalized) {
     } catch {
       console.error('Failed to load graph from URL');
       router.replace({ name: 'graph' });
+    }
+  }
+
+  // --- Diagram handling ---
+  const diagramId = to.params.diagramId as string | undefined;
+  if (diagramId && diagramId !== diagramsStore.currentDiagramId) {
+    try {
+      await diagramsStore.loadDiagram(diagramId);
+    } catch {
+      console.error('Failed to load diagram from URL');
+      router.replace({ name: 'diagrams' });
     }
   }
 

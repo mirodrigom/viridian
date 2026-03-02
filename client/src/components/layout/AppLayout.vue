@@ -11,6 +11,7 @@ import { useProviderStore } from '@/stores/provider';
 import { useChatStore } from '@/stores/chat';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
+import { useDiagramsStore } from '@/stores/diagrams';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
 import TerminalPanel from './TerminalPanel.vue';
@@ -23,6 +24,7 @@ const providerStore = useProviderStore();
 const chat = useChatStore();
 const graphStore = useGraphStore();
 const autopilotStore = useAutopilotStore();
+const diagramsStore = useDiagramsStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -52,6 +54,7 @@ const TAB_ROUTES: Record<string, string> = {
   management: 'management',
   graph: 'graph',
   autopilot: 'autopilot',
+  diagrams: 'diagrams',
 };
 
 watch(activeTab, (newTab, oldTab) => {
@@ -69,6 +72,13 @@ watch(activeTab, (newTab, oldTab) => {
   if (newTab === 'graph' && graphStore.currentGraphId) {
     if (route.name !== 'graph-open') {
       router.replace({ name: 'graph-open', params: { graphId: graphStore.currentGraphId } });
+    }
+    return;
+  }
+  // For diagrams, navigate to diagram-open if a diagram is loaded
+  if (newTab === 'diagrams' && diagramsStore.currentDiagramId) {
+    if (route.name !== 'diagram-open') {
+      router.replace({ name: 'diagram-open', params: { diagramId: diagramsStore.currentDiagramId } });
     }
     return;
   }

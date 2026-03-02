@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
-import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard } from 'lucide-vue-next';
+import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
 import EditorView from '@/components/editor/EditorView.vue';
@@ -16,6 +16,7 @@ import TaskBoard from '@/components/tasks/TaskBoard.vue';
 import GraphEditor from '@/components/graph/GraphEditor.vue';
 import AutopilotView from '@/components/autopilot/AutopilotView.vue';
 import ManagementView from '@/components/management/ManagementView.vue';
+import DiagramEditor from '@/components/diagram/DiagramEditor.vue';
 import FileSidebar from '@/components/layout/FileSidebar.vue';
 import {
   ResizablePanelGroup,
@@ -26,6 +27,7 @@ import { useTasksStore } from '@/stores/tasks';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useManagementStore } from '@/stores/management';
+import { useDiagramsStore } from '@/stores/diagrams';
 
 // Mobile responsive
 const isMobile = ref(false);
@@ -53,6 +55,7 @@ const tasks = useTasksStore();
 const graphStore = useGraphStore();
 const autopilot = useAutopilotStore();
 const managementStore = useManagementStore();
+const diagramsStore = useDiagramsStore();
 
 // Auto-switch to editor when a file is opened or diff is opened
 watch(() => files.activeFile, (val) => {
@@ -75,6 +78,7 @@ const tabs = [
   { value: 'tasks', label: 'Tasks', icon: ClipboardList },
   { value: 'graph', label: 'Graph', icon: Workflow },
   { value: 'autopilot', label: 'Autopilot', icon: Bot },
+  { value: 'diagrams', label: 'Diagrams', icon: Network },
 ] as const;
 
 function badgeFor(tab: string): number | null {
@@ -83,6 +87,7 @@ function badgeFor(tab: string): number | null {
   if (tab === 'tasks' && tasks.stats.total > 0) return tasks.stats.total - tasks.stats.done || null;
   if (tab === 'graph' && graphStore.nodeCount > 0) return graphStore.nodeCount;
   if (tab === 'management' && managementStore.runningCount > 0) return managementStore.runningCount;
+  if (tab === 'diagrams' && diagramsStore.nodeCount > 0) return diagramsStore.nodeCount;
   return null;
 }
 </script>
@@ -195,6 +200,11 @@ function badgeFor(tab: string): number | null {
     </TabsContent>
     <TabsContent value="management" class="mt-0 flex-1 overflow-hidden">
       <ManagementView />
+    </TabsContent>
+    <TabsContent value="diagrams" class="mt-0 flex-1 overflow-hidden" :force-mount="true"
+      :style="{ display: activeTab === 'diagrams' ? undefined : 'none' }"
+    >
+      <DiagramEditor />
     </TabsContent>
   </Tabs>
 </template>

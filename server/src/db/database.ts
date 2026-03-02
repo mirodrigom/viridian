@@ -87,6 +87,18 @@ function runMigrations(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_graphs_user_project ON graphs(user_id, project_path);
 
+    CREATE TABLE IF NOT EXISTS diagrams (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT 'Untitled Diagram',
+      description TEXT DEFAULT '',
+      diagram_data TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_diagrams_user_project ON diagrams(user_id, project_path);
+
     CREATE TABLE IF NOT EXISTS graph_runs (
       id TEXT PRIMARY KEY,
       graph_id TEXT REFERENCES graphs(id) ON DELETE SET NULL,

@@ -33,7 +33,7 @@ const router = useRouter();
 const sessions = ref<SessionItem[]>([]);
 const isRefreshing = ref(false);
 const searchQuery = ref('');
-const visibleCount = ref(5);
+const visibleCount = ref(20);
 const sessionSort = ref<'date' | 'name'>('date');
 
 const emit = defineEmits<{
@@ -56,7 +56,6 @@ watch(() => chat.isStreaming, (streaming, wasStreaming) => {
 async function fetchSessions(bustCache = false) {
   try {
     const params = new URLSearchParams();
-    if (chat.projectPath) params.set('project', chat.projectPath);
     if (bustCache) params.set('_t', String(Date.now()));
     const res = await apiFetch(`/api/sessions?${params}`);
     if (!res.ok) return;

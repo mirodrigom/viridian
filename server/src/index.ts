@@ -23,6 +23,7 @@ import graphRunsRoutes from './routes/graph-runs.js';
 import autopilotRoutes from './routes/autopilot.js';
 import providersRoutes from './routes/providers.js';
 import managementRoutes from './routes/management.js';
+import diagramsRoutes from './routes/diagrams.js';
 import langfuseRoutes from './routes/langfuse.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
@@ -62,6 +63,7 @@ app.use('/api/graph-runs', graphRunsRoutes);
 app.use('/api/autopilot', autopilotRoutes);
 app.use('/api/providers', providersRoutes);
 app.use('/api/management', managementRoutes);
+app.use('/api/diagrams', diagramsRoutes);
 app.use('/api/langfuse', authMiddleware, langfuseRoutes);
 
 app.get('/api/health', (_req, res) => {

@@ -83,6 +83,18 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'management' },
     },
+    {
+      path: '/diagrams',
+      name: 'diagrams',
+      component: ProjectPage,
+      meta: { tab: 'diagrams' },
+    },
+    {
+      path: '/diagrams/:diagramId',
+      name: 'diagram-open',
+      component: ProjectPage,
+      meta: { tab: 'diagrams' },
+    },
   ],
 });
 
