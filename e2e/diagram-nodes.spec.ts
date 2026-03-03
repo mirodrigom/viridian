@@ -1,0 +1,679 @@
+import { test, expect } from './fixtures'
+import {
+  addDiagramServiceNode,
+  addDiagramGroupNode,
+  addDiagramEdge,
+  selectDiagramNode,
+  selectDiagramEdge,
+  getDiagramEdgeIds,
+} from './helpers/vueflow'
+
+test.describe('Diagram Nodes and Properties', () => {
+  test('adding a service node renders on canvas', async ({ diagramPage: page }) => {
+    await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+
+    // Node should be visible on the canvas
+    await expect(page.locator('.vue-flow__node')).toHaveCount(1)
+
+    // Stats should update
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
+  })
+
+  test('adding a group node renders on canvas', async ({ diagramPage: page }) => {
+    await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+
+    await expect(page.locator('.vue-flow__node')).toHaveCount(1)
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
+  })
+
+  test('selecting a service node shows properties panel', async ({ diagramPage: page }) => {
+    const nodeId = await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await selectDiagramNode(page, nodeId)
+
+    // Properties panel should appear
+    const panel = page.locator('[data-testid="properties-panel"]')
+    await expect(panel).toBeVisible()
+
+    // Should show the service name and custom label input
+    await expect(panel.getByText('Custom Label')).toBeVisible()
+    await expect(panel.locator('[data-testid="prop-custom-label"]')).toBeVisible()
+  })
+
+  test('editing custom label updates node', async ({ diagramPage: page }) => {
+    const nodeId = await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await selectDiagramNode(page, nodeId)
+
+    const labelInput = page.locator('[data-testid="prop-custom-label"]')
+    await labelInput.fill('My EC2 Instance')
+
+    // The node should display the custom label
+    await expect(page.locator('.vue-flow__node').getByText('My EC2 Instance')).toBeVisible()
+  })
+
+  test('adding an edge updates stats', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('2 nodes')
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 edges')
+  })
+
+  test('selecting an edge shows edge properties', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    const edgeIds = await getDiagramEdgeIds(page)
+    expect(edgeIds.length).toBe(1)
+    await selectDiagramEdge(page, edgeIds[0])
+
+    // Properties panel should show edge options
+    const panel = page.locator('[data-testid="properties-panel"]')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByText('Edge Type')).toBeVisible()
+    await expect(panel.getByText('Line Style')).toBeVisible()
+  })
+
+  test('delete node via keyboard', async ({ diagramPage: page }) => {
+    const nodeId = await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await selectDiagramNode(page, nodeId)
+
+    // Press Delete key
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(200)
+
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('0 nodes')
+  })
+
+  test('context menu on service node', async ({ diagramPage: page }) => {
+    await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await page.waitForSelector('.vue-flow__node', { timeout: 5_000 })
+
+    // Right-click on the node
+    await page.locator('.vue-flow__node').first().click({ button: 'right' })
+
+    // Context menu should appear with z-index and delete options
+    await expect(page.getByText('Bring to Front')).toBeVisible()
+    await expect(page.getByText('Send to Back')).toBeVisible()
+    await expect(page.getByText('Delete Node')).toBeVisible()
+  })
+
+  test('group node collapse/expand', async ({ diagramPage: page }) => {
+    await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    await page.waitForSelector('.vue-flow__node', { timeout: 5_000 })
+
+    // Click collapse toggle
+    const collapseBtn = page.locator('[data-testid="group-collapse-toggle"]')
+    await collapseBtn.click()
+
+    // The inner area should be hidden (collapsed state)
+    // Collapsed groups don't show the inner drop area
+    await page.waitForTimeout(200)
+
+    // Click again to expand
+    await collapseBtn.click()
+    await page.waitForTimeout(200)
+  })
+
+  test('group node rename via double-click', async ({ diagramPage: page }) => {
+    await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    await page.waitForSelector('.vue-flow__node', { timeout: 5_000 })
+
+    // Double-click the label
+    const label = page.locator('[data-testid="group-label"]')
+    await label.dblclick()
+
+    // An input should appear for editing
+    const editInput = page.locator('.vue-flow__node input')
+    await expect(editInput).toBeVisible()
+
+    // Type new name and press Enter
+    await editInput.fill('Production VPC')
+    await editInput.press('Enter')
+
+    // Label should update
+    await expect(page.locator('[data-testid="group-label"]')).toContainText('Production VPC')
+  })
+
+  // ─── Nested node selection and z-index tests ─────────────────────
+
+  test('clicking service inside group selects the service, not the group', async ({ diagramPage: page }) => {
+    // Create a group and place a service node inside it
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    // Parent the service to the group
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    // Click on the service node element
+    const serviceEl = page.locator(`[data-id="${serviceId}"]`)
+    await expect(serviceEl).toBeVisible()
+    await serviceEl.click({ force: true })
+    await page.waitForTimeout(200)
+
+    // Verify the service is selected (not the group)
+    const selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      const store = pinia._s.get('diagrams')
+      return store.selectedNodeId
+    })
+    expect(selectedId).toBe(serviceId)
+  })
+
+  test('after selecting a group, clicking a child service inside it selects the service', async ({ diagramPage: page }) => {
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    // First select the group
+    await selectDiagramNode(page, groupId)
+    await page.waitForTimeout(200)
+
+    // Verify group is selected
+    let selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(groupId)
+
+    // Now click on the service node — the onNodeClick handler should redirect
+    // to the deepest child at the click position
+    const serviceEl = page.locator(`[data-id="${serviceId}"]`)
+    await serviceEl.click({ force: true })
+    await page.waitForTimeout(200)
+
+    selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(serviceId)
+  })
+
+  test('child node z-index is always higher than parent group z-index', async ({ diagramPage: page }) => {
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    const zIndices = await page.evaluate(
+      ({ groupId, serviceId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const groupNode = store.nodes.find((n: any) => n.id === groupId)
+        const serviceNode = store.nodes.find((n: any) => n.id === serviceId)
+        return {
+          groupZ: groupNode?.zIndex ?? 0,
+          serviceZ: serviceNode?.zIndex ?? 0,
+        }
+      },
+      { groupId, serviceId },
+    )
+
+    expect(zIndices.serviceZ).toBeGreaterThan(zIndices.groupZ)
+  })
+
+  test('bringToFront on a group does not put it above its children', async ({ diagramPage: page }) => {
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    // Bring group to front
+    await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        pinia._s.get('diagrams').bringToFront(id)
+      },
+      groupId,
+    )
+    await page.waitForTimeout(200)
+
+    // Child's z-index should still be higher than the group's
+    const zIndices = await page.evaluate(
+      ({ groupId, serviceId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const groupNode = store.nodes.find((n: any) => n.id === groupId)
+        const serviceNode = store.nodes.find((n: any) => n.id === serviceId)
+        return {
+          groupZ: groupNode?.zIndex ?? 0,
+          serviceZ: serviceNode?.zIndex ?? 0,
+        }
+      },
+      { groupId, serviceId },
+    )
+
+    // bringToFront operates on siblings only — child depth-based z is separate
+    expect(zIndices.serviceZ).toBeGreaterThan(zIndices.groupZ)
+  })
+
+  test('z-index operations are scoped to siblings at the same nesting level', async ({ diagramPage: page }) => {
+    // Create two root-level groups
+    const group1 = await addDiagramGroupNode(page, 'vpc', { x: 50, y: 50 })
+    const group2 = await addDiagramGroupNode(page, 'region', { x: 400, y: 50 })
+
+    // Create a service inside group1
+    const serviceInGroup1 = await addDiagramServiceNode(page, 'ec2', { x: 110, y: 130 })
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId: serviceInGroup1, groupId: group1 },
+    )
+    await page.waitForTimeout(300)
+
+    // bringToFront on group1 should only affect root-level siblings
+    await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        pinia._s.get('diagrams').bringToFront(id)
+      },
+      group1,
+    )
+    await page.waitForTimeout(100)
+
+    const result = await page.evaluate(
+      ({ group1, group2, serviceInGroup1 }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const g1 = store.nodes.find((n: any) => n.id === group1)
+        const g2 = store.nodes.find((n: any) => n.id === group2)
+        const svc = store.nodes.find((n: any) => n.id === serviceInGroup1)
+        return {
+          group1Z: g1?.zIndex ?? 0,
+          group2Z: g2?.zIndex ?? 0,
+          serviceZ: svc?.zIndex ?? 0,
+          // Check that the service's z-index was not affected by root-level operations
+          serviceParent: svc?.parentNode,
+        }
+      },
+      { group1, group2, serviceInGroup1 },
+    )
+
+    // group1 should be above group2 (brought to front)
+    expect(result.group1Z).toBeGreaterThan(result.group2Z)
+    // Service is still parented correctly
+    expect(result.serviceParent).toBe(group1)
+    // Service z-index still above its parent
+    expect(result.serviceZ).toBeGreaterThan(result.group1Z)
+  })
+
+  test('deeply nested nodes (group > group > service) maintain proper z-index hierarchy', async ({ diagramPage: page }) => {
+    // Create outer group (Region), inner group (Security Group), service (EC2)
+    const outerGroup = await addDiagramGroupNode(page, 'region', { x: 50, y: 50 })
+    const innerGroup = await addDiagramGroupNode(page, 'security-group', { x: 80, y: 100 })
+    const service = await addDiagramServiceNode(page, 'ec2', { x: 120, y: 160 })
+
+    // Parent inner group to outer, then service to inner
+    await page.evaluate(
+      ({ innerGroup, outerGroup, service }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(innerGroup, outerGroup)
+        store.setNodeParent(service, innerGroup)
+        store.diagramVersion++
+      },
+      { innerGroup, outerGroup, service },
+    )
+    await page.waitForTimeout(300)
+
+    const zIndices = await page.evaluate(
+      ({ outerGroup, innerGroup, service }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const outer = store.nodes.find((n: any) => n.id === outerGroup)
+        const inner = store.nodes.find((n: any) => n.id === innerGroup)
+        const svc = store.nodes.find((n: any) => n.id === service)
+        return {
+          outerZ: outer?.zIndex ?? 0,
+          innerZ: inner?.zIndex ?? 0,
+          serviceZ: svc?.zIndex ?? 0,
+        }
+      },
+      { outerGroup, innerGroup, service },
+    )
+
+    // Depth hierarchy: service (depth 2) > inner group (depth 1) > outer group (depth 0)
+    expect(zIndices.serviceZ).toBeGreaterThan(zIndices.innerZ)
+    expect(zIndices.innerZ).toBeGreaterThan(zIndices.outerZ)
+  })
+
+  test('sendToBack does not set z-index below depth floor', async ({ diagramPage: page }) => {
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    // Send service to back — its z-index should not drop below its depth floor (10)
+    await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        pinia._s.get('diagrams').sendToBack(id)
+      },
+      serviceId,
+    )
+    await page.waitForTimeout(100)
+
+    const serviceZ = await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const node = store.nodes.find((n: any) => n.id === id)
+        return node?.zIndex ?? 0
+      },
+      serviceId,
+    )
+
+    // Depth 1 node → floor is 10
+    expect(serviceZ).toBeGreaterThanOrEqual(10)
+  })
+
+  test('clicking child inside already-selected group deselects group and selects child', async ({ diagramPage: page }) => {
+    // Reproduce the exact user scenario: VPC selected → click EC2 inside
+    const groupId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const serviceId = await addDiagramServiceNode(page, 'ec2', { x: 160, y: 180 })
+
+    await page.evaluate(
+      ({ serviceId, groupId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(serviceId, groupId)
+        store.diagramVersion++
+      },
+      { serviceId, groupId },
+    )
+    await page.waitForTimeout(300)
+
+    // Select the group (like the user clicking VPC)
+    const groupEl = page.locator(`[data-id="${groupId}"]`)
+    await groupEl.click()
+    await page.waitForTimeout(300)
+
+    // VPC should now be selected in VueFlow (has .selected class)
+    await expect(groupEl).toHaveClass(/selected/)
+
+    // Now click on the service node area — without force: true, like a real user
+    const serviceEl = page.locator(`[data-id="${serviceId}"]`)
+    const serviceBBox = await serviceEl.boundingBox()
+    expect(serviceBBox).toBeTruthy()
+
+    // Click in the center of the service node
+    await page.mouse.click(
+      serviceBBox!.x + serviceBBox!.width / 2,
+      serviceBBox!.y + serviceBBox!.height / 2,
+    )
+    await page.waitForTimeout(300)
+
+    // The service should now be selected in the store
+    const selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(serviceId)
+
+    // The service should be visually selected in VueFlow (has .selected class)
+    await expect(serviceEl).toHaveClass(/selected/)
+
+    // The group should NOT be visually selected anymore
+    await expect(groupEl).not.toHaveClass(/selected/)
+  })
+
+  test('triple-nested: click deepest child through two selected parent groups', async ({ diagramPage: page }) => {
+    const outer = await addDiagramGroupNode(page, 'region', { x: 50, y: 50 })
+    const inner = await addDiagramGroupNode(page, 'vpc', { x: 80, y: 100 })
+    const service = await addDiagramServiceNode(page, 'ec2', { x: 120, y: 160 })
+
+    await page.evaluate(
+      ({ inner, outer, service }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(inner, outer)
+        store.setNodeParent(service, inner)
+        store.diagramVersion++
+      },
+      { inner, outer, service },
+    )
+    await page.waitForTimeout(300)
+
+    // Select the outer group first (via store + VueFlow sync)
+    const outerEl = page.locator(`[data-id="${outer}"]`)
+    await selectDiagramNode(page, outer)
+    // Also set VueFlow's visual selection to match
+    await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        // Trigger VueFlow selection sync via the watcher
+        store.selectedNodeId = id
+      },
+      outer,
+    )
+    await page.waitForTimeout(300)
+
+    // Click on the service inside
+    const serviceEl = page.locator(`[data-id="${service}"]`)
+    const bbox = await serviceEl.boundingBox()
+    expect(bbox).toBeTruthy()
+    await page.mouse.click(bbox!.x + bbox!.width / 2, bbox!.y + bbox!.height / 2)
+    await page.waitForTimeout(300)
+
+    const selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(service)
+
+    // Service should be visually selected
+    await expect(serviceEl).toHaveClass(/selected/)
+    // Outer group should NOT be selected
+    await expect(outerEl).not.toHaveClass(/selected/)
+  })
+
+  test('clicking child GROUP inside selected parent GROUP selects the child group', async ({ diagramPage: page }) => {
+    // This is the exact user scenario: VPC selected → click Public Subnet group inside
+    const vpcId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    const subnetId = await addDiagramGroupNode(page, 'subnet-public', { x: 140, y: 200 })
+
+    // Parent the subnet to the VPC
+    await page.evaluate(
+      ({ subnetId, vpcId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(subnetId, vpcId)
+        store.diagramVersion++
+      },
+      { subnetId, vpcId },
+    )
+    await page.waitForTimeout(300)
+
+    // Select VPC programmatically (simulates user having already selected it)
+    await selectDiagramNode(page, vpcId)
+    await page.waitForTimeout(300)
+
+    // Verify VPC is selected
+    const vpcEl = page.locator(`[data-id="${vpcId}"]`)
+    let selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(vpcId)
+
+    // Now click on the child group (Public Subnet) — real user click via mouse
+    const subnetEl = page.locator(`[data-id="${subnetId}"]`)
+    const subnetBBox = await subnetEl.boundingBox()
+    expect(subnetBBox).toBeTruthy()
+
+    // Click the subnet's label bar area (top portion)
+    await page.mouse.click(
+      subnetBBox!.x + subnetBBox!.width / 2,
+      subnetBBox!.y + 15,
+    )
+    await page.waitForTimeout(300)
+
+    // The subnet should now be selected
+    selectedId = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').selectedNodeId
+    })
+    expect(selectedId).toBe(subnetId)
+
+    // VPC should NOT be selected anymore
+    await expect(vpcEl).not.toHaveClass(/selected/)
+    await expect(subnetEl).toHaveClass(/selected/)
+  })
+
+  // ─── Delete button and edge connection tests ─────────────────────
+
+  test('trash icon on service node removes it from the canvas', async ({ diagramPage: page }) => {
+    const nodeId = await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await page.waitForSelector('.vue-flow__node', { timeout: 5_000 })
+
+    // Hover over the node to reveal the trash icon, then click it
+    const nodeEl = page.locator(`[data-id="${nodeId}"]`)
+    await nodeEl.hover()
+    await page.waitForTimeout(200)
+    const trashBtn = nodeEl.locator('button').filter({ has: page.locator('.lucide-trash-2') })
+    await trashBtn.click({ force: true })
+    await page.waitForTimeout(300)
+
+    // Node should be removed from both store and VueFlow canvas
+    const nodeCount = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').nodeCount
+    })
+    expect(nodeCount).toBe(0)
+
+    // VueFlow should also have no nodes
+    await expect(page.locator('.vue-flow__node')).toHaveCount(0)
+  })
+
+  test('trash icon on group node removes it from the canvas', async ({ diagramPage: page }) => {
+    await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+    await page.waitForSelector('.vue-flow__node', { timeout: 5_000 })
+
+    const nodeEl = page.locator('.vue-flow__node').first()
+    await nodeEl.hover()
+    await page.waitForTimeout(200)
+    const trashBtn = nodeEl.locator('button').filter({ has: page.locator('.lucide-trash-2') })
+    await trashBtn.click({ force: true })
+    await page.waitForTimeout(300)
+
+    const nodeCount = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').nodeCount
+    })
+    expect(nodeCount).toBe(0)
+    await expect(page.locator('.vue-flow__node')).toHaveCount(0)
+  })
+
+  test('deleting a node via trash also removes connected edges', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    // Verify edge exists
+    let edgeCount = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').edgeCount
+    })
+    expect(edgeCount).toBe(1)
+
+    // Delete node1 via trash icon
+    const nodeEl = page.locator(`[data-id="${node1}"]`)
+    await nodeEl.hover()
+    await page.waitForTimeout(200)
+    const trashBtn = nodeEl.locator('button').filter({ has: page.locator('.lucide-trash-2') })
+    await trashBtn.click({ force: true })
+    await page.waitForTimeout(300)
+
+    // Edge should also be removed
+    edgeCount = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').edgeCount
+    })
+    expect(edgeCount).toBe(0)
+  })
+
+  test('edge connection creates edge between nodes', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 100, y: 350 })
+
+    // Drag from node1's bottom handle (source) to node2's top handle (target)
+    const sourceHandle = page.locator(`[data-id="${node1}"] .vue-flow__handle[data-handlepos="bottom"]`)
+    const targetHandle = page.locator(`[data-id="${node2}"] .vue-flow__handle[data-handlepos="top"]`)
+
+    await sourceHandle.hover()
+    const sourceBBox = await sourceHandle.boundingBox()
+    const targetBBox = await targetHandle.boundingBox()
+
+    if (sourceBBox && targetBBox) {
+      await page.mouse.move(sourceBBox.x + sourceBBox.width / 2, sourceBBox.y + sourceBBox.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(targetBBox.x + targetBBox.width / 2, targetBBox.y + targetBBox.height / 2, { steps: 10 })
+      await page.mouse.up()
+    }
+
+    await page.waitForTimeout(500)
+
+    // Edge should exist in the store
+    const edgeCount = await page.evaluate(() => {
+      const pinia = (window as any).__pinia
+      return pinia._s.get('diagrams').edgeCount
+    })
+    expect(edgeCount).toBe(1)
+
+    // Edge should be visible in VueFlow
+    await expect(page.locator('.vue-flow__edge')).toHaveCount(1)
+  })
+
+})

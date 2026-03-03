@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineStore, acceptHMRUpdate } from 'pinia';
 import { ref, computed } from 'vue';
 import type { Node, Edge, Connection } from '@vue-flow/core';
 import { apiFetch } from '@/lib/apiFetch';
@@ -38,6 +38,8 @@ export type EdgeLineType = 'default' | 'straight' | 'step' | 'smoothstep';
 export type EdgeLineStyle = 'solid' | 'dashed' | 'dotted';
 export type EdgeMarkerType = 'arrow' | 'arrowclosed' | 'none';
 
+export type EdgeLabelSize = 'small' | 'medium' | 'large';
+
 export interface DiagramEdgeData {
   label: string;
   style: EdgeLineStyle;
@@ -51,6 +53,7 @@ export interface DiagramEdgeData {
   dotCount?: number;
   dotSpeed?: 'slow' | 'medium' | 'fast';
   dotColor?: string;
+  labelSize?: EdgeLabelSize;
 }
 
 export interface SerializedDiagramNode {
@@ -96,6 +99,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   const diagramList = ref<{ id: string; name: string; description?: string; updatedAt: string }[]>([]);
   const diagramVersion = ref(0);
   const savedViewport = ref<{ x: number; y: number; zoom: number } | null>(null);
+  /** null = live SVG animation, 0–1 = GIF export frame progress */
+  const gifExportProgress = ref<number | null>(null);
 
   // ─── Computed ───────────────────────────────────────────────────
   const selectedNode = computed(() =>
@@ -108,6 +113,91 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
   const nodeCount = computed(() => nodes.value.length);
   const edgeCount = computed(() => edges.value.length);
+
+  // ─── Flow animation cascade ────────────────────────────────────────
+  /** Stagger delay (seconds) between topological levels for cascade animation */
+  const flowStagger = ref(0.4);
+
+  /** Auto-computed topological level per edge based on graph structure (BFS from source nodes) */
+  const edgeFlowLevels = computed((): Map<string, number> => {
+    const result = new Map<string, number>();
+    if (edges.value.length === 0) return result;
+
+    // Count incoming edges per node
+    const nodeIds = new Set(nodes.value.map(n => n.id));
+    const incoming = new Map<string, number>();
+    for (const id of nodeIds) incoming.set(id, 0);
+    for (const edge of edges.value) {
+      if (nodeIds.has(edge.target)) {
+        incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
+      }
+    }
+
+    // BFS from source nodes (nodes with no incoming edges)
+    const nodeLevel = new Map<string, number>();
+    const queue: string[] = [];
+    for (const [id, count] of incoming) {
+      if (count === 0) {
+        queue.push(id);
+        nodeLevel.set(id, 0);
+      }
+    }
+    // Fallback for fully-cyclic graphs: start from all nodes at level 0
+    if (queue.length === 0) {
+      for (const id of nodeIds) {
+        queue.push(id);
+        nodeLevel.set(id, 0);
+      }
+    }
+
+    let qi = 0;
+    while (qi < queue.length) {
+      const id = queue[qi++];
+      const level = nodeLevel.get(id)!;
+      for (const edge of edges.value) {
+        if (edge.source === id && !nodeLevel.has(edge.target)) {
+          nodeLevel.set(edge.target, level + 1);
+          queue.push(edge.target);
+        }
+      }
+    }
+
+    // Edge level = source node's topological level
+    for (const edge of edges.value) {
+      result.set(edge.id, nodeLevel.get(edge.source) || 0);
+    }
+
+    return result;
+  });
+
+  /** Compute the bounding box of all visible nodes (absolute coords) with optional padding. */
+  function getContentBounds(padding = 40): { x: number; y: number; width: number; height: number } | null {
+    const visible = nodes.value.filter(n => !n.hidden);
+    if (visible.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const node of visible) {
+      // Resolve absolute position (handles deeply nested parent chains)
+      const { x: absX, y: absY } = getAbsolutePosition(node.id);
+
+      const style = node.style as Record<string, string> | undefined;
+      const dims = (node as any).dimensions;
+      const w = dims?.width || parseFloat(style?.width || '0') || (node.type === 'aws-group' ? 400 : 160);
+      const h = dims?.height || parseFloat(style?.height || '0') || (node.type === 'aws-group' ? 300 : 60);
+
+      if (absX < minX) minX = absX;
+      if (absY < minY) minY = absY;
+      if (absX + w > maxX) maxX = absX + w;
+      if (absY + h > maxY) maxY = absY + h;
+    }
+
+    return {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    };
+  }
 
   // ─── Node CRUD ─────────────────────────────────────────────────
 
@@ -222,14 +312,9 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (!child) return;
 
     if (parentId === null) {
-      // Unparent: convert relative position to absolute
-      const oldParent = nodes.value.find(n => n.id === child.parentNode);
-      if (oldParent) {
-        child.position = {
-          x: child.position.x + oldParent.position.x,
-          y: child.position.y + oldParent.position.y,
-        };
-      }
+      // Unparent: convert relative position to absolute using recursive helper
+      const absPos = getAbsolutePosition(childId);
+      child.position = { ...absPos };
       delete child.parentNode;
       delete child.extent;
     } else {
@@ -241,17 +326,24 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       if (childId === parentId) return;
       if (child.parentNode === parentId) return;
 
-      // Convert absolute position to relative
-      const oldParent = nodes.value.find(n => n.id === child.parentNode);
-      const absX = oldParent ? child.position.x + oldParent.position.x : child.position.x;
-      const absY = oldParent ? child.position.y + oldParent.position.y : child.position.y;
+      // Compute child's absolute position (handles nested old parent)
+      const childAbs = getAbsolutePosition(childId);
+      // Compute new parent's absolute position (handles nested parent chains)
+      const parentAbs = getAbsolutePosition(parentId);
 
       child.position = {
-        x: absX - parent.position.x,
-        y: absY - parent.position.y,
+        x: childAbs.x - parentAbs.x,
+        y: childAbs.y - parentAbs.y,
       };
       child.parentNode = parentId;
       child.extent = 'parent';
+
+      // Ensure child z-index is above parent's for proper click targeting
+      const parentZ = (parent as any).zIndex ?? 0;
+      const childZ = (child as any).zIndex ?? 0;
+      if (childZ <= parentZ) {
+        (child as any).zIndex = parentZ + 10;
+      }
     }
     isDirty.value = true;
   }
@@ -322,51 +414,89 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     }
   }
 
-  // ─── Z-Index layers ────────────────────────────────────────────
+  // ─── Absolute position helper ──────────────────────────────────
 
-  function getMaxZIndex(): number {
-    let max = 0;
-    for (const node of nodes.value) {
-      const z = (node as any).zIndex ?? 0;
-      if (z > max) max = z;
+  /** Compute the absolute (world-space) position of a node by walking up the parent chain. */
+  function getAbsolutePosition(nodeId: string): { x: number; y: number } {
+    const node = nodes.value.find(n => n.id === nodeId);
+    if (!node) return { x: 0, y: 0 };
+
+    let absX = node.position.x;
+    let absY = node.position.y;
+    let current = node;
+    let depth = 0;
+    while (current.parentNode && depth < 10) {
+      const parent = nodes.value.find(n => n.id === current.parentNode);
+      if (!parent) break;
+      absX += parent.position.x;
+      absY += parent.position.y;
+      current = parent;
+      depth++;
     }
-    return max;
+    return { x: absX, y: absY };
   }
 
-  function getMinZIndex(): number {
-    let min = 0;
-    for (const node of nodes.value) {
-      const z = (node as any).zIndex ?? 0;
-      if (z < min) min = z;
+  // ─── Z-Index layers (depth-aware: siblings only) ───────────────
+
+  /** Compute nesting depth of a node (0 = root, 1 = child, 2 = grandchild, etc.) */
+  function getNodeDepth(nodeId: string): number {
+    let depth = 0;
+    let current = nodes.value.find(n => n.id === nodeId);
+    while (current?.parentNode) {
+      depth++;
+      current = nodes.value.find(n => n.id === current!.parentNode);
+      if (depth > 10) break;
     }
-    return min;
+    return depth;
+  }
+
+  /** Minimum z-index for a node based on depth (children always above parents) */
+  function getDepthBaseZ(nodeId: string): number {
+    return getNodeDepth(nodeId) * 10;
+  }
+
+  /** Get sibling nodes (same parent level) */
+  function getSiblings(nodeId: string): typeof nodes.value {
+    const node = nodes.value.find(n => n.id === nodeId);
+    if (!node) return [];
+    return nodes.value.filter(n => n.parentNode === node.parentNode && n.id !== nodeId);
   }
 
   function bringToFront(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId);
     if (!node) return;
-    (node as any).zIndex = getMaxZIndex() + 1;
+    const siblings = getSiblings(nodeId);
+    const baseZ = getDepthBaseZ(nodeId);
+    const maxZ = Math.max(baseZ, ...siblings.map(n => (n as any).zIndex ?? 0));
+    (node as any).zIndex = maxZ + 1;
     isDirty.value = true;
   }
 
   function sendToBack(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId);
     if (!node) return;
-    (node as any).zIndex = getMinZIndex() - 1;
+    const siblings = getSiblings(nodeId);
+    const baseZ = getDepthBaseZ(nodeId);
+    const minZ = Math.min(baseZ, ...siblings.map(n => (n as any).zIndex ?? 0));
+    (node as any).zIndex = Math.max(baseZ, minZ - 1);
     isDirty.value = true;
   }
 
   function bringForward(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId);
     if (!node) return;
-    (node as any).zIndex = ((node as any).zIndex ?? 0) + 1;
+    const baseZ = getDepthBaseZ(nodeId);
+    const currentZ = (node as any).zIndex ?? baseZ;
+    (node as any).zIndex = Math.max(baseZ, currentZ + 1);
     isDirty.value = true;
   }
 
   function sendBackward(nodeId: string) {
     const node = nodes.value.find(n => n.id === nodeId);
     if (!node) return;
-    (node as any).zIndex = ((node as any).zIndex ?? 0) - 1;
+    const baseZ = getDepthBaseZ(nodeId);
+    const currentZ = (node as any).zIndex ?? baseZ;
+    (node as any).zIndex = Math.max(baseZ, currentZ - 1);
     isDirty.value = true;
   }
 
@@ -377,23 +507,36 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   }
 
   function findGroupAtPosition(position: { x: number; y: number }, excludeId?: string): string | null {
-    // Find the topmost group node at the given absolute position
+    // Find the deepest (most nested) group node at the given absolute position.
+    // We prefer the deepest match so dropping a service inside VPC (inside Region)
+    // parents it to VPC, not Region.
+    let bestId: string | null = null;
+    let bestDepth = -1;
+
     for (const node of nodes.value) {
       if (node.type !== 'aws-group') continue;
       if (node.id === excludeId) continue;
+
+      // Compute absolute position (handles nested groups)
+      const abs = getAbsolutePosition(node.id);
       const style = node.style as Record<string, string> | undefined;
       const w = parseFloat(style?.width || '400');
       const h = parseFloat(style?.height || '300');
+
       if (
-        position.x >= node.position.x &&
-        position.x <= node.position.x + w &&
-        position.y >= node.position.y &&
-        position.y <= node.position.y + h
+        position.x >= abs.x &&
+        position.x <= abs.x + w &&
+        position.y >= abs.y &&
+        position.y <= abs.y + h
       ) {
-        return node.id;
+        const depth = getNodeDepth(node.id);
+        if (depth > bestDepth) {
+          bestDepth = depth;
+          bestId = node.id;
+        }
       }
     }
-    return null;
+    return bestId;
   }
 
   // ─── Multi-select helpers ─────────────────────────────────────
@@ -413,19 +556,29 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     );
     if (exists) return;
 
+    // Auto-color: inherit from source node's service category color
+    let autoColor = '';
+    const sourceNode = nodes.value.find(n => n.id === connection.source);
+    if (sourceNode) {
+      const d = sourceNode.data as DiagramNodeData;
+      if (d.nodeType === 'aws-service') autoColor = (d as AWSServiceNodeData).service.color;
+      else if (d.nodeType === 'aws-group') autoColor = (d as AWSGroupNodeData).groupType.color;
+    }
+
     const edgeData: DiagramEdgeData = {
       label: '',
       style: 'solid',
-      animated: false,
+      animated: true,
       notes: '',
       edgeType: 'default',
-      color: '',
+      color: autoColor,
       markerStart: 'none',
       markerEnd: 'arrowclosed',
-      dotAnimation: false,
+      dotAnimation: true,
       dotCount: 1,
       dotSpeed: 'medium',
       dotColor: '',
+      labelSize: 'small',
     };
 
     edges.value.push({
@@ -434,9 +587,12 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       target: connection.target,
       sourceHandle: connection.sourceHandle ?? undefined,
       targetHandle: connection.targetHandle ?? undefined,
-      type: 'default',
+      type: 'animated-flow',
       data: edgeData,
       label: '',
+      animated: true,
+      ...(autoColor ? { style: { stroke: autoColor } } : {}),
+      ...(autoColor ? { markerEnd: { type: 'arrowclosed' as any, color: autoColor } } : {}),
     });
     isDirty.value = true;
   }
@@ -583,6 +739,23 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       };
     });
 
+    // Auto-set z-index based on nesting depth so children render above parents
+    for (const node of nodes.value) {
+      let depth = 0;
+      let current: typeof node | undefined = node;
+      while (current?.parentNode) {
+        depth++;
+        current = nodes.value.find(n => n.id === current!.parentNode);
+        if (depth > 10) break;
+      }
+      if (depth > 0) {
+        const currentZ = (node as any).zIndex ?? 0;
+        if (currentZ < depth * 10) {
+          (node as any).zIndex = depth * 10;
+        }
+      }
+    }
+
     edges.value = config.edges.map(e => {
       const d: DiagramEdgeData = {
         label: '',
@@ -597,6 +770,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
         dotCount: 1,
         dotSpeed: 'medium',
         dotColor: '',
+        labelSize: 'small',
         ...e.data,
       };
       return {
@@ -678,16 +852,20 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     // State
     nodes, edges, selectedNodeId, selectedEdgeId,
     currentDiagramId, currentDiagramName,
-    isDirty, loading, diagramList, diagramVersion, savedViewport,
+    isDirty, loading, diagramList, diagramVersion, savedViewport, gifExportProgress,
     // Computed
     selectedNode, selectedEdge, nodeCount, edgeCount,
+    // Flow cascade
+    flowStagger, edgeFlowLevels,
     // Node CRUD
     addServiceNode, addGroupNode, removeNode,
     updateNodeData, updateNodePosition, selectNode, selectEdge,
     // Parent-child nesting
-    setNodeParent, ungroupChildren, getGroupChildren, findGroupAtPosition,
+    setNodeParent, ungroupChildren, getGroupChildren, findGroupAtPosition, getAbsolutePosition,
     // Collapse / Expand
     toggleGroupCollapse, collapseAllGroups, expandAllGroups,
+    // Content bounds
+    getContentBounds,
     // Z-Index layers
     bringToFront, sendToBack, bringForward, sendBackward, getNodeZIndex,
     // Multi-select
@@ -700,3 +878,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     fetchDiagramList, loadDiagram, saveDiagram, deleteDiagram,
   };
 });
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useDiagramsStore, import.meta.hot));
+}

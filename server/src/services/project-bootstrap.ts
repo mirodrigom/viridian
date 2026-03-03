@@ -106,23 +106,47 @@ export function discoverScripts(projectPath: string): DiscoveredScript[] {
 
 export function discoverEnvFiles(projectPath: string): string[] {
   const envFiles: string[] = [];
-  try {
-    const entries = readdirSync(projectPath);
-    for (const entry of entries) {
-      if (entry === '.env' || (entry.startsWith('.env.') && !entry.endsWith('.example'))) {
-        const fullPath = join(projectPath, entry);
+  // Directories to skip during recursive scan
+  const SKIP_DIRS = new Set([
+    'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out',
+    '.next', '.nuxt', '.output', '__pycache__', '.venv', 'venv',
+    'vendor', '.cargo', 'target', '.gradle', '.idea', '.vscode',
+  ]);
+  const MAX_DEPTH = 5;
+
+  function scan(dir: string, depth: number) {
+    if (depth > MAX_DEPTH) return;
+    try {
+      const entries = readdirSync(dir);
+      for (const entry of entries) {
+        const fullPath = join(dir, entry);
         try {
-          if (statSync(fullPath).isFile()) {
-            envFiles.push(fullPath);
+          const stat = statSync(fullPath);
+          if (stat.isFile()) {
+            if (entry === '.env' || (entry.startsWith('.env.') && !entry.endsWith('.example'))) {
+              envFiles.push(fullPath);
+            }
+          } else if (stat.isDirectory() && !SKIP_DIRS.has(entry) && !entry.startsWith('.')) {
+            // Recurse into subdirectories (skip hidden dirs except we already checked .env files)
+            scan(fullPath, depth + 1);
           }
-        } catch { /* skip */ }
+        } catch { /* skip unreadable entries */ }
       }
-    }
-  } catch { /* skip unreadable dir */ }
-  // Sort: .env first, then alphabetical
+    } catch { /* skip unreadable dir */ }
+  }
+
+  scan(projectPath, 0);
+
+  // Sort: root .env first, then by path depth, then alphabetical
   envFiles.sort((a, b) => {
-    if (basename(a) === '.env') return -1;
-    if (basename(b) === '.env') return 1;
+    const aIsRoot = a === join(projectPath, basename(a));
+    const bIsRoot = b === join(projectPath, basename(b));
+    // Root .env files first
+    if (aIsRoot && !bIsRoot) return -1;
+    if (!aIsRoot && bIsRoot) return 1;
+    // Within same level, .env before .env.xxx
+    if (basename(a) === '.env' && basename(b) !== '.env') return -1;
+    if (basename(a) !== '.env' && basename(b) === '.env') return 1;
     return a.localeCompare(b);
   });
   return envFiles;

@@ -51,13 +51,13 @@ async function onSave() {
       <div class="space-y-3 py-2">
         <div class="space-y-1.5">
           <Label class="text-sm">Name</Label>
-          <Input v-model="name" placeholder="My Architecture Diagram" @keydown.enter="onSave" />
+          <Input v-model="name" data-testid="save-diagram-name" placeholder="My Architecture Diagram" @keydown.enter="onSave" />
         </div>
       </div>
 
       <DialogFooter>
         <Button variant="outline" @click="open = false">Cancel</Button>
-        <Button :disabled="saving" @click="onSave">
+        <Button data-testid="save-diagram-submit" :disabled="saving" @click="onSave">
           {{ saving ? 'Saving...' : diagrams.currentDiagramId ? 'Update' : 'Save' }}
         </Button>
       </DialogFooter>

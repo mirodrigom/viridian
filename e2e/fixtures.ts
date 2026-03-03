@@ -4,41 +4,77 @@ import { test as base, expect, type Page } from '@playwright/test'
  * Login helper — registers or logs in a test user.
  * Stores auth state so subsequent calls skip the login flow.
  */
+// Unique test user per worker to avoid password conflicts from old test runs
+const TEST_USER = `e2euser_${Date.now()}`
+const TEST_PASS = 'testpassword123'
+
 async function loginAsTestUser(page: Page) {
+  // Register via API directly, then set token in localStorage before loading
+  const baseURL = 'http://localhost:5174'
+
+  const res = await page.request.post(`${baseURL}/api/auth/register`, {
+    data: { username: TEST_USER, password: TEST_PASS },
+  })
+
+  let token: string
+  if (res.ok()) {
+    const data = await res.json()
+    token = data.token
+  } else {
+    // User already exists — login instead
+    const loginRes = await page.request.post(`${baseURL}/api/auth/login`, {
+      data: { username: TEST_USER, password: TEST_PASS },
+    })
+    const data = await loginRes.json()
+    token = data.token
+  }
+
+  // Set auth in localStorage before navigating
   await page.goto('/')
+  await page.evaluate(({ token, username }) => {
+    localStorage.setItem('token', token)
+    localStorage.setItem('username', username)
+  }, { token, username: TEST_USER })
 
-  // Wait for the auth page to load
+  // Reload to pick up auth state
+  await page.reload()
   await page.waitForLoadState('networkidle')
-
-  // Check if we're already on the dashboard (already authenticated)
-  if (page.url().includes('/chat') || page.url().includes('/dashboard')) {
-    return
-  }
-
-  // Try to register first; if user exists, login
-  const usernameInput = page.getByPlaceholder(/username/i).first()
-  const passwordInput = page.getByPlaceholder(/password/i).first()
-
-  await usernameInput.fill('testuser')
-  await passwordInput.fill('testpassword123')
-
-  // Look for a register or login button
-  const registerBtn = page.getByRole('button', { name: /register|sign up|create/i })
-  const loginBtn = page.getByRole('button', { name: /login|sign in/i })
-
-  if (await registerBtn.isVisible()) {
-    await registerBtn.click()
-  } else if (await loginBtn.isVisible()) {
-    await loginBtn.click()
-  }
-
-  // Wait for navigation away from auth page
-  await page.waitForURL(/\/(chat|dashboard|autopilot)/, { timeout: 10_000 })
 }
 
-export const test = base.extend<{ authenticatedPage: Page }>({
+type TestFixtures = {
+  authenticatedPage: Page
+  diagramPage: Page
+  graphPage: Page
+  managementPage: Page
+}
+
+export const test = base.extend<TestFixtures>({
   authenticatedPage: async ({ page }, use) => {
     await loginAsTestUser(page)
+    await use(page)
+  },
+
+  diagramPage: async ({ page }, use) => {
+    await loginAsTestUser(page)
+    await page.goto('/diagrams')
+    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('[data-testid="diagram-canvas"]', { timeout: 10_000 })
+    await use(page)
+  },
+
+  graphPage: async ({ page }, use) => {
+    await loginAsTestUser(page)
+    await page.goto('/graph')
+    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('.vue-flow', { timeout: 10_000 })
+    await use(page)
+  },
+
+  managementPage: async ({ page }, use) => {
+    await loginAsTestUser(page)
+    await page.goto('/management')
+    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('[data-testid="management-view"]', { timeout: 10_000 })
     await use(page)
   },
 })

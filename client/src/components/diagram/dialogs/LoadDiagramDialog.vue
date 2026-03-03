@@ -65,7 +65,7 @@ function formatDate(dateStr: string) {
         <DialogDescription>Select a saved diagram to open</DialogDescription>
       </DialogHeader>
 
-      <ScrollArea class="max-h-[300px]">
+      <ScrollArea data-testid="load-diagram-dialog" class="max-h-[300px]">
         <div v-if="diagrams.loading" class="py-8 text-center text-sm text-muted-foreground">
           Loading...
         </div>
@@ -78,6 +78,7 @@ function formatDate(dateStr: string) {
           <div
             v-for="d in diagrams.diagramList"
             :key="d.id"
+            :data-testid="`load-diagram-item-${d.id}`"
             class="flex items-center gap-2 rounded-md border border-transparent px-3 py-2 transition-colors hover:border-border hover:bg-muted/50"
           >
             <div class="min-w-0 flex-1">

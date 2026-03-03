@@ -118,8 +118,24 @@ export const useManagementStore = defineStore('management', () => {
       if (event.status === 'stopped' || event.status === 'error') {
         svc.pid = undefined;
         svc.startedAt = undefined;
+        // Remove from processes list
+        processes.value = processes.value.filter(p => p.serviceId !== event.serviceId);
       }
-      if (event.status === 'running') svc.startedAt = Date.now();
+      if (event.status === 'running') {
+        svc.startedAt = Date.now();
+        // Add to processes list if not already present
+        if (!processes.value.some(p => p.serviceId === svc.id)) {
+          processes.value = [...processes.value, {
+            serviceId: svc.id,
+            name: svc.name,
+            command: svc.command,
+            cwd: svc.cwd,
+            pid: event.pid ?? 0,
+            uptimeMs: 0,
+            status: 'running',
+          }];
+        }
+      }
     }
   });
 
@@ -176,7 +192,7 @@ export const useManagementStore = defineStore('management', () => {
 
   async function startService(id: string) {
     const svc = services.value.find(s => s.id === id);
-    if (svc) { svc.status = 'starting'; serviceLogs.value.set(id, []); serviceLogs.value = new Map(serviceLogs.value); }
+    if (svc) { svc.status = 'starting'; }
     await apiFetch(`/api/management/services/${id}/start`, { method: 'POST' });
     selectedServiceId.value = id;
   }
@@ -263,10 +279,20 @@ export const useManagementStore = defineStore('management', () => {
     }
   }
 
+  async function fetchEnvFiles() {
+    if (!projectPath.value) return;
+    try {
+      const res = await apiFetch(`/api/management/env/discover?project=${encodeURIComponent(projectPath.value)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { files: string[] };
+      envFiles.value = data.files;
+    } catch { /* ignore */ }
+  }
+
   async function init(path?: string | null) {
     if (path !== undefined) projectPath.value = path;
     loading.value = true;
-    try { await Promise.all([fetchServices(), fetchScripts()]); }
+    try { await Promise.all([fetchServices(), fetchScripts(), fetchProcesses(), fetchEnvFiles()]); }
     finally { loading.value = false; }
   }
 
@@ -281,7 +307,7 @@ export const useManagementStore = defineStore('management', () => {
     // Actions
     bootstrap, init, fetchServices, addService, removeService, startService, stopService,
     fetchScripts, addScript, removeScript,
-    fetchProcesses,
+    fetchProcesses, fetchEnvFiles,
     updateWidgetSize, reorderWidgets,
     selectService, clearLogs,
     connect, disconnect,

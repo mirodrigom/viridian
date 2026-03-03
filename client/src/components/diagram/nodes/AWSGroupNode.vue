@@ -117,7 +117,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
 }
 .vf-group-resize-handle:hover {
   background: var(--group-color, #64748b) !important;
-  transform: scale(1.3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-color, #64748b) 40%, transparent) !important;
 }
 .vf-group-resize-line {
   border-color: var(--group-color, #64748b) !important;
@@ -132,6 +132,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
 
 <template>
   <div
+    :data-testid="`group-node-${id}`"
     class="group relative h-full w-full rounded-lg transition-all"
     :style="{
       '--group-color': data.groupType.color,
@@ -165,6 +166,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
     >
       <!-- Collapse/expand toggle -->
       <button
+        data-testid="group-collapse-toggle"
         class="flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors hover:bg-background/50"
         @click.stop="toggleCollapse"
       >
@@ -186,6 +188,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
       </template>
       <template v-else>
         <span
+          data-testid="group-label"
           class="cursor-text select-none text-xs font-semibold"
           :style="{ color: data.groupType.color }"
           @dblclick.stop="startEditing"
@@ -215,6 +218,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
     </div>
 
     <!-- Inner area where children can be dropped (hidden when collapsed) -->
+    <!-- Children are VueFlow siblings with higher z-index, so clicks naturally reach them first -->
     <div v-if="!isCollapsed" class="relative flex-1 p-2" style="min-height: 150px;">
       <!-- Drop zone indicator -->
       <div

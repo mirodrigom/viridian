@@ -62,7 +62,7 @@ function deleteNode() { diagrams.removeNode(props.id); closeContextMenu(); }
 }
 .vf-resize-handle:hover {
   background: #3b82f6 !important;
-  transform: scale(1.3);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.4) !important;
 }
 .vf-resize-line {
   border-color: #3b82f6 !important;
@@ -77,6 +77,7 @@ function deleteNode() { diagrams.removeNode(props.id); closeContextMenu(); }
 
 <template>
   <div
+    :data-testid="`service-node-${id}`"
     class="group relative h-full w-full rounded-lg border bg-card text-card-foreground shadow-md transition-all"
     :class="[
       selected ? 'ring-2 shadow-lg' : 'hover:shadow-lg',
@@ -110,7 +111,8 @@ function deleteNode() { diagrams.removeNode(props.id); closeContextMenu(); }
       class="flex items-center gap-2 rounded-t-lg border-b px-3 py-2"
       :style="{ backgroundColor: data.service.color + '15', borderColor: data.service.color + '30' }"
     >
-      <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="data.service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <img v-if="data.service.iconUrl" :src="data.service.iconUrl" :alt="data.service.shortName" class="h-5 w-5 shrink-0" />
+      <svg v-else class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="data.service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path :d="data.service.iconPath" />
       </svg>
       <span class="flex-1 truncate text-xs font-semibold text-foreground">{{ displayLabel }}</span>

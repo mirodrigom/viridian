@@ -10,6 +10,11 @@ import { useSettingsStore } from './stores/settings';
 const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
+
+// Expose Pinia for E2E test access via page.evaluate()
+if (import.meta.env.DEV) {
+  (window as any).__pinia = pinia;
+}
 app.use(router);
 app.use(i18n);
 

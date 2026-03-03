@@ -155,7 +155,7 @@ function formatDate(isoStr: string): string {
 </script>
 
 <template>
-  <div class="flex h-full flex-col border-l border-border">
+  <div data-testid="runner-panel" class="flex h-full flex-col border-l border-border">
     <!-- Header -->
     <div class="flex h-9 items-center gap-2 border-b border-border px-3">
       <!-- Back button when in detail view -->

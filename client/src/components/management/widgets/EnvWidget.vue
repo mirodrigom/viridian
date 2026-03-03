@@ -15,6 +15,16 @@ const management = useManagementStore();
 const hasDiscoveredFiles = computed(() => management.envFiles.length > 0);
 const showDropdown = ref(false);
 
+/** Return the path relative to the project root for display */
+function relativePath(fullPath: string): string {
+  const base = management.projectPath;
+  if (base && fullPath.startsWith(base)) {
+    const rel = fullPath.slice(base.length).replace(/^\//, '');
+    return rel || fullPath.split('/').pop() || fullPath;
+  }
+  return fullPath;
+}
+
 function selectEnvFile(path: string) {
   envPath.value = path;
   showDropdown.value = false;
@@ -32,6 +42,13 @@ const isDirty = ref(false);
 
 watch(content, (val) => { isDirty.value = val !== originalContent.value; });
 watch(envPath, (val) => { try { localStorage.setItem(ENV_PATH_KEY, val); } catch { /* ignore */ } });
+
+// Auto-load the first discovered env file when files are discovered and nothing is loaded yet
+watch(() => management.envFiles, (files) => {
+  if (files.length > 0 && !envPath.value && !content.value) {
+    selectEnvFile(files[0]);
+  }
+}, { immediate: true });
 
 async function loadEnv() {
   if (!envPath.value.trim()) return;
@@ -76,6 +93,12 @@ function parsedLines() {
   <WidgetShell :widget="widget" title="Environment">
     <template #icon><FileKey class="h-3.5 w-3.5 text-yellow-500" /></template>
     <template #actions>
+      <span
+        v-if="management.envFiles.length > 0"
+        class="flex h-4 min-w-5 items-center justify-center rounded-full bg-yellow-500/15 px-1.5 text-[10px] font-semibold text-yellow-500"
+      >
+        {{ management.envFiles.length }} file{{ management.envFiles.length !== 1 ? 's' : '' }}
+      </span>
       <Button v-if="isDirty" size="sm" variant="default" class="h-6 px-2 text-[10px] gap-1"
         :disabled="saving" @click="saveEnv">
         <Save class="h-2.5 w-2.5" />
@@ -94,6 +117,7 @@ function parsedLines() {
           <div class="relative flex-1">
             <Input
               v-model="envPath"
+              data-testid="env-path-input"
               placeholder="/path/to/project/.env"
               class="h-7 text-xs font-mono w-full"
               :class="hasDiscoveredFiles ? 'pr-7' : ''"
@@ -107,7 +131,7 @@ function parsedLines() {
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-muted-foreground transition-transform" :class="showDropdown ? 'rotate-180' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </button>
           </div>
-          <Button size="sm" variant="outline" class="h-7 px-2 text-xs shrink-0" @click="loadEnv">Load</Button>
+          <Button data-testid="env-load-btn" size="sm" variant="outline" class="h-7 px-2 text-xs shrink-0" @click="loadEnv">Load</Button>
         </div>
         <!-- Dropdown of discovered env files -->
         <div
@@ -118,11 +142,11 @@ function parsedLines() {
             v-for="file in management.envFiles"
             :key="file"
             class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs font-mono hover:bg-accent text-left"
+            :class="envPath === file ? 'bg-accent/60' : ''"
             @click="selectEnvFile(file)"
           >
             <FileKey class="h-3 w-3 text-yellow-500 shrink-0" />
-            <span class="truncate">{{ file.split('/').pop() }}</span>
-            <span class="ml-auto text-[10px] text-muted-foreground truncate max-w-32">{{ file }}</span>
+            <span class="truncate">{{ relativePath(file) }}</span>
           </button>
         </div>
       </div>
@@ -131,6 +155,7 @@ function parsedLines() {
       <div v-if="content || envPath" class="flex-1 overflow-hidden relative">
         <textarea
           v-model="content"
+          data-testid="env-content"
           class="absolute inset-0 w-full h-full resize-none bg-transparent font-mono text-[11px] leading-5 p-3 outline-none text-green-400/90"
           style="background: oklch(0.13 0.01 250); caret-color: oklch(0.8 0.15 140);"
           spellcheck="false"

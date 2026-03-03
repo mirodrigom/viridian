@@ -187,6 +187,7 @@ function formatTime(ts: number) {
           v-html="renderedContent"
         />
         <span v-if="message.isStreaming" class="ml-0.5 inline-block h-4 w-0.5 animate-pulse rounded-full bg-primary" />
+        <p v-if="!message.isStreaming && message.content" class="mt-1.5 text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
       </div>
     </div>
   </div>

@@ -25,7 +25,7 @@ function onDragStart(event: DragEvent, type: GraphNodeType) {
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-col bg-background">
+  <div data-testid="graph-palette" class="flex shrink-0 flex-col bg-background">
     <!-- Graph name -->
     <div class="flex h-9 items-center gap-1.5 border-b border-border px-2">
       <Input
@@ -48,6 +48,7 @@ function onDragStart(event: DragEvent, type: GraphNodeType) {
         <div
           v-for="node in nodeTypes"
           :key="node.type"
+          :data-testid="`graph-node-type-${node.type}`"
           class="cursor-grab rounded-md border border-border/50 bg-card p-2.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
           :class="NODE_CONFIG[node.type].accentClass"
           draggable="true"

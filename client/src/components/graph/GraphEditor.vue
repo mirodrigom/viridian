@@ -254,7 +254,7 @@ function isValidConnection(connection: Connection): boolean {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div data-testid="graph-editor" class="flex h-full flex-col">
     <!-- Desktop layout -->
     <ResizablePanelGroup v-if="!isMobile" direction="horizontal" class="flex-1">
       <!-- Left sidebar: Palette only -->

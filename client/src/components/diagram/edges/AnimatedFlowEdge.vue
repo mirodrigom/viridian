@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { getBezierPath, getStraightPath, getSmoothStepPath } from '@vue-flow/core';
 import type { EdgeProps } from '@vue-flow/core';
 import type { DiagramEdgeData } from '@/stores/diagrams';
+import { useDiagramsStore } from '@/stores/diagrams';
 
 const props = defineProps<EdgeProps>();
+const diagrams = useDiagramsStore();
 
 const edgeData = computed(() => (props.data || {}) as DiagramEdgeData);
 
@@ -40,6 +42,17 @@ const edgeColor = computed(() => edgeData.value.color || 'var(--primary)');
 const dotColor = computed(() => edgeData.value.dotColor || edgeColor.value);
 const dotCount = computed(() => edgeData.value.dotCount || 1);
 
+const labelFontSize = computed(() => {
+  switch (edgeData.value.labelSize) {
+    case 'medium': return 12;
+    case 'large': return 14;
+    default: return 10;
+  }
+});
+const labelCharWidth = computed(() => labelFontSize.value * 0.6);
+const labelPadX = computed(() => labelFontSize.value <= 10 ? 6 : 8);
+const labelPadY = computed(() => labelFontSize.value <= 10 ? 4 : 6);
+
 const dotDuration = computed(() => {
   switch (edgeData.value.dotSpeed) {
     case 'slow': return '3s';
@@ -57,21 +70,65 @@ const strokeDasharray = computed(() => {
 
 const pathId = computed(() => `edge-path-${props.id}`);
 
-// Generate delay offsets for multiple dots
+// ── Flow cascade: stagger animation based on topological order ──────
+const flowLevel = computed(() => diagrams.edgeFlowLevels.get(props.id) || 0);
+const flowDelay = computed(() => flowLevel.value * diagrams.flowStagger);
+
+// Generate delay offsets for multiple dots (used in live animateMotion mode)
+// flowDelay staggers edges by topological level; dots within the same edge are spaced evenly
 const dots = computed(() => {
   const count = dotCount.value;
   const dur = parseFloat(dotDuration.value);
   return Array.from({ length: count }, (_, i) => ({
     key: i,
-    delay: `${(-dur * i / count).toFixed(2)}s`,
+    delay: `${(flowDelay.value + dur * i / count).toFixed(3)}s`,
   }));
+});
+
+// ── GIF export mode: position dots programmatically ──────────────────
+const pathRef = ref<SVGPathElement | null>(null);
+const pathReady = ref(false);
+
+onMounted(() => {
+  pathReady.value = true;
+});
+
+const isExportMode = computed(() => diagrams.gifExportProgress !== null);
+const maxFlowLevel = computed(() => Math.max(...diagrams.edgeFlowLevels.values(), 0));
+
+// Position for the sequence badge (near the source end of the path)
+const badgePos = computed(() => {
+  if (!pathRef.value || !pathReady.value || maxFlowLevel.value === 0) return null;
+  const len = pathRef.value.getTotalLength();
+  return pathRef.value.getPointAtLength(Math.min(24, len * 0.12));
+});
+
+const dotPositions = computed(() => {
+  const progress = diagrams.gifExportProgress;
+  if (progress === null || !pathRef.value || !pathReady.value) return [];
+  const pathLength = pathRef.value.getTotalLength();
+  const count = dotCount.value;
+  return Array.from({ length: count }, (_, i) => {
+    const offset = (progress + i / count) % 1;
+    const point = pathRef.value!.getPointAtLength(offset * pathLength);
+    return { x: point.x, y: point.y, key: i };
+  });
 });
 </script>
 
 <template>
   <g>
+    <!-- Invisible wider hit area for easier clicking -->
+    <path
+      :d="pathData"
+      fill="none"
+      stroke="transparent"
+      stroke-width="20"
+      class="vue-flow__edge-interaction"
+    />
     <!-- Edge path -->
     <path
+      ref="pathRef"
       :id="pathId"
       :d="pathData"
       fill="none"
@@ -81,43 +138,72 @@ const dots = computed(() => {
       class="vue-flow__edge-path"
     />
 
-    <!-- Animated dots traveling along the path -->
-    <circle
-      v-for="dot in dots"
-      :key="dot.key"
-      r="4"
-      :fill="dotColor"
-      :opacity="0.9"
-    >
-      <animateMotion
-        :dur="dotDuration"
-        repeatCount="indefinite"
-        rotate="auto"
-        :begin="dot.delay"
+    <!-- Live mode: native SVG animation (zero JS overhead) -->
+    <template v-if="!isExportMode">
+      <circle
+        v-for="dot in dots"
+        :key="dot.key"
+        r="4"
+        :fill="dotColor"
+        :opacity="0.9"
       >
-        <mpath :href="'#' + pathId" />
-      </animateMotion>
-    </circle>
+        <animateMotion
+          :dur="dotDuration"
+          repeatCount="indefinite"
+          rotate="auto"
+          :begin="dot.delay"
+        >
+          <mpath :href="'#' + pathId" />
+        </animateMotion>
+      </circle>
+    </template>
+
+    <!-- Export mode: programmatic positions via getPointAtLength -->
+    <template v-else>
+      <circle
+        v-for="dot in dotPositions"
+        :key="dot.key"
+        r="4"
+        :cx="dot.x"
+        :cy="dot.y"
+        :fill="dotColor"
+        :opacity="0.9"
+      />
+    </template>
 
     <!-- Edge label -->
     <g v-if="edgeData.label" :transform="`translate(${labelX}, ${labelY})`">
       <rect
-        :x="-edgeData.label.length * 3.5 - 4"
-        y="-10"
-        :width="edgeData.label.length * 7 + 8"
-        height="20"
-        rx="4"
+        :x="-(edgeData.label.length * labelCharWidth / 2 + labelPadX)"
+        :y="-(labelFontSize / 2 + labelPadY)"
+        :width="edgeData.label.length * labelCharWidth + labelPadX * 2"
+        :height="labelFontSize + labelPadY * 2"
+        :rx="labelFontSize <= 10 ? 4 : 6"
         fill="var(--card)"
-        stroke="var(--border)"
+        :stroke="edgeColor"
         stroke-width="1"
+        :opacity="0.95"
       />
       <text
         text-anchor="middle"
         dominant-baseline="central"
-        class="text-[10px]"
+        :style="{ fontSize: labelFontSize + 'px', fontWeight: labelFontSize >= 14 ? 600 : 500 }"
         fill="var(--foreground)"
       >
         {{ edgeData.label }}
+      </text>
+    </g>
+
+    <!-- Flow sequence badge (shown when multiple topological levels exist) -->
+    <g v-if="badgePos && !isExportMode" :transform="`translate(${badgePos.x}, ${badgePos.y})`" class="flow-badge">
+      <circle r="9" fill="var(--card)" :stroke="edgeColor" stroke-width="1.5" />
+      <text
+        text-anchor="middle"
+        dominant-baseline="central"
+        fill="var(--foreground)"
+        style="font-size: 8px; font-weight: 700; font-family: ui-monospace, monospace;"
+      >
+        {{ flowLevel + 1 }}
       </text>
     </g>
   </g>

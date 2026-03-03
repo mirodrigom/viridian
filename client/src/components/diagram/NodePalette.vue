@@ -111,7 +111,7 @@ function highlightMatch(text: string): string {
 </script>
 
 <template>
-  <div class="flex h-full shrink-0 flex-col bg-background" style="min-height: 0;">
+  <div data-testid="node-palette" class="flex h-full shrink-0 flex-col bg-background" style="min-height: 0;">
     <!-- Diagram name -->
     <div class="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-2">
       <Input
@@ -131,6 +131,7 @@ function highlightMatch(text: string): string {
         <Search class="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
         <Input
           v-model="search"
+          data-testid="palette-search"
           class="h-7 pl-7 pr-7 text-xs"
           placeholder="Search AWS services..."
         />
@@ -163,6 +164,7 @@ function highlightMatch(text: string): string {
             <div
               v-for="group in filteredGroups"
               :key="group.id"
+              :data-testid="`palette-group-${group.id}`"
               class="cursor-grab rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
               draggable="true"
               @dragstart="(e) => onDragStart(e, 'group', group.id)"
@@ -187,6 +189,7 @@ function highlightMatch(text: string): string {
         <!-- Service categories -->
         <div v-for="[category, services] in servicesByCategory" :key="category">
           <button
+            :data-testid="`palette-category-${category}`"
             class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:bg-muted/50"
             @click="toggleCategory(category)"
           >
@@ -206,12 +209,14 @@ function highlightMatch(text: string): string {
             <div
               v-for="service in services"
               :key="service.id"
+              :data-testid="`palette-service-${service.id}`"
               class="cursor-grab rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
               draggable="true"
               @dragstart="(e) => onDragStart(e, 'service', service.id)"
             >
               <div class="flex items-center gap-2">
-                <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <img v-if="service.iconUrl" :src="service.iconUrl" :alt="service.shortName" class="h-4 w-4 shrink-0" />
+                <svg v-else class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path :d="service.iconPath" />
                 </svg>
                 <div class="min-w-0 flex-1">
@@ -224,7 +229,7 @@ function highlightMatch(text: string): string {
         </div>
 
         <!-- No results -->
-        <div v-if="searchQuery && filteredServices.length === 0 && filteredGroups.length === 0" class="py-8 text-center text-xs text-muted-foreground">
+        <div v-if="searchQuery && filteredServices.length === 0 && filteredGroups.length === 0" data-testid="palette-no-results" class="py-8 text-center text-xs text-muted-foreground">
           No services matching "{{ search }}"
         </div>
       </div>

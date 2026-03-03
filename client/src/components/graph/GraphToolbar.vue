@@ -145,14 +145,14 @@ async function onExportClaude() {
 </script>
 
 <template>
-  <div class="flex h-9 items-center gap-1.5 border-b border-border px-3">
+  <div data-testid="graph-toolbar" class="flex h-9 items-center gap-1.5 border-b border-border px-3">
     <div class="flex-1" />
 
     <!-- Actions -->
     <TooltipProvider :delay-duration="300">
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="onNewGraph()">
+          <Button data-testid="graph-toolbar-new" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="onNewGraph()">
             <FilePlus class="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -161,7 +161,7 @@ async function onExportClaude() {
 
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('save')">
+          <Button data-testid="graph-toolbar-save" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('save')">
             <Save class="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -170,7 +170,7 @@ async function onExportClaude() {
 
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('load')">
+          <Button data-testid="graph-toolbar-load" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('load')">
             <FolderOpen class="h-4 w-4" />
           </Button>
         </TooltipTrigger>
@@ -256,6 +256,7 @@ async function onExportClaude() {
       <Tooltip>
         <TooltipTrigger as-child>
           <Button
+            data-testid="graph-toolbar-delete"
             variant="ghost"
             size="sm"
             class="h-7 w-7 p-0 text-destructive hover:text-destructive"
@@ -274,6 +275,7 @@ async function onExportClaude() {
       <Tooltip v-if="!runner.isRunning">
         <TooltipTrigger as-child>
           <Button
+            data-testid="graph-toolbar-run"
             variant="ghost"
             size="sm"
             class="h-7 w-7 p-0 text-green-500 hover:text-green-400"
@@ -318,7 +320,7 @@ async function onExportClaude() {
     </TooltipProvider>
 
     <!-- Stats -->
-    <div class="ml-2 text-[10px] text-muted-foreground">
+    <div data-testid="graph-stats" class="ml-2 text-[10px] text-muted-foreground">
       {{ graph.nodeCount }} nodes · {{ graph.edgeCount }} edges
     </div>
   </div>

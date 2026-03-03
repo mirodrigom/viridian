@@ -86,14 +86,14 @@ async function runScript(id: string) {
   <WidgetShell :widget="widget" title="Scripts">
     <template #icon><ScrollText class="h-3.5 w-3.5 text-chart-5" /></template>
     <template #actions>
-      <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-primary" @click="showAdd = !showAdd">
+      <Button data-testid="scripts-add-btn" variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-primary" @click="showAdd = !showAdd">
         <Plus class="h-3 w-3" />
       </Button>
     </template>
 
-    <div class="flex flex-col gap-0">
+    <div class="flex flex-col gap-0 h-full overflow-y-auto">
       <!-- Add form -->
-      <div v-if="showAdd" class="p-3 space-y-2 bg-muted/10 border-b">
+      <div v-if="showAdd" data-testid="scripts-add-form" class="p-3 space-y-2 bg-muted/10 border-b">
         <div class="flex gap-2">
           <Input v-model="newName" placeholder="Name" class="w-28 h-7 text-xs" @keydown.enter="addScript" />
           <Input v-model="newCmd" placeholder="pnpm build" class="flex-1 h-7 text-xs font-mono" @keydown.enter="addScript" />

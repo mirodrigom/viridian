@@ -58,10 +58,37 @@ const edgeColors = [
   { value: '#E7157B', label: 'Pink' },
   { value: '#147EBA', label: 'Blue' },
 ];
+
+const quickStyles = [
+  { label: 'Data Flow', color: '#3F8624', style: 'solid' as const, animated: true, dotAnimation: true, dotSpeed: 'medium' as const, dotCount: 2 },
+  { label: 'Request', color: '#FF9900', style: 'dashed' as const, animated: true, dotAnimation: true, dotSpeed: 'fast' as const, dotCount: 1 },
+  { label: 'Error', color: '#DD344C', style: 'dotted' as const, animated: true, dotAnimation: true, dotSpeed: 'slow' as const, dotCount: 1 },
+  { label: 'Sync', color: '#147EBA', style: 'solid' as const, animated: true, dotAnimation: true, dotSpeed: 'fast' as const, dotCount: 3 },
+  { label: 'Async', color: '#C925D1', style: 'dashed' as const, animated: true, dotAnimation: true, dotSpeed: 'medium' as const, dotCount: 2 },
+  { label: 'Static', color: '', style: 'solid' as const, animated: false, dotAnimation: false, dotSpeed: 'medium' as const, dotCount: 1 },
+];
+
+function applyQuickStyle(qs: typeof quickStyles[number]) {
+  if (!diagrams.selectedEdgeId) return;
+  diagrams.updateEdgeData(diagrams.selectedEdgeId, {
+    color: qs.color,
+    style: qs.style,
+    animated: qs.animated,
+    dotAnimation: qs.dotAnimation,
+    dotSpeed: qs.dotSpeed,
+    dotCount: qs.dotCount,
+  });
+}
+
+const labelSizeOptions = [
+  { value: 'small' as const, label: 'S' },
+  { value: 'medium' as const, label: 'M' },
+  { value: 'large' as const, label: 'L' },
+];
 </script>
 
 <template>
-  <div class="flex h-full flex-col border-l border-border bg-background">
+  <div data-testid="properties-panel" class="flex h-full flex-col border-l border-border bg-background">
     <div class="flex h-9 items-center justify-between border-b border-border px-3">
       <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</span>
       <Button
@@ -82,7 +109,8 @@ const edgeColors = [
           <div class="space-y-3">
             <!-- Service info (read-only) -->
             <div class="flex items-center gap-2 rounded-md border border-border p-2">
-              <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="(nodeData as AWSServiceNodeData).service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <img v-if="(nodeData as AWSServiceNodeData).service.iconUrl" :src="(nodeData as AWSServiceNodeData).service.iconUrl" :alt="(nodeData as AWSServiceNodeData).service.shortName" class="h-5 w-5 shrink-0" />
+              <svg v-else class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="(nodeData as AWSServiceNodeData).service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                 <path :d="(nodeData as AWSServiceNodeData).service.iconPath" />
               </svg>
               <div class="min-w-0">
@@ -96,6 +124,7 @@ const edgeColors = [
               <Label class="text-[11px]">Custom Label</Label>
               <Input
                 :model-value="nodeData.customLabel"
+                data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
                 @update:model-value="(v: string) => updateNodeField('customLabel', v)"
@@ -166,6 +195,7 @@ const edgeColors = [
               <Label class="text-[11px]">Custom Label</Label>
               <Input
                 :model-value="nodeData.customLabel"
+                data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
                 @update:model-value="(v: string) => updateNodeField('customLabel', v)"
@@ -212,6 +242,26 @@ const edgeColors = [
       <!-- Edge properties -->
       <div v-else-if="edgeData" class="space-y-4 p-3">
         <div class="space-y-3">
+          <!-- Quick Styles -->
+          <div class="space-y-1">
+            <Label class="text-[11px]">Quick Styles</Label>
+            <div class="flex flex-wrap gap-1">
+              <button
+                v-for="qs in quickStyles"
+                :key="qs.label"
+                class="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:scale-105"
+                :style="{
+                  borderColor: (qs.color || 'var(--primary)') + '60',
+                  backgroundColor: (qs.color || 'var(--primary)') + '15',
+                  color: qs.color || 'var(--primary)',
+                }"
+                @click="applyQuickStyle(qs)"
+              >
+                {{ qs.label }}
+              </button>
+            </div>
+          </div>
+
           <!-- Edge label -->
           <div class="space-y-1">
             <Label class="text-[11px]">Label</Label>
@@ -221,6 +271,22 @@ const edgeColors = [
               placeholder="Connection label..."
               @update:model-value="(v: string) => updateEdgeField('label', v)"
             />
+          </div>
+
+          <!-- Label size -->
+          <div class="space-y-1">
+            <Label class="text-[11px]">Label Size</Label>
+            <div class="flex gap-1">
+              <button
+                v-for="ls in labelSizeOptions"
+                :key="ls.value"
+                class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
+                :class="(edgeData.labelSize || 'small') === ls.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                @click="updateEdgeField('labelSize', ls.value)"
+              >
+                {{ ls.label }}
+              </button>
+            </div>
           </div>
 
           <!-- Edge type -->
@@ -383,6 +449,27 @@ const edgeColors = [
               </div>
             </template>
           </template>
+
+          <!-- Flow Order -->
+          <div class="space-y-1">
+            <Label class="text-[11px]">Flow Order</Label>
+            <div class="flex items-center gap-2 rounded-md border border-border p-2">
+              <div
+                class="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold"
+                :style="{
+                  backgroundColor: (edgeData.color || 'var(--primary)') + '20',
+                  color: edgeData.color || 'var(--primary)',
+                  border: `1.5px solid ${edgeData.color || 'var(--primary)'}`,
+                }"
+              >
+                {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) + 1 }}
+              </div>
+              <span class="text-[10px] text-muted-foreground">
+                Step {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) + 1 }} —
+                {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) === 0 ? 'Source edge' : 'Cascades from upstream' }}
+              </span>
+            </div>
+          </div>
 
           <!-- Notes -->
           <div class="space-y-1">

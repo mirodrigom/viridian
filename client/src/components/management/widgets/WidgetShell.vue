@@ -29,6 +29,7 @@ function toggleSize() {
       <span class="flex-1 text-xs font-semibold text-foreground">{{ title }}</span>
       <slot name="actions" />
       <Button
+        data-testid="widget-size-toggle"
         variant="ghost"
         size="sm"
         class="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
@@ -40,7 +41,7 @@ function toggleSize() {
     </div>
 
     <!-- Widget body -->
-    <div class="flex-1 overflow-auto min-h-0">
+    <div class="flex-1 overflow-hidden min-h-0">
       <slot />
     </div>
   </div>

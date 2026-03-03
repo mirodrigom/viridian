@@ -44,7 +44,7 @@ const exportTools = [
 </script>
 
 <template>
-  <div class="flex h-9 items-center gap-0.5 border-b border-border bg-muted/30 px-2">
+  <div data-testid="diagram-toolbar" class="flex h-9 items-center gap-0.5 border-b border-border bg-muted/30 px-2">
     <TooltipProvider :delay-duration="300">
       <!-- Main tools -->
       <Tooltip v-for="tool in tools" :key="tool.event">
@@ -53,6 +53,7 @@ const exportTools = [
             variant="ghost"
             size="sm"
             class="h-7 w-7 p-0"
+            :data-testid="`toolbar-${tool.event}`"
             @click="emit(tool.event)"
           >
             <component :is="tool.icon" class="h-3.5 w-3.5" />
@@ -71,6 +72,7 @@ const exportTools = [
             variant="ghost"
             size="sm"
             class="h-7 w-7 p-0"
+            data-testid="toolbar-toggleSnap"
             :class="props.snapToGrid ? 'bg-primary/10 text-primary' : ''"
             @click="emit('toggleSnap')"
           >
@@ -86,7 +88,7 @@ const exportTools = [
       <!-- Collapse / Expand All -->
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('collapseAll')">
+          <Button variant="ghost" size="sm" data-testid="toolbar-collapseAll" class="h-7 w-7 p-0" @click="emit('collapseAll')">
             <Minimize2 class="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
@@ -94,7 +96,7 @@ const exportTools = [
       </Tooltip>
       <Tooltip>
         <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('expandAll')">
+          <Button variant="ghost" size="sm" data-testid="toolbar-expandAll" class="h-7 w-7 p-0" @click="emit('expandAll')">
             <Maximize class="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
@@ -111,6 +113,7 @@ const exportTools = [
             variant="ghost"
             size="sm"
             class="h-7 w-7 p-0"
+            :data-testid="`toolbar-${tool.event}`"
             @click="emit(tool.event)"
           >
             <component :is="tool.icon" class="h-3.5 w-3.5" />
@@ -129,7 +132,7 @@ const exportTools = [
       </div>
 
       <!-- Stats -->
-      <div class="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <div data-testid="diagram-stats" class="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span>{{ diagrams.nodeCount }} nodes</span>
         <span>{{ diagrams.edgeCount }} edges</span>
       </div>

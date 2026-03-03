@@ -124,7 +124,7 @@ function update(field: string, value: unknown) {
 </script>
 
 <template>
-  <div class="flex h-full flex-col overflow-hidden border-l border-border bg-background">
+  <div data-testid="graph-properties-panel" class="flex h-full flex-col overflow-hidden border-l border-border bg-background">
     <!-- Properties form -->
     <template v-if="data && config">
       <!-- Section header (matches left sidebar style) -->

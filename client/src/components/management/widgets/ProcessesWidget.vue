@@ -37,12 +37,12 @@ onUnmounted(() => {
   <WidgetShell :widget="widget" title="Processes">
     <template #icon><Activity class="h-3.5 w-3.5 text-chart-2" /></template>
     <template #actions>
-      <Button size="sm" variant="ghost" class="h-6 w-6 p-0 text-muted-foreground" @click="store.fetchProcesses">
+      <Button data-testid="processes-refresh" size="sm" variant="ghost" class="h-6 w-6 p-0 text-muted-foreground" @click="store.fetchProcesses">
         <RefreshCw class="h-3 w-3" />
       </Button>
     </template>
 
-    <div class="p-2">
+    <div class="p-2 h-full overflow-y-auto">
       <div v-if="store.processes.length === 0" class="p-6 text-center">
         <Activity class="h-6 w-6 text-muted-foreground/30 mx-auto mb-2" />
         <p class="text-xs text-muted-foreground">No running processes</p>

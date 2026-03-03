@@ -57,16 +57,16 @@ function formatUptime(startedAt?: number) {
   <WidgetShell :widget="widget" title="Services">
     <template #icon><ServerCog class="h-3.5 w-3.5 text-primary" /></template>
     <template #actions>
-      <Button variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-primary" @click="showAdd = !showAdd">
+      <Button data-testid="services-add-btn" variant="ghost" size="sm" class="h-6 w-6 p-0 text-muted-foreground hover:text-primary" @click="showAdd = !showAdd">
         <Plus class="h-3 w-3" />
       </Button>
     </template>
 
-    <div class="flex h-full flex-col">
+    <div class="flex h-full flex-col overflow-hidden">
       <!-- Service list -->
-      <div class="divide-y divide-border/50">
+      <div class="divide-y divide-border/50 shrink-0 overflow-y-auto max-h-[50%]">
         <!-- Add form -->
-        <div v-if="showAdd" class="p-3 space-y-2 bg-muted/10">
+        <div v-if="showAdd" data-testid="services-add-form" class="p-3 space-y-2 bg-muted/10">
           <div class="flex gap-2">
             <Input v-model="newName" placeholder="Name" class="w-28 h-7 text-xs" @keydown.enter="addService" />
             <Input v-model="newCmd" placeholder="pnpm dev" class="flex-1 h-7 text-xs font-mono" @keydown.enter="addService" />
@@ -142,15 +142,15 @@ function formatUptime(startedAt?: number) {
       </div>
 
       <!-- Log output for selected service -->
-      <div v-if="selectedId && logs.length > 0" class="flex-1 border-t overflow-hidden">
-        <div class="flex items-center justify-between px-3 py-1 bg-muted/10 border-b">
-          <span class="text-[10px] font-mono text-muted-foreground">stdout / stderr</span>
+      <div v-if="selectedId && logs.length > 0" class="flex-1 min-h-0 border-t flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between px-3 py-1 bg-muted/10 border-b shrink-0">
+          <span class="text-[10px] font-mono text-muted-foreground">stdout / stderr ({{ logs.length }} lines)</span>
           <Button variant="ghost" size="sm" class="h-5 w-5 p-0 text-muted-foreground" @click="store.clearLogs(selectedId!)">
             <Trash2 class="h-2.5 w-2.5" />
           </Button>
         </div>
         <div
-          class="h-full overflow-y-auto p-2 font-mono text-[10px] leading-4"
+          class="flex-1 min-h-0 overflow-y-auto p-2 font-mono text-[10px] leading-4"
           style="background: oklch(0.13 0.01 250); color: oklch(0.75 0.15 140);"
         >
           <div v-for="(line, i) in logs" :key="i" class="whitespace-pre-wrap break-all"

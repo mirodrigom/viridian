@@ -14,7 +14,7 @@ import {
   getServiceStatus,
   getRunningEntry,
 } from '../services/project-manager.js';
-import { bootstrapProject } from '../services/project-bootstrap.js';
+import { bootstrapProject, discoverEnvFiles } from '../services/project-bootstrap.js';
 
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
@@ -209,6 +209,18 @@ router.post('/scripts/:id/run', (req: AuthRequest, res) => {
 });
 
 // ─── Env file ─────────────────────────────────────────────────────────────────
+
+// Discover .env files recursively in the project directory
+router.get('/env/discover', (req: AuthRequest, res) => {
+  const projectPath = req.query.project as string;
+  if (!projectPath) { res.status(400).json({ error: 'project query param required' }); return; }
+  try {
+    const files = discoverEnvFiles(projectPath);
+    res.json({ files });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to discover env files' });
+  }
+});
 
 router.get('/env', (req: AuthRequest, res) => {
   const filePath = req.query.path as string;

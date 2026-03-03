@@ -1,135 +1,62 @@
-# Project Bootstrap Feature - Implementation Plan
+# Diagram Export Crop + Auto-Colors + Edge Labels Improvements
 
-## Overview
+## 3 Features
 
-When a user selects a project on the Dashboard, Viridian will **discover and register** scripts, environment files, and services into the management system — not auto-start them. A multi-step loader/spinner shows progress during this bootstrap.
+### Feature 1: Export Crop to Content
+**Problem:** PNG/SVG/GIF exports capture the full viewport, including empty space. Users want to crop to just the content.
 
-## Architecture
+**Approach:** Add a `getContentBounds()` helper in the diagrams store that computes the bounding box of all nodes (with padding). Then:
 
-### Flow
-```
-DashboardPage → openProject(path)
-  → router.push('/project')
-    → ProjectPage handleRoute()
-      → NEW: bootstrapProject(path)
-        → Step 1: Discover & register scripts (from package.json)
-        → Step 2: Discover & register env files (.env*)
-        → Step 3: Discover & register services (from docker-compose, viridian.json)
-      → Loader shows progress per step
-      → Done → workspace ready with management populated
-```
+- **PNG export:** Compute content bounds, use `html2canvas` (already a dep for GIF) to render just the content area with proper offset.
+- **SVG export:** Set the SVG `viewBox` to the content bounding box.
+- **GIF export dialog:** Add a "Crop" option with two modes:
+  - **Fit to Content** (default) — auto-crops to node bounding box + padding
+  - **Full Viewport** — current behavior
 
-### Discovery Sources
-| Item         | Source                                     |
-|-------------|-------------------------------------------|
-| Scripts     | `package.json` → `scripts` field           |
-| Environments| Glob for `.env`, `.env.*` files in project root |
-| Services    | `docker-compose.yml` services + optional `viridian.json` |
+**Files changed:**
+- `stores/diagrams.ts` — add `getContentBounds()` method
+- `DiagramEditor.vue` — update `exportPng()` and `exportSvg()` to use content bounds
+- `ExportGifDialog.vue` — add crop mode selector, compute capture region from content bounds
 
-### Optional: `viridian.json` config (project root)
-For explicit definitions beyond auto-discovery:
-```json
-{
-  "services": [
-    { "name": "Backend", "command": "pnpm dev:server", "cwd": "." }
-  ],
-  "scripts": [
-    { "name": "Setup", "command": "./setup.sh" }
-  ],
-  "env": [".env", ".env.local"]
-}
-```
+### Feature 2: Auto Colors & Quick Style Presets
+**Problem:** New edges all get the same default color. No auto-color variety. Animations must be configured manually.
 
----
+**Approach:**
+- In `addEdge()`, auto-assign the edge color from the **source node's service category color** (e.g., Lambda edge = orange, S3 edge = green). Also auto-enable animated dots so diagrams feel alive by default.
+- Add **Quick Style presets** in PropertiesPanel — one-click combos like:
+  - "Data Flow" = green + solid + animated dots
+  - "Request/Response" = orange + dashed
+  - "Error Path" = red + dotted
+  - "Sync" = blue + solid + fast dots
 
-## Changes
+**Files changed:**
+- `stores/diagrams.ts` — auto-color logic in `addEdge()`
+- `PropertiesPanel.vue` — add Quick Styles section
 
-### 1. Server: Bootstrap service
+### Feature 3: Better Edge Labels
+**Problem:** Labels exist but are small and basic. Users want clearer text on arrows.
 
-**New file:** `server/src/services/project-bootstrap.ts`
+**Approach:**
+- **Better rendering:** Larger font options (small/medium/large), better background contrast, proper auto-width using SVG text measurement.
+- **Inline editing:** Double-click an edge to get an inline text input overlay right on the edge midpoint (no need to open Properties Panel).
+- **Label size control** in PropertiesPanel.
 
-Encapsulates discovery logic:
-- `discoverScripts(projectPath)` → reads package.json, parses scripts
-- `discoverEnvFiles(projectPath)` → globs for .env* files
-- `discoverServices(projectPath)` → reads docker-compose.yml + viridian.json
-- `registerDiscoveries(userId, projectPath, discoveries)` → upserts to DB, returns counts
+**Files changed:**
+- `stores/diagrams.ts` — add `labelSize` to `DiagramEdgeData`
+- `AnimatedFlowEdge.vue` — improved label rendering, size variants
+- `PropertiesPanel.vue` — label size selector
+- `DiagramEditor.vue` — edge double-click → inline edit overlay
 
-### 2. Server: Bootstrap endpoint
+## Implementation Order
+1. **Export crop to content** (biggest pain point)
+2. **Auto colors + quick styles** (creation UX)
+3. **Edge label improvements** (polish)
 
-**File:** `server/src/routes/management.ts` (add new endpoint)
-
-**`POST /api/management/bootstrap`**
-- Body: `{ projectPath: string }`
-- Logic:
-  1. Read `package.json` → extract `scripts` → upsert into `management_scripts`
-  2. Glob `.env*` → return list of env file paths
-  3. Read `docker-compose.yml` if exists → extract services → upsert into `management_services`
-  4. Read `viridian.json` if exists → merge explicit definitions
-  5. Skip duplicates (check by `user_id + project_path + command`)
-- Returns:
-```json
-{
-  "scripts": { "discovered": 8, "added": 5, "existing": 3 },
-  "environments": { "files": [".env", ".env.local"] },
-  "services": { "discovered": 2, "added": 2, "existing": 0 }
-}
-```
-
-### 3. Client: Bootstrap loader component
-
-**New file:** `client/src/components/layout/ProjectBootstrapLoader.vue`
-
-Replaces the current simple spinner in ProjectPage. Multi-step loader:
-```
-┌─────────────────────────────────┐
-│                                 │
-│         [Viridian Logo]         │
-│                                 │
-│     Opening project...          │
-│                                 │
-│  ✓ Scripts         8 found      │
-│  ⟳ Environments   loading...    │
-│  ○ Services        pending      │
-│                                 │
-│     ━━━━━━━━━━━━━━━━━░░░░░░░    │
-│                                 │
-└─────────────────────────────────┘
-```
-
-States per step: `pending` → `loading` (spinner) → `done` (checkmark + count)
-
-### 4. Client: Management store — bootstrap action
-
-**File:** `client/src/stores/management.ts`
-
-Add `bootstrap(projectPath)` action + `envFiles` state for discovered env paths.
-
-### 5. Client: ProjectPage integration
-
-**File:** `client/src/pages/ProjectPage.vue`
-
-Replace the simple 1.2s timeout with sequential bootstrap steps, each with minimum visible time so the user sees progress.
-
-### 6. Client: EnvWidget enhancement
-
-**File:** `client/src/components/management/EnvWidget.vue`
-
-Show discovered env files as a dropdown instead of requiring manual path input.
-
----
-
-## Files summary
-
-| File | Action |
-|------|--------|
-| `server/src/services/project-bootstrap.ts` | **Create** — discovery + registration logic |
-| `server/src/routes/management.ts` | **Modify** — add `POST /bootstrap` endpoint |
-| `client/src/components/layout/ProjectBootstrapLoader.vue` | **Create** — multi-step loader UI |
-| `client/src/pages/ProjectPage.vue` | **Modify** — integrate bootstrap flow |
-| `client/src/stores/management.ts` | **Modify** — add bootstrap action + envFiles state |
-| `client/src/components/management/EnvWidget.vue` | **Modify** — show discovered env files dropdown |
-
-## Not in scope
-- Auto-starting services (user explicitly said no)
-- Modifying the DashboardPage selection flow
-- Changes to the graph/skill export system
+## Files Summary
+| File | Changes |
+|------|---------|
+| `stores/diagrams.ts` | `getContentBounds()`, auto-color in `addEdge()`, `labelSize` field |
+| `DiagramEditor.vue` | Crop-aware PNG/SVG export, edge double-click handler, inline label overlay |
+| `ExportGifDialog.vue` | Crop mode selector (Fit Content / Full Viewport) |
+| `AnimatedFlowEdge.vue` | Better label rendering with size variants |
+| `PropertiesPanel.vue` | Quick Style presets, label size control |
