@@ -53,6 +53,9 @@ const labelCharWidth = computed(() => labelFontSize.value * 0.6);
 const labelPadX = computed(() => labelFontSize.value <= 10 ? 6 : 8);
 const labelPadY = computed(() => labelFontSize.value <= 10 ? 4 : 6);
 
+const dotDirection = computed(() => edgeData.value.dotDirection || 'forward');
+const showDots = computed(() => dotDirection.value !== 'none');
+
 const dotDuration = computed(() => {
   switch (edgeData.value.dotSpeed) {
     case 'slow': return '3s';
@@ -71,7 +74,12 @@ const strokeDasharray = computed(() => {
 const pathId = computed(() => `edge-path-${props.id}`);
 
 // ── Flow cascade: stagger animation based on topological order ──────
-const flowLevel = computed(() => diagrams.edgeFlowLevels.get(props.id) || 0);
+// Manual flowOrder override takes precedence over auto-computed topological level
+const flowLevel = computed(() => {
+  const manual = edgeData.value.flowOrder;
+  if (manual != null) return manual;
+  return diagrams.edgeFlowLevels.get(props.id) || 0;
+});
 const flowDelay = computed(() => flowLevel.value * diagrams.flowStagger);
 
 // Generate delay offsets for multiple dots (used in live animateMotion mode)
@@ -95,12 +103,30 @@ onMounted(() => {
 
 const isExportMode = computed(() => diagrams.gifExportProgress !== null);
 const maxFlowLevel = computed(() => Math.max(...diagrams.edgeFlowLevels.values(), 0));
+const hasManualOrder = computed(() => edgeData.value.flowOrder != null);
 
-// Position for the sequence badge (near the source end of the path)
+// Position for the sequence badge — near source or target end of the path
 const badgePos = computed(() => {
-  if (!pathRef.value || !pathReady.value || maxFlowLevel.value === 0) return null;
+  // Depend on pathData so badge repositions when nodes move
+  const _path = pathData.value;
+  void _path;
+  if (!pathRef.value || !pathReady.value || (maxFlowLevel.value === 0 && !hasManualOrder.value)) return null;
   const len = pathRef.value.getTotalLength();
+  const pos = edgeData.value.flowOrderPosition || 'source';
+  if (pos === 'target') {
+    return pathRef.value.getPointAtLength(Math.max(len - 24, len * 0.88));
+  }
   return pathRef.value.getPointAtLength(Math.min(24, len * 0.12));
+});
+
+// ── Custom SVG markers (VueFlow's marker system doesn't react to post-creation changes) ──
+const startMarkerUrl = computed(() => {
+  const ms = edgeData.value.markerStart;
+  return ms && ms !== 'none' ? `url(#ms-${props.id})` : undefined;
+});
+const endMarkerUrl = computed(() => {
+  const me = edgeData.value.markerEnd;
+  return me && me !== 'none' ? `url(#me-${props.id})` : undefined;
 });
 
 const dotPositions = computed(() => {
@@ -108,8 +134,10 @@ const dotPositions = computed(() => {
   if (progress === null || !pathRef.value || !pathReady.value) return [];
   const pathLength = pathRef.value.getTotalLength();
   const count = dotCount.value;
+  const isReverse = dotDirection.value === 'reverse';
   return Array.from({ length: count }, (_, i) => {
-    const offset = (progress + i / count) % 1;
+    let offset = (progress + i / count) % 1;
+    if (isReverse) offset = 1 - offset;
     const point = pathRef.value!.getPointAtLength(offset * pathLength);
     return { x: point.x, y: point.y, key: i };
   });
@@ -118,6 +146,52 @@ const dotPositions = computed(() => {
 
 <template>
   <g>
+    <!-- Custom marker defs (VueFlow's built-in markers don't react to post-creation changes) -->
+    <defs>
+      <marker
+        v-if="edgeData.markerStart && edgeData.markerStart !== 'none'"
+        :id="`ms-${props.id}`"
+        viewBox="-10 -5 10 10"
+        refX="0" refY="0"
+        markerWidth="12" markerHeight="12"
+        orient="auto-start-reverse"
+      >
+        <polyline
+          v-if="edgeData.markerStart === 'arrowclosed'"
+          points="-5,-4 0,0 -5,4 -5,-4"
+          :style="`stroke: ${edgeColor}; fill: ${edgeColor}; stroke-width: 1;`"
+          stroke-linecap="round" stroke-linejoin="round"
+        />
+        <polyline
+          v-else
+          points="-5,-4 0,0 -5,4"
+          :style="`stroke: ${edgeColor}; fill: none; stroke-width: 1;`"
+          stroke-linecap="round" stroke-linejoin="round"
+        />
+      </marker>
+      <marker
+        v-if="edgeData.markerEnd && edgeData.markerEnd !== 'none'"
+        :id="`me-${props.id}`"
+        viewBox="-10 -5 10 10"
+        refX="0" refY="0"
+        markerWidth="12" markerHeight="12"
+        orient="auto-start-reverse"
+      >
+        <polyline
+          v-if="edgeData.markerEnd === 'arrowclosed'"
+          points="-5,-4 0,0 -5,4 -5,-4"
+          :style="`stroke: ${edgeColor}; fill: ${edgeColor}; stroke-width: 1;`"
+          stroke-linecap="round" stroke-linejoin="round"
+        />
+        <polyline
+          v-else
+          points="-5,-4 0,0 -5,4"
+          :style="`stroke: ${edgeColor}; fill: none; stroke-width: 1;`"
+          stroke-linecap="round" stroke-linejoin="round"
+        />
+      </marker>
+    </defs>
+
     <!-- Invisible wider hit area for easier clicking -->
     <path
       :d="pathData"
@@ -134,12 +208,14 @@ const dotPositions = computed(() => {
       fill="none"
       :stroke="edgeColor"
       stroke-width="1.5"
-      :stroke-dasharray="strokeDasharray"
+      :style="{ strokeDasharray: strokeDasharray || 'none' }"
+      :marker-start="startMarkerUrl"
+      :marker-end="endMarkerUrl"
       class="vue-flow__edge-path"
     />
 
     <!-- Live mode: native SVG animation (zero JS overhead) -->
-    <template v-if="!isExportMode">
+    <template v-if="!isExportMode && showDots">
       <circle
         v-for="dot in dots"
         :key="dot.key"
@@ -152,6 +228,9 @@ const dotPositions = computed(() => {
           repeatCount="indefinite"
           rotate="auto"
           :begin="dot.delay"
+          :keyPoints="dotDirection === 'reverse' ? '1;0' : '0;1'"
+          keyTimes="0;1"
+          calcMode="linear"
         >
           <mpath :href="'#' + pathId" />
         </animateMotion>
@@ -159,7 +238,7 @@ const dotPositions = computed(() => {
     </template>
 
     <!-- Export mode: programmatic positions via getPointAtLength -->
-    <template v-else>
+    <template v-else-if="showDots">
       <circle
         v-for="dot in dotPositions"
         :key="dot.key"

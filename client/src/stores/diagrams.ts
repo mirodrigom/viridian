@@ -39,6 +39,7 @@ export type EdgeLineStyle = 'solid' | 'dashed' | 'dotted';
 export type EdgeMarkerType = 'arrow' | 'arrowclosed' | 'none';
 
 export type EdgeLabelSize = 'small' | 'medium' | 'large';
+export type DotDirection = 'forward' | 'reverse' | 'none';
 
 export interface DiagramEdgeData {
   label: string;
@@ -54,6 +55,9 @@ export interface DiagramEdgeData {
   dotSpeed?: 'slow' | 'medium' | 'fast';
   dotColor?: string;
   labelSize?: EdgeLabelSize;
+  dotDirection?: DotDirection;
+  flowOrder?: number;
+  flowOrderPosition?: 'source' | 'target';
 }
 
 export interface SerializedDiagramNode {
@@ -64,6 +68,7 @@ export interface SerializedDiagramNode {
   parentNode?: string;
   extent?: string;
   style?: Record<string, string>;
+  zIndex?: number;
 }
 
 export interface SerializedDiagramEdge {
@@ -101,6 +106,13 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   const savedViewport = ref<{ x: number; y: number; zoom: number } | null>(null);
   /** null = live SVG animation, 0–1 = GIF export frame progress */
   const gifExportProgress = ref<number | null>(null);
+
+  // ─── Undo / Redo history ──────────────────────────────────────
+  const MAX_HISTORY = 50;
+  const history = ref<string[]>([]);
+  const historyIndex = ref(-1);
+  /** Flag to skip pushSnapshot inside mutations triggered by undo/redo */
+  let _restoringSnapshot = false;
 
   // ─── Computed ───────────────────────────────────────────────────
   const selectedNode = computed(() =>
@@ -199,6 +211,121 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     };
   }
 
+  // ─── Undo / Redo helpers ────────────────────────────────────────
+
+  const canUndo = computed(() => historyIndex.value > 0);
+  const canRedo = computed(() => historyIndex.value < history.value.length - 1);
+
+  /** Capture a lightweight snapshot of nodes + edges for undo history. */
+  function pushSnapshot() {
+    if (_restoringSnapshot) return;
+    const snap = JSON.stringify({
+      nodes: nodes.value.map(n => ({
+        id: n.id,
+        type: (n.data as DiagramNodeData).nodeType,
+        position: n.position,
+        data: n.data,
+        ...(n.parentNode && { parentNode: n.parentNode }),
+        ...(n.extent && { extent: n.extent }),
+        ...(n.style && { style: n.style }),
+        ...((n as any).zIndex != null && { zIndex: (n as any).zIndex }),
+        ...(n.hidden != null && { hidden: n.hidden }),
+      })),
+      edges: edges.value.map(e => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        type: e.type,
+        data: e.data,
+        label: e.label,
+        animated: e.animated,
+        style: e.style,
+        markerEnd: e.markerEnd,
+        markerStart: e.markerStart,
+      })),
+    });
+    // Truncate redo stack
+    history.value = history.value.slice(0, historyIndex.value + 1);
+    history.value.push(snap);
+    if (history.value.length > MAX_HISTORY) {
+      history.value = history.value.slice(history.value.length - MAX_HISTORY);
+    }
+    historyIndex.value = history.value.length - 1;
+  }
+
+  /** Restore a snapshot without resetting diagram identity or dirty flag. */
+  function restoreSnapshot(snapJson: string) {
+    _restoringSnapshot = true;
+    try {
+      const snap = JSON.parse(snapJson);
+
+      // Rehydrate nodes
+      nodes.value = snap.nodes.map((n: any) => {
+        const data = { ...n.data };
+        if (data.nodeType === 'aws-service') {
+          const svc = getServiceById((data as AWSServiceNodeData).serviceId);
+          if (svc) (data as AWSServiceNodeData).service = svc;
+        } else if (data.nodeType === 'aws-group') {
+          const gt = AWS_GROUP_TYPES.find(g => g.id === (data as AWSGroupNodeData).groupTypeId);
+          if (gt) (data as AWSGroupNodeData).groupType = gt;
+        }
+        return {
+          id: n.id,
+          type: n.type === 'aws-service' ? 'aws-service' : 'aws-group',
+          position: n.position,
+          data,
+          ...(n.parentNode && { parentNode: n.parentNode }),
+          ...(n.extent && { extent: n.extent }),
+          ...(n.style && { style: n.style }),
+          ...(n.zIndex != null && { zIndex: n.zIndex }),
+          ...(n.hidden != null && { hidden: n.hidden }),
+        };
+      });
+
+      // Restore edges with full VueFlow properties
+      edges.value = snap.edges.map((e: any) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        type: e.type,
+        data: e.data,
+        label: e.label,
+        animated: e.animated,
+        style: e.style,
+        markerEnd: e.markerEnd,
+        markerStart: e.markerStart,
+      }));
+
+      selectedNodeId.value = null;
+      selectedEdgeId.value = null;
+      isDirty.value = true;
+      diagramVersion.value++;
+    } finally {
+      _restoringSnapshot = false;
+    }
+  }
+
+  function undo() {
+    if (!canUndo.value) return;
+    historyIndex.value--;
+    restoreSnapshot(history.value[historyIndex.value]);
+  }
+
+  function redo() {
+    if (!canRedo.value) return;
+    historyIndex.value++;
+    restoreSnapshot(history.value[historyIndex.value]);
+  }
+
+  function clearHistory() {
+    history.value = [];
+    historyIndex.value = -1;
+  }
+
   // ─── Node CRUD ─────────────────────────────────────────────────
 
   function addServiceNode(serviceId: string, position: { x: number; y: number }): string {
@@ -225,6 +352,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     isDirty.value = true;
     selectedNodeId.value = id;
+    pushSnapshot();
     return id;
   }
 
@@ -253,6 +381,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     isDirty.value = true;
     selectedNodeId.value = id;
+    pushSnapshot();
     return id;
   }
 
@@ -279,6 +408,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     if (selectedNodeId.value === id) selectedNodeId.value = null;
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function updateNodeData(id: string, updates: Partial<DiagramNodeData>) {
@@ -286,6 +416,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (!node) return;
     node.data = { ...node.data, ...updates } as DiagramNodeData;
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function updateNodePosition(id: string, position: { x: number; y: number }) {
@@ -293,6 +424,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (!node) return;
     node.position = position;
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function selectNode(id: string | null) {
@@ -346,6 +478,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       }
     }
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function ungroupChildren(groupId: string) {
@@ -390,6 +523,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       }
     }
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function collapseAllGroups() {
@@ -470,6 +604,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     const maxZ = Math.max(baseZ, ...siblings.map(n => (n as any).zIndex ?? 0));
     (node as any).zIndex = maxZ + 1;
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function sendToBack(nodeId: string) {
@@ -480,6 +615,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     const minZ = Math.min(baseZ, ...siblings.map(n => (n as any).zIndex ?? 0));
     (node as any).zIndex = Math.max(baseZ, minZ - 1);
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function bringForward(nodeId: string) {
@@ -489,6 +625,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     const currentZ = (node as any).zIndex ?? baseZ;
     (node as any).zIndex = Math.max(baseZ, currentZ + 1);
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function sendBackward(nodeId: string) {
@@ -498,6 +635,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     const currentZ = (node as any).zIndex ?? baseZ;
     (node as any).zIndex = Math.max(baseZ, currentZ - 1);
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function getNodeZIndex(nodeId: string): number {
@@ -579,8 +717,10 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       dotSpeed: 'medium',
       dotColor: '',
       labelSize: 'small',
+      dotDirection: 'forward',
     };
 
+    const markerColor = autoColor || undefined;
     edges.value.push({
       id: `e-${connection.source}-${connection.target}`,
       source: connection.source,
@@ -591,16 +731,19 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       data: edgeData,
       label: '',
       animated: true,
+      markerStart: undefined,
+      markerEnd: { type: 'arrowclosed' as any, color: markerColor },
       ...(autoColor ? { style: { stroke: autoColor } } : {}),
-      ...(autoColor ? { markerEnd: { type: 'arrowclosed' as any, color: autoColor } } : {}),
     });
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function removeEdge(id: string) {
     edges.value = edges.value.filter(e => e.id !== id);
     if (selectedEdgeId.value === id) selectedEdgeId.value = null;
     isDirty.value = true;
+    pushSnapshot();
   }
 
   function updateEdgeData(id: string, updates: Partial<DiagramEdgeData>) {
@@ -660,6 +803,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     }
 
     isDirty.value = true;
+    pushSnapshot();
   }
 
   // ─── Diagram management ────────────────────────────────────────
@@ -674,6 +818,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     savedViewport.value = null;
     isDirty.value = false;
     diagramVersion.value++;
+    clearHistory();
+    pushSnapshot(); // initial snapshot so first action is undoable
   }
 
   // ─── Serialization ─────────────────────────────────────────────
@@ -698,6 +844,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
           ...(n.parentNode && { parentNode: n.parentNode }),
           ...(n.extent && { extent: n.extent as string }),
           ...(Object.keys(style).length > 0 && { style }),
+          ...((n as any).zIndex != null && { zIndex: (n as any).zIndex }),
         };
       }),
       edges: edges.value.map(e => ({
@@ -736,6 +883,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
         ...(n.parentNode && { parentNode: n.parentNode }),
         ...(n.extent && { extent: n.extent }),
         ...(n.style && { style: n.style }),
+        ...(n.zIndex != null && { zIndex: n.zIndex }),
       };
     });
 
@@ -771,6 +919,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
         dotSpeed: 'medium',
         dotColor: '',
         labelSize: 'small',
+        dotDirection: 'forward',
         ...e.data,
       };
       return {
@@ -783,14 +932,16 @@ export const useDiagramsStore = defineStore('diagrams', () => {
         data: d,
         label: d.label || '',
         animated: d.animated,
+        markerStart: d.markerStart !== 'none' ? { type: d.markerStart === 'arrow' ? 'arrow' as any : 'arrowclosed' as any, color: d.color || undefined } : undefined,
+        markerEnd: d.markerEnd !== 'none' ? { type: d.markerEnd === 'arrow' ? 'arrow' as any : 'arrowclosed' as any, color: d.color || undefined } : undefined,
         ...(d.color ? { style: { stroke: d.color } } : {}),
-        ...(d.markerEnd !== 'none' ? { markerEnd: { type: d.markerEnd === 'arrow' ? 'arrow' as any : 'arrowclosed' as any, color: d.color || undefined } } : {}),
-        ...(d.markerStart !== 'none' ? { markerStart: { type: d.markerStart === 'arrow' ? 'arrow' as any : 'arrowclosed' as any, color: d.color || undefined } } : {}),
       };
     });
 
     isDirty.value = false;
     diagramVersion.value++;
+    clearHistory();
+    pushSnapshot(); // initial snapshot so first action is undoable
   }
 
   // ─── Persistence ───────────────────────────────────────────────
@@ -848,6 +999,9 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (currentDiagramId.value === id) newDiagram();
   }
 
+  // Capture initial empty state so the very first mutation is undoable
+  pushSnapshot();
+
   return {
     // State
     nodes, edges, selectedNodeId, selectedEdgeId,
@@ -867,11 +1021,13 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     // Content bounds
     getContentBounds,
     // Z-Index layers
-    bringToFront, sendToBack, bringForward, sendBackward, getNodeZIndex,
+    bringToFront, sendToBack, bringForward, sendBackward, getNodeZIndex, getNodeDepth,
     // Multi-select
     removeSelectedNodes,
     // Edge CRUD
     addEdge, removeEdge, updateEdgeData,
+    // Undo / Redo
+    canUndo, canRedo, undo, redo, pushSnapshot, clearHistory,
     // Diagram management
     newDiagram, serialize, deserialize,
     // Persistence

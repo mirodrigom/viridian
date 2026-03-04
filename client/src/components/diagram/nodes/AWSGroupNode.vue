@@ -159,9 +159,9 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
     <Handle id="left" type="target" :position="Position.Left" class="!h-2.5 !w-2.5 !rounded-full !border-2 !border-background" :style="{ backgroundColor: data.groupType.color }" />
     <Handle id="right" type="source" :position="Position.Right" class="!h-2.5 !w-2.5 !rounded-full !border-2 !border-background" :style="{ backgroundColor: data.groupType.color }" />
 
-    <!-- Label bar -->
+    <!-- Label bar (pointer-events re-enabled for drag/select/context-menu) -->
     <div
-      class="flex items-center gap-2 rounded-t-md px-3 py-1.5"
+      class="pointer-events-auto flex items-center gap-2 rounded-t-md px-3 py-1.5"
       :style="{ backgroundColor: data.groupType.color + '20', borderBottom: `1px solid ${data.groupType.color}30` }"
     >
       <!-- Collapse/expand toggle -->
@@ -218,8 +218,8 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
     </div>
 
     <!-- Inner area where children can be dropped (hidden when collapsed) -->
-    <!-- Children are VueFlow siblings with higher z-index, so clicks naturally reach them first -->
-    <div v-if="!isCollapsed" class="relative flex-1 p-2" style="min-height: 150px;">
+    <!-- pointer-events: none lets clicks pass through to edges in the SVG layer beneath -->
+    <div v-if="!isCollapsed" class="pointer-events-none relative flex-1 p-2" style="min-height: 150px;">
       <!-- Drop zone indicator -->
       <div
         v-if="isDropTarget"
@@ -235,7 +235,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
       <div
         v-if="showContextMenu"
         ref="menuRef"
-        class="absolute z-50 min-w-[160px] rounded-md border border-border bg-popover py-1 shadow-lg"
+        class="pointer-events-auto absolute z-50 min-w-[160px] rounded-md border border-border bg-popover py-1 shadow-lg"
         :style="{ left: contextMenuPos.x + 'px', top: contextMenuPos.y + 'px' }"
         @click.stop
       >

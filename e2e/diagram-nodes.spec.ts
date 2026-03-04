@@ -26,6 +26,30 @@ test.describe('Diagram Nodes and Properties', () => {
     await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
   })
 
+  test('dropping a group inside another group keeps them independent (no auto-nesting)', async ({ diagramPage: page }) => {
+    // Create a VPC group first
+    const vpcId = await addDiagramGroupNode(page, 'vpc', { x: 100, y: 100 })
+
+    // Create an Availability Zone group at a position inside the VPC bounds
+    const azId = await addDiagramGroupNode(page, 'availability-zone', { x: 160, y: 180 })
+
+    // The AZ group should NOT be parented to the VPC — they should be independent
+    const parentNode = await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const node = store.nodes.find((n: any) => n.id === id)
+        return node?.parentNode ?? null
+      },
+      azId,
+    )
+    expect(parentNode).toBeNull()
+
+    // Both should be visible as separate root-level nodes
+    await expect(page.locator('.vue-flow__node')).toHaveCount(2)
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('2 nodes')
+  })
+
   test('selecting a service node shows properties panel', async ({ diagramPage: page }) => {
     const nodeId = await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
     await selectDiagramNode(page, nodeId)
@@ -68,11 +92,11 @@ test.describe('Diagram Nodes and Properties', () => {
     expect(edgeIds.length).toBe(1)
     await selectDiagramEdge(page, edgeIds[0])
 
-    // Properties panel should show edge options
+    // Properties panel should show edge sections
     const panel = page.locator('[data-testid="properties-panel"]')
     await expect(panel).toBeVisible()
-    await expect(panel.getByText('Edge Type')).toBeVisible()
-    await expect(panel.getByText('Line Style')).toBeVisible()
+    await expect(panel.getByText('Quick Styles')).toBeVisible()
+    await expect(panel.getByText('Markers')).toBeVisible()
   })
 
   test('delete node via keyboard', async ({ diagramPage: page }) => {
@@ -674,6 +698,371 @@ test.describe('Diagram Nodes and Properties', () => {
 
     // Edge should be visible in VueFlow
     await expect(page.locator('.vue-flow__edge')).toHaveCount(1)
+  })
+
+  // ─── Undo / Redo tests ─────────────────────────────────────────
+
+  test('Ctrl+Z undoes node deletion', async ({ diagramPage: page }) => {
+    await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await page.waitForTimeout(200)
+
+    // Verify node exists
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
+
+    // Select and delete the node
+    await page.locator('.vue-flow__node').first().click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(200)
+
+    // Node should be gone
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('0 nodes')
+
+    // Undo
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+
+    // Node should be back
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
+    await expect(page.locator('.vue-flow__node')).toHaveCount(1)
+  })
+
+  test('Ctrl+Shift+Z redoes after undo', async ({ diagramPage: page }) => {
+    await addDiagramServiceNode(page, 'ec2', { x: 200, y: 200 })
+    await page.waitForTimeout(200)
+
+    // Delete the node
+    await page.locator('.vue-flow__node').first().click()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(200)
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('0 nodes')
+
+    // Undo — node comes back
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 nodes')
+
+    // Redo — node goes away again
+    await page.keyboard.press('Control+Shift+z')
+    await page.waitForTimeout(300)
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('0 nodes')
+  })
+
+  test('undo restores deleted edges along with node', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+    await page.waitForTimeout(200)
+
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 edges')
+
+    // Delete node1 (should also remove connected edge)
+    await selectDiagramNode(page, node1)
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(200)
+
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('0 edges')
+
+    // Undo — both node and edge should be restored
+    await page.keyboard.press('Control+z')
+    await page.waitForTimeout(300)
+
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('2 nodes')
+    await expect(page.locator('[data-testid="diagram-stats"]')).toContainText('1 edges')
+  })
+
+  // ─── Edge dot direction and arrow marker tests ──────────────────────
+
+  test('changing dot direction to reverse updates edge data', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    const edgeIds = await getDiagramEdgeIds(page)
+    expect(edgeIds.length).toBe(1)
+    await selectDiagramEdge(page, edgeIds[0])
+
+    const panel = page.locator('[data-testid="properties-panel"]')
+    await expect(panel).toBeVisible()
+
+    // Open Animation collapsible
+    await panel.getByText('Animation').click()
+    await page.waitForTimeout(200)
+
+    // Click reverse direction icon button
+    await panel.locator('[data-testid="dot-direction-reverse"]').click()
+    await page.waitForTimeout(200)
+
+    // Verify store was updated
+    const dotDirection = await page.evaluate(
+      (edgeId) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const edge = store.edges.find((e: any) => e.id === edgeId)
+        return edge?.data?.dotDirection
+      },
+      edgeIds[0],
+    )
+    expect(dotDirection).toBe('reverse')
+  })
+
+  test('changing dot direction to none hides animated dots', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    const edgeIds = await getDiagramEdgeIds(page)
+    await selectDiagramEdge(page, edgeIds[0])
+
+    const panel = page.locator('[data-testid="properties-panel"]')
+
+    // Open Animation collapsible
+    await panel.getByText('Animation').click()
+    await page.waitForTimeout(200)
+
+    // Click none direction icon button
+    await panel.locator('[data-testid="dot-direction-none"]').click()
+    await page.waitForTimeout(200)
+
+    // Verify store was updated
+    const dotDirection = await page.evaluate(
+      (edgeId) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const edge = store.edges.find((e: any) => e.id === edgeId)
+        return edge?.data?.dotDirection
+      },
+      edgeIds[0],
+    )
+    expect(dotDirection).toBe('none')
+  })
+
+  test('changing arrow markers updates edge data', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    const edgeIds = await getDiagramEdgeIds(page)
+    await selectDiagramEdge(page, edgeIds[0])
+
+    const panel = page.locator('[data-testid="properties-panel"]')
+    await expect(panel).toBeVisible()
+
+    // Markers collapsible is open by default — click arrow icon button for start marker
+    await panel.locator('[data-testid="start-marker-arrowclosed"]').click()
+    await page.waitForTimeout(200)
+
+    // Verify store update
+    const markers = await page.evaluate(
+      (edgeId) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const edge = store.edges.find((e: any) => e.id === edgeId)
+        return {
+          markerStart: edge?.data?.markerStart,
+          markerEnd: edge?.data?.markerEnd,
+        }
+      },
+      edgeIds[0],
+    )
+    expect(markers.markerStart).toBe('arrowclosed')
+    expect(markers.markerEnd).toBe('arrowclosed')
+  })
+
+  test('setting end marker to none removes arrow from edge', async ({ diagramPage: page }) => {
+    const node1 = await addDiagramServiceNode(page, 'ec2', { x: 100, y: 100 })
+    const node2 = await addDiagramServiceNode(page, 'lambda', { x: 300, y: 300 })
+    await addDiagramEdge(page, node1, node2)
+
+    const edgeIds = await getDiagramEdgeIds(page)
+    await selectDiagramEdge(page, edgeIds[0])
+
+    const panel = page.locator('[data-testid="properties-panel"]')
+
+    // Click none icon button for end marker
+    await panel.locator('[data-testid="end-marker-none"]').click()
+    await page.waitForTimeout(200)
+
+    // Verify store update
+    const markerEnd = await page.evaluate(
+      (edgeId) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const edge = store.edges.find((e: any) => e.id === edgeId)
+        return edge?.data?.markerEnd
+      },
+      edgeIds[0],
+    )
+    expect(markerEnd).toBe('none')
+  })
+
+  // ─── Comprehensive click selection inside nested groups ──────────
+  // Reproduces the user's exact diagram: Availability Zone > Public Subnet > services + edges
+
+  test('click-select every element in nested groups: services, edges, groups', async ({ diagramPage: page }) => {
+    // Build: Availability Zone (outer) > Public Subnet (inner) > EC2 + Lightsail + edge
+    const azId = await addDiagramGroupNode(page, 'availability-zone', { x: 50, y: 50 })
+    const subnetId = await addDiagramGroupNode(page, 'subnet-public', { x: 80, y: 120 })
+    const ec2Id = await addDiagramServiceNode(page, 'ec2', { x: 350, y: 150 })
+    const lightsailId = await addDiagramServiceNode(page, 'lightsail', { x: 120, y: 200 })
+
+    // Parent subnet to AZ, then services to subnet
+    await page.evaluate(
+      ({ subnetId, azId, ec2Id, lightsailId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(subnetId, azId)
+        store.setNodeParent(ec2Id, subnetId)
+        store.setNodeParent(lightsailId, subnetId)
+        store.diagramVersion++
+      },
+      { subnetId, azId, ec2Id, lightsailId },
+    )
+    await page.waitForTimeout(500)
+
+    // Add edge between Lightsail and EC2
+    await addDiagramEdge(page, lightsailId, ec2Id)
+    await page.waitForTimeout(500)
+
+    // Helper to get current selection from store
+    const getSelection = () =>
+      page.evaluate(() => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        return { nodeId: store.selectedNodeId, edgeId: store.selectedEdgeId }
+      })
+
+    // ── Test 1: Click on EC2 (service node inside nested group) ──
+    const ec2El = page.locator(`[data-id="${ec2Id}"]`)
+    await expect(ec2El).toBeVisible()
+    const ec2Box = await ec2El.boundingBox()
+    expect(ec2Box).toBeTruthy()
+    await page.mouse.click(ec2Box!.x + ec2Box!.width / 2, ec2Box!.y + ec2Box!.height / 2)
+    await page.waitForTimeout(300)
+
+    let sel = await getSelection()
+    expect(sel.nodeId).toBe(ec2Id)
+
+    // ── Test 2: Click on Lightsail (another service in the same group) ──
+    const lightsailEl = page.locator(`[data-id="${lightsailId}"]`)
+    const lightsailBox = await lightsailEl.boundingBox()
+    expect(lightsailBox).toBeTruthy()
+    await page.mouse.click(lightsailBox!.x + lightsailBox!.width / 2, lightsailBox!.y + lightsailBox!.height / 2)
+    await page.waitForTimeout(300)
+
+    sel = await getSelection()
+    expect(sel.nodeId).toBe(lightsailId)
+
+    // ── Test 3: Click on the edge between them ──
+    // The edge SVG path runs between the two nodes. Click its midpoint.
+    const edgeIds = await getDiagramEdgeIds(page)
+    expect(edgeIds.length).toBe(1)
+    const edgePath = page.locator(`.vue-flow__edge[data-id="${edgeIds[0]}"] .vue-flow__edge-interaction`)
+    const edgeBox = await edgePath.boundingBox()
+    if (edgeBox) {
+      // Click midpoint of the edge's bounding box
+      await page.mouse.click(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2)
+      await page.waitForTimeout(300)
+
+      sel = await getSelection()
+      // Either the edge should be selected, or at least a node near the edge.
+      // Log what actually happened for diagnostics.
+      console.log(`Edge click result: nodeId=${sel.nodeId}, edgeId=${sel.edgeId}`)
+      // The edge should be selected (node should be null)
+      expect(sel.edgeId).toBe(edgeIds[0])
+    }
+
+    // ── Test 4: Click on Availability Zone label bar (outer group) ──
+    const azEl = page.locator(`[data-id="${azId}"]`)
+    const azBox = await azEl.boundingBox()
+    expect(azBox).toBeTruthy()
+    // Click on label bar area (top of the group, y + 12px)
+    await page.mouse.click(azBox!.x + 80, azBox!.y + 12)
+    await page.waitForTimeout(300)
+
+    sel = await getSelection()
+    expect(sel.nodeId).toBe(azId)
+
+    // ── Test 5: Click on Public Subnet label bar (inner group) ──
+    const subnetEl = page.locator(`[data-id="${subnetId}"]`)
+    const subnetBox = await subnetEl.boundingBox()
+    expect(subnetBox).toBeTruthy()
+    await page.mouse.click(subnetBox!.x + 80, subnetBox!.y + 12)
+    await page.waitForTimeout(300)
+
+    sel = await getSelection()
+    expect(sel.nodeId).toBe(subnetId)
+
+    // ── Test 6: After selecting a group, click EC2 again — should select EC2, not group ──
+    await page.mouse.click(ec2Box!.x + ec2Box!.width / 2, ec2Box!.y + ec2Box!.height / 2)
+    await page.waitForTimeout(300)
+
+    sel = await getSelection()
+    expect(sel.nodeId).toBe(ec2Id)
+  })
+
+  test('drag service node inside nested group moves the node', async ({ diagramPage: page }) => {
+    // Build: AZ > Subnet > Lightsail (the exact user scenario)
+    const azId = await addDiagramGroupNode(page, 'availability-zone', { x: 50, y: 50 })
+    const subnetId = await addDiagramGroupNode(page, 'subnet-public', { x: 80, y: 120 })
+    const lightsailId = await addDiagramServiceNode(page, 'lightsail', { x: 120, y: 200 })
+
+    await page.evaluate(
+      ({ subnetId, azId, lightsailId }) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        store.setNodeParent(subnetId, azId)
+        store.setNodeParent(lightsailId, subnetId)
+        store.diagramVersion++
+      },
+      { subnetId, azId, lightsailId },
+    )
+    await page.waitForTimeout(500)
+
+    // Get the initial position of Lightsail
+    const initialPos = await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const node = store.nodes.find((n: any) => n.id === id)
+        return { x: node.position.x, y: node.position.y }
+      },
+      lightsailId,
+    )
+
+    // Get the Lightsail node bounding box
+    const nodeEl = page.locator(`[data-id="${lightsailId}"]`)
+    await expect(nodeEl).toBeVisible()
+    const bbox = await nodeEl.boundingBox()
+    expect(bbox).toBeTruthy()
+
+    // Drag the node 80px to the right and 50px down
+    const startX = bbox!.x + bbox!.width / 2
+    const startY = bbox!.y + bbox!.height / 2
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(startX + 80, startY + 50, { steps: 10 })
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+
+    // Check the node position changed
+    const newPos = await page.evaluate(
+      (id) => {
+        const pinia = (window as any).__pinia
+        const store = pinia._s.get('diagrams')
+        const node = store.nodes.find((n: any) => n.id === id)
+        return { x: node.position.x, y: node.position.y }
+      },
+      lightsailId,
+    )
+
+    console.log(`Drag test: initial=(${initialPos.x}, ${initialPos.y}), after=(${newPos.x}, ${newPos.y})`)
+
+    // The position should have changed (moved right and down)
+    expect(newPos.x).not.toBe(initialPos.x)
+    expect(newPos.y).not.toBe(initialPos.y)
+    // Rough check: moved approximately in the right direction
+    expect(newPos.x).toBeGreaterThan(initialPos.x)
+    expect(newPos.y).toBeGreaterThan(initialPos.y)
   })
 
 })

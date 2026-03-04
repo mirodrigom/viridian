@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Minus, X } from 'lucide-vue-next';
-import { useDiagramsStore, type AWSServiceNodeData, type AWSGroupNodeData, type DiagramEdgeData } from '@/stores/diagrams';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Plus, Minus, X, ChevronRight, Paintbrush, ArrowRightLeft, Sparkles, ListOrdered } from 'lucide-vue-next';
+import { useDiagramsStore, type AWSServiceNodeData, type AWSGroupNodeData, type DiagramEdgeData, type DotDirection } from '@/stores/diagrams';
 
 const diagrams = useDiagramsStore();
 
@@ -24,15 +28,28 @@ function updateNodeField(field: string, value: string) {
   diagrams.updateNodeData(diagrams.selectedNodeId, { [field]: value } as never);
 }
 
-function updateEdgeField(field: string, value: string | boolean) {
+function updateEdgeField(field: string, value: string | boolean | number | undefined) {
   if (!diagrams.selectedEdgeId) return;
   diagrams.updateEdgeData(diagrams.selectedEdgeId, { [field]: value } as never);
 }
+
+const currentFlowOrder = computed(() => {
+  if (!diagrams.selectedEdgeId) return 0;
+  const manual = edgeData.value?.flowOrder;
+  if (manual != null) return manual;
+  return diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId) || 0;
+});
 
 const currentZIndex = computed(() => {
   if (!diagrams.selectedNodeId) return 0;
   return diagrams.getNodeZIndex(diagrams.selectedNodeId);
 });
+
+// Collapsible section states
+const styleOpen = ref(true);
+const markersOpen = ref(true);
+const animationOpen = ref(false);
+const flowOrderOpen = ref(false);
 
 const edgeTypeOptions = [
   { value: 'default', label: 'Bezier' },
@@ -45,6 +62,35 @@ const markerOptions = [
   { value: 'arrowclosed', label: 'Arrow' },
   { value: 'arrow', label: 'Open' },
   { value: 'none', label: 'None' },
+] as const;
+
+const lineStyleOptions = [
+  { value: 'solid', label: 'Solid' },
+  { value: 'dashed', label: 'Dashed' },
+  { value: 'dotted', label: 'Dotted' },
+] as const;
+
+const labelSizeOptions = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' },
+] as const;
+
+const dotDirectionOptions: { value: DotDirection; label: string }[] = [
+  { value: 'forward', label: 'Forward' },
+  { value: 'reverse', label: 'Reverse' },
+  { value: 'none', label: 'None' },
+];
+
+const dotSpeedOptions = [
+  { value: 'slow', label: 'Slow' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'fast', label: 'Fast' },
+] as const;
+
+const flowOrderPositionOptions = [
+  { value: 'source', label: 'From (Source)' },
+  { value: 'target', label: 'To (Target)' },
 ] as const;
 
 const edgeColors = [
@@ -79,16 +125,10 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
     dotCount: qs.dotCount,
   });
 }
-
-const labelSizeOptions = [
-  { value: 'small' as const, label: 'S' },
-  { value: 'medium' as const, label: 'M' },
-  { value: 'large' as const, label: 'L' },
-];
 </script>
 
 <template>
-  <div data-testid="properties-panel" class="flex h-full flex-col border-l border-border bg-background">
+  <div data-testid="properties-panel" class="flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-background">
     <div class="flex h-9 items-center justify-between border-b border-border px-3">
       <span class="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Properties</span>
       <Button
@@ -101,7 +141,7 @@ const labelSizeOptions = [
       </Button>
     </div>
 
-    <ScrollArea class="flex-1">
+    <ScrollArea class="flex-1 overflow-hidden">
       <!-- Node properties -->
       <div v-if="nodeData" class="space-y-4 p-3">
         <!-- Service node -->
@@ -240,249 +280,426 @@ const labelSizeOptions = [
       </div>
 
       <!-- Edge properties -->
-      <div v-else-if="edgeData" class="space-y-4 p-3">
-        <div class="space-y-3">
-          <!-- Quick Styles -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Quick Styles</Label>
-            <div class="flex flex-wrap gap-1">
-              <button
-                v-for="qs in quickStyles"
-                :key="qs.label"
-                class="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:scale-105"
-                :style="{
-                  borderColor: (qs.color || 'var(--primary)') + '60',
-                  backgroundColor: (qs.color || 'var(--primary)') + '15',
-                  color: qs.color || 'var(--primary)',
-                }"
-                @click="applyQuickStyle(qs)"
-              >
-                {{ qs.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Edge label -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Label</Label>
-            <Input
-              :model-value="edgeData.label || ''"
-              class="h-7 text-xs"
-              placeholder="Connection label..."
-              @update:model-value="(v: string) => updateEdgeField('label', v)"
-            />
-          </div>
-
-          <!-- Label size -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Label Size</Label>
-            <div class="flex gap-1">
-              <button
-                v-for="ls in labelSizeOptions"
-                :key="ls.value"
-                class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
-                :class="(edgeData.labelSize || 'small') === ls.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                @click="updateEdgeField('labelSize', ls.value)"
-              >
-                {{ ls.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Edge type -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Edge Type</Label>
-            <div class="grid grid-cols-2 gap-1">
-              <button
-                v-for="opt in edgeTypeOptions"
-                :key="opt.value"
-                class="rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
-                :class="(edgeData.edgeType || 'default') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                @click="updateEdgeField('edgeType', opt.value)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Edge style -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Line Style</Label>
-            <div class="flex gap-1">
-              <button
-                v-for="style in ['solid', 'dashed', 'dotted'] as const"
-                :key="style"
-                class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium capitalize transition-colors"
-                :class="edgeData.style === style ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                @click="updateEdgeField('style', style)"
-              >
-                {{ style }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Edge color -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Color</Label>
-            <div class="flex flex-wrap gap-1">
-              <button
-                v-for="c in edgeColors"
-                :key="c.value"
-                class="h-6 w-6 rounded-md border transition-all"
-                :class="(edgeData.color || '') === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'hover:scale-110'"
-                :style="{ backgroundColor: c.value || 'var(--primary)', borderColor: c.value ? c.value + '60' : 'var(--border)' }"
-                :title="c.label"
-                @click="updateEdgeField('color', c.value)"
-              />
-            </div>
-          </div>
-
-          <!-- Arrow markers -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Start Marker</Label>
-            <div class="flex gap-1">
-              <button
-                v-for="opt in markerOptions"
-                :key="opt.value"
-                class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
-                :class="(edgeData.markerStart || 'none') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                @click="updateEdgeField('markerStart', opt.value)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-
-          <div class="space-y-1">
-            <Label class="text-[11px]">End Marker</Label>
-            <div class="flex gap-1">
-              <button
-                v-for="opt in markerOptions"
-                :key="opt.value"
-                class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
-                :class="(edgeData.markerEnd || 'arrowclosed') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                @click="updateEdgeField('markerEnd', opt.value)"
-              >
-                {{ opt.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Animated -->
-          <div class="flex items-center justify-between">
-            <Label class="text-[11px]">Animated Flow</Label>
+      <div v-else-if="edgeData" class="space-y-3 p-3">
+        <TooltipProvider :delay-duration="200">
+        <!-- Quick Styles -->
+        <div class="space-y-1">
+          <Label class="text-[11px]">Quick Styles</Label>
+          <div class="flex flex-wrap gap-1">
             <button
-              class="relative h-5 w-9 rounded-full border transition-colors"
-              :class="edgeData.animated ? 'border-primary bg-primary' : 'border-border bg-muted'"
-              @click="updateEdgeField('animated', !edgeData.animated)"
+              v-for="qs in quickStyles"
+              :key="qs.label"
+              class="rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all hover:scale-105"
+              :style="{
+                borderColor: (qs.color || 'var(--primary)') + '60',
+                backgroundColor: (qs.color || 'var(--primary)') + '15',
+                color: qs.color || 'var(--primary)',
+              }"
+              @click="applyQuickStyle(qs)"
             >
-              <span
-                class="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform"
-                :class="edgeData.animated ? 'translate-x-4' : ''"
-              />
+              {{ qs.label }}
             </button>
           </div>
+        </div>
 
-          <!-- Dot Animation (only when animated is on) -->
-          <template v-if="edgeData.animated">
-            <div class="flex items-center justify-between">
-              <Label class="text-[11px]">Animated Dots</Label>
-              <button
-                class="relative h-5 w-9 rounded-full border transition-colors"
-                :class="edgeData.dotAnimation ? 'border-primary bg-primary' : 'border-border bg-muted'"
-                @click="updateEdgeField('dotAnimation', !edgeData.dotAnimation)"
-              >
-                <span
-                  class="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform"
-                  :class="edgeData.dotAnimation ? 'translate-x-4' : ''"
-                />
-              </button>
+        <!-- Label -->
+        <div class="space-y-1">
+          <Label class="text-[11px]">Label</Label>
+          <Input
+            :model-value="edgeData.label || ''"
+            class="h-7 text-xs"
+            placeholder="Connection label..."
+            @update:model-value="(v: string) => updateEdgeField('label', v)"
+          />
+        </div>
+
+        <Separator />
+
+        <!-- ── Style ── -->
+        <Collapsible v-model:open="styleOpen">
+          <TooltipProvider :delay-duration="300">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <CollapsibleTrigger class="flex w-full items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground">
+                  <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': styleOpen }" />
+                  <Paintbrush class="h-3.5 w-3.5" />
+                  <span class="text-[11px] font-medium">Style</span>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="left"><p>Edge type, line style, color</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <CollapsibleContent>
+            <div class="mt-2 space-y-2.5">
+              <!-- Edge Type — curve shape icons -->
+              <div class="flex gap-1">
+                <Tooltip v-for="opt in edgeTypeOptions" :key="opt.value">
+                  <TooltipTrigger as-child>
+                    <button
+                      class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                      :class="(edgeData.edgeType || 'default') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                      @click="updateEdgeField('edgeType', opt.value)"
+                    >
+                      <svg viewBox="0 0 24 14" class="h-3.5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <path v-if="opt.value === 'default'" d="M2 12 C6 2, 18 2, 22 12" />
+                        <path v-else-if="opt.value === 'straight'" d="M2 12 L22 2" />
+                        <path v-else-if="opt.value === 'step'" d="M2 10 H12 V4 H22" />
+                        <path v-else d="M2 10 C7 10 7 4 12 4 C17 4 17 4 22 4" />
+                      </svg>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                </Tooltip>
+              </div>
+              <!-- Line Style — stroke pattern icons -->
+              <div class="flex gap-1">
+                <Tooltip v-for="opt in lineStyleOptions" :key="opt.value">
+                  <TooltipTrigger as-child>
+                    <button
+                      class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                      :class="(edgeData.style || 'solid') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                      @click="updateEdgeField('style', opt.value)"
+                    >
+                      <svg viewBox="0 0 24 4" class="h-1 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <line x1="1" y1="2" x2="23" y2="2" :stroke-dasharray="opt.value === 'dashed' ? '4 3' : opt.value === 'dotted' ? '1 3' : undefined" />
+                      </svg>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                </Tooltip>
+              </div>
+              <!-- Label Size — A in different sizes -->
+              <div class="flex gap-1">
+                <Tooltip v-for="opt in labelSizeOptions" :key="opt.value">
+                  <TooltipTrigger as-child>
+                    <button
+                      class="flex h-7 flex-1 items-center justify-center rounded-md border font-semibold transition-colors"
+                      :class="(edgeData.labelSize || 'small') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                      @click="updateEdgeField('labelSize', opt.value)"
+                    >
+                      <span :class="opt.value === 'small' ? 'text-[9px]' : opt.value === 'medium' ? 'text-[11px]' : 'text-[13px]'">A</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                </Tooltip>
+              </div>
+              <!-- Color swatches -->
+              <div class="flex flex-wrap gap-1">
+                <Tooltip v-for="c in edgeColors" :key="c.value">
+                  <TooltipTrigger as-child>
+                    <button
+                      class="h-6 w-6 rounded-md border transition-all"
+                      :class="(edgeData.color || '') === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'hover:scale-110'"
+                      :style="{ backgroundColor: c.value || 'var(--primary)', borderColor: c.value ? c.value + '60' : 'var(--border)' }"
+                      @click="updateEdgeField('color', c.value)"
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>{{ c.label }}</p></TooltipContent>
+                </Tooltip>
+              </div>
             </div>
+          </CollapsibleContent>
+        </Collapsible>
 
-            <template v-if="edgeData.dotAnimation">
-              <!-- Dot count -->
+        <Separator />
+
+        <!-- ── Markers ── -->
+        <Collapsible v-model:open="markersOpen">
+          <TooltipProvider :delay-duration="300">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <CollapsibleTrigger class="flex w-full items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground">
+                  <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': markersOpen }" />
+                  <ArrowRightLeft class="h-3.5 w-3.5" />
+                  <span class="text-[11px] font-medium">Markers</span>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="left"><p>Start & end arrow markers</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <CollapsibleContent>
+            <div class="mt-2 space-y-2">
+              <!-- Start Marker -->
               <div class="space-y-1">
-                <Label class="text-[11px]">Dot Count</Label>
+                <Label class="text-[10px] text-muted-foreground">Start</Label>
                 <div class="flex gap-1">
-                  <button
-                    v-for="count in [1, 2, 3]"
-                    :key="count"
-                    class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors"
-                    :class="(edgeData.dotCount || 1) === count ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                    @click="updateEdgeField('dotCount', count as any)"
-                  >
-                    {{ count }}
-                  </button>
+                  <Tooltip v-for="opt in markerOptions" :key="'ms-' + opt.value">
+                    <TooltipTrigger as-child>
+                      <button
+                        class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                        :class="(edgeData.markerStart || 'none') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                        :data-testid="'start-marker-' + opt.value"
+                        @click="updateEdgeField('markerStart', opt.value)"
+                      >
+                        <svg viewBox="0 0 24 12" class="h-3 w-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="8" y1="6" x2="22" y2="6" />
+                          <template v-if="opt.value === 'arrowclosed'">
+                            <polygon points="2,6 8,2 8,10" fill="currentColor" stroke="none" />
+                          </template>
+                          <template v-else-if="opt.value === 'arrow'">
+                            <polyline points="8,2 2,6 8,10" />
+                          </template>
+                          <template v-else>
+                            <circle cx="4" cy="6" r="2" stroke="currentColor" fill="none" />
+                          </template>
+                        </svg>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
-
-              <!-- Dot speed -->
+              <!-- End Marker -->
               <div class="space-y-1">
-                <Label class="text-[11px]">Dot Speed</Label>
+                <Label class="text-[10px] text-muted-foreground">End</Label>
                 <div class="flex gap-1">
-                  <button
-                    v-for="speed in ['slow', 'medium', 'fast'] as const"
-                    :key="speed"
-                    class="flex-1 rounded-md border px-2 py-1 text-[10px] font-medium capitalize transition-colors"
-                    :class="(edgeData.dotSpeed || 'medium') === speed ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                    @click="updateEdgeField('dotSpeed', speed)"
-                  >
-                    {{ speed }}
-                  </button>
+                  <Tooltip v-for="opt in markerOptions" :key="'me-' + opt.value">
+                    <TooltipTrigger as-child>
+                      <button
+                        class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                        :class="(edgeData.markerEnd || 'arrowclosed') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                        :data-testid="'end-marker-' + opt.value"
+                        @click="updateEdgeField('markerEnd', opt.value)"
+                      >
+                        <svg viewBox="0 0 24 12" class="h-3 w-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                          <line x1="2" y1="6" x2="16" y2="6" />
+                          <template v-if="opt.value === 'arrowclosed'">
+                            <polygon points="22,6 16,2 16,10" fill="currentColor" stroke="none" />
+                          </template>
+                          <template v-else-if="opt.value === 'arrow'">
+                            <polyline points="16,2 22,6 16,10" />
+                          </template>
+                          <template v-else>
+                            <circle cx="20" cy="6" r="2" stroke="currentColor" fill="none" />
+                          </template>
+                        </svg>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
-              <!-- Dot color -->
-              <div class="space-y-1">
-                <Label class="text-[11px]">Dot Color</Label>
-                <div class="flex flex-wrap gap-1">
-                  <button
-                    v-for="c in edgeColors"
-                    :key="'dot-' + c.value"
-                    class="h-6 w-6 rounded-md border transition-all"
-                    :class="(edgeData.dotColor || '') === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'hover:scale-110'"
-                    :style="{ backgroundColor: c.value || 'var(--primary)', borderColor: c.value ? c.value + '60' : 'var(--border)' }"
-                    :title="c.label"
-                    @click="updateEdgeField('dotColor', c.value)"
+        <Separator />
+
+        <!-- ── Animation ── -->
+        <Collapsible v-model:open="animationOpen">
+          <TooltipProvider :delay-duration="300">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <CollapsibleTrigger class="flex w-full items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground">
+                  <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': animationOpen }" />
+                  <Sparkles class="h-3.5 w-3.5" />
+                  <span class="text-[11px] font-medium">Animation</span>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="left"><p>Flow animation & dot settings</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <CollapsibleContent>
+            <div class="mt-2 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <Label class="text-[11px]">Flow</Label>
+                <Switch
+                  :checked="!!edgeData.animated"
+                  @update:checked="(v: boolean) => updateEdgeField('animated', v)"
+                />
+              </div>
+              <template v-if="edgeData.animated">
+                <div class="flex items-center justify-between">
+                  <Label class="text-[11px]">Dots</Label>
+                  <Switch
+                    :checked="!!edgeData.dotAnimation"
+                    @update:checked="(v: boolean) => updateEdgeField('dotAnimation', v)"
                   />
                 </div>
-              </div>
-            </template>
-          </template>
-
-          <!-- Flow Order -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Flow Order</Label>
-            <div class="flex items-center gap-2 rounded-md border border-border p-2">
-              <div
-                class="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold"
-                :style="{
-                  backgroundColor: (edgeData.color || 'var(--primary)') + '20',
-                  color: edgeData.color || 'var(--primary)',
-                  border: `1.5px solid ${edgeData.color || 'var(--primary)'}`,
-                }"
-              >
-                {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) + 1 }}
-              </div>
-              <span class="text-[10px] text-muted-foreground">
-                Step {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) + 1 }} —
-                {{ (diagrams.edgeFlowLevels.get(diagrams.selectedEdgeId!) || 0) === 0 ? 'Source edge' : 'Cascades from upstream' }}
-              </span>
+                <template v-if="edgeData.dotAnimation">
+                  <!-- Direction — arrow icons -->
+                  <div class="flex gap-1">
+                    <Tooltip v-for="opt in dotDirectionOptions" :key="opt.value">
+                      <TooltipTrigger as-child>
+                        <button
+                          class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                          :class="(edgeData.dotDirection || 'forward') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                          :data-testid="'dot-direction-' + opt.value"
+                          @click="updateEdgeField('dotDirection', opt.value)"
+                        >
+                          <svg viewBox="0 0 16 12" class="h-3 w-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <template v-if="opt.value === 'forward'">
+                              <line x1="2" y1="6" x2="12" y2="6" />
+                              <polyline points="9,3 12,6 9,9" />
+                            </template>
+                            <template v-else-if="opt.value === 'reverse'">
+                              <line x1="4" y1="6" x2="14" y2="6" />
+                              <polyline points="7,3 4,6 7,9" />
+                            </template>
+                            <template v-else>
+                              <line x1="3" y1="3" x2="13" y2="9" />
+                              <line x1="13" y1="3" x2="3" y2="9" />
+                            </template>
+                          </svg>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <!-- Count — dot icons -->
+                  <div class="flex gap-1">
+                    <Tooltip v-for="n in [1, 2, 3]" :key="'dc-' + n">
+                      <TooltipTrigger as-child>
+                        <button
+                          class="flex h-7 flex-1 items-center justify-center gap-0.5 rounded-md border transition-colors"
+                          :class="(edgeData.dotCount || 1) === n ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                          @click="updateEdgeField('dotCount', n)"
+                        >
+                          <span v-for="d in n" :key="d" class="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>{{ n }} {{ n === 1 ? 'dot' : 'dots' }}</p></TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <!-- Speed — chevron icons -->
+                  <div class="flex gap-1">
+                    <Tooltip v-for="opt in dotSpeedOptions" :key="opt.value">
+                      <TooltipTrigger as-child>
+                        <button
+                          class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                          :class="(edgeData.dotSpeed || 'medium') === opt.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                          @click="updateEdgeField('dotSpeed', opt.value)"
+                        >
+                          <svg viewBox="0 0 16 12" class="h-3 w-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6,2 10,6 6,10" />
+                            <polyline v-if="opt.value === 'medium' || opt.value === 'fast'" points="10,2 14,6 10,10" />
+                            <polyline v-if="opt.value === 'fast'" points="2,2 6,6 2,10" />
+                          </svg>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>{{ opt.label }}</p></TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <!-- Dot Color -->
+                  <div class="flex flex-wrap gap-1">
+                    <Tooltip v-for="c in edgeColors" :key="'dot-' + c.value">
+                      <TooltipTrigger as-child>
+                        <button
+                          class="h-6 w-6 rounded-md border transition-all"
+                          :class="(edgeData.dotColor || '') === c.value ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : 'hover:scale-110'"
+                          :style="{ backgroundColor: c.value || 'var(--primary)', borderColor: c.value ? c.value + '60' : 'var(--border)' }"
+                          @click="updateEdgeField('dotColor', c.value)"
+                        />
+                      </TooltipTrigger>
+                      <TooltipContent side="top"><p>{{ c.label }}</p></TooltipContent>
+                    </Tooltip>
+                  </div>
+                </template>
+              </template>
             </div>
-          </div>
+          </CollapsibleContent>
+        </Collapsible>
 
-          <!-- Notes -->
-          <div class="space-y-1">
-            <Label class="text-[11px]">Notes</Label>
-            <textarea
-              :value="edgeData.notes || ''"
-              class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              rows="3"
-              placeholder="Connection notes..."
-              @input="updateEdgeField('notes', ($event.target as HTMLTextAreaElement).value)"
-            />
-          </div>
+        <Separator />
+
+        <!-- ── Flow Order ── -->
+        <Collapsible v-model:open="flowOrderOpen">
+          <TooltipProvider :delay-duration="300">
+            <Tooltip>
+              <TooltipTrigger as-child>
+                <CollapsibleTrigger class="flex w-full items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground">
+                  <ChevronRight class="h-3 w-3 shrink-0 transition-transform duration-200" :class="{ 'rotate-90': flowOrderOpen }" />
+                  <ListOrdered class="h-3.5 w-3.5" />
+                  <span class="text-[11px] font-medium">Flow Order</span>
+                </CollapsibleTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="left"><p>Sequence badge & position</p></TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <CollapsibleContent>
+            <div class="mt-2 space-y-2">
+              <div class="flex items-center gap-2 rounded-md border border-border p-2">
+                <div
+                  class="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold"
+                  :style="{
+                    backgroundColor: (edgeData.color || 'var(--primary)') + '20',
+                    color: edgeData.color || 'var(--primary)',
+                    border: `1.5px solid ${edgeData.color || 'var(--primary)'}`,
+                  }"
+                >
+                  {{ currentFlowOrder + 1 }}
+                </div>
+                <span class="flex-1 text-[10px] text-muted-foreground">
+                  Step {{ currentFlowOrder + 1 }}
+                </span>
+                <div class="flex items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-5 w-5 p-0"
+                    :disabled="currentFlowOrder <= 0"
+                    data-testid="flow-order-decrease"
+                    @click="updateEdgeField('flowOrder', currentFlowOrder - 1)"
+                  >
+                    <Minus class="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    class="h-5 w-5 p-0"
+                    data-testid="flow-order-increase"
+                    @click="updateEdgeField('flowOrder', currentFlowOrder + 1)"
+                  >
+                    <Plus class="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              <button
+                v-if="edgeData.flowOrder != null"
+                class="text-[10px] text-muted-foreground underline hover:text-foreground"
+                data-testid="flow-order-reset"
+                @click="updateEdgeField('flowOrder', undefined as any)"
+              >
+                Reset to auto
+              </button>
+              <!-- Badge Position — visual icons -->
+              <div class="flex gap-1">
+                <Tooltip v-for="pos in flowOrderPositionOptions" :key="pos.value">
+                  <TooltipTrigger as-child>
+                    <button
+                      class="flex h-7 flex-1 items-center justify-center rounded-md border transition-colors"
+                      :class="(edgeData.flowOrderPosition || 'source') === pos.value ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
+                      :data-testid="`flow-position-${pos.value}`"
+                      @click="updateEdgeField('flowOrderPosition', pos.value)"
+                    >
+                      <svg viewBox="0 0 28 12" class="h-3 w-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                        <line x1="4" y1="6" x2="24" y2="6" />
+                        <circle v-if="pos.value === 'source'" cx="6" cy="6" r="3.5" fill="currentColor" stroke="none" />
+                        <circle v-else cx="22" cy="6" r="3.5" fill="currentColor" stroke="none" />
+                      </svg>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top"><p>{{ pos.label }}</p></TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        <Separator />
+
+        <!-- Notes -->
+        <div class="space-y-1">
+          <Label class="text-[11px]">Notes</Label>
+          <textarea
+            :value="edgeData.notes || ''"
+            class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            rows="3"
+            placeholder="Connection notes..."
+            @input="updateEdgeField('notes', ($event.target as HTMLTextAreaElement).value)"
+          />
         </div>
+        </TooltipProvider>
       </div>
 
       <!-- Nothing selected -->

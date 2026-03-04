@@ -15,6 +15,7 @@ import { toast } from 'vue-sonner';
 import DiagramToolbar from './DiagramToolbar.vue';
 import NodePalette from './NodePalette.vue';
 import PropertiesPanel from './PropertiesPanel.vue';
+import LayersPanel from './LayersPanel.vue';
 import SaveDiagramDialog from './dialogs/SaveDiagramDialog.vue';
 import LoadDiagramDialog from './dialogs/LoadDiagramDialog.vue';
 import AWSServiceNode from './nodes/AWSServiceNode.vue';
@@ -54,7 +55,8 @@ function onResize() {
 }
 
 const {
-  fitView, onConnect, onNodeDragStop, onPaneClick, onNodeClick, onEdgeClick, onEdgeDoubleClick,
+  fitView, onConnect, onNodeDragStop, onPaneClick, onNodeClick, onNodeDoubleClick,
+  onEdgeClick, onEdgeDoubleClick,
   addNodes, removeNodes, addEdges, removeEdges, screenToFlowCoordinate,
   getNodes, getEdges, getSelectedNodes, setNodes, setEdges, findNode, findEdge,
   getViewport, setViewport, onNodeDragStart,
@@ -196,12 +198,6 @@ watch(
       if (node.selected !== shouldBeSelected) {
         node.selected = shouldBeSelected;
       }
-      // Prevent VueFlow from boosting group z-index on selection.
-      // Selected groups must stay at low z-index so children remain clickable.
-      if (node.type === 'aws-group' && shouldBeSelected) {
-        const depth = getNodeDepth(node.id);
-        node.zIndex = Math.max(depth * 10, 1);
-      }
     }
   },
 );
@@ -225,8 +221,8 @@ onNodeDragStop((event: NodeDragEvent) => {
   for (const node of event.nodes) {
     diagrams.updateNodePosition(node.id, node.position);
 
-    // Check if an unparented node was dropped onto a group
-    if (!node.parentNode) {
+    // Only auto-parent service nodes into groups; groups stay independent
+    if (!node.parentNode && node.type !== 'aws-group') {
       // Use absolute position from store (handles nested coordinate systems)
       const absPos = diagrams.getAbsolutePosition(node.id);
       const groupId = diagrams.findGroupAtPosition(absPos, node.id);
@@ -254,28 +250,109 @@ onPaneClick(() => {
   inlineEdgeEdit.value = null;
 });
 
-onNodeClick(({ node, event }) => {
-  // VueFlow's internal hit detection may report the wrong node when a parent group
-  // is selected — VueFlow boosts selected node z-index to ~1000, which can put the
-  // parent above its children in VueFlow's internal logic. Our CSS override
-  // (z-index: 1 !important) corrects the visual stacking, so elementsFromPoint
-  // returns the actually-visible topmost node.
-  const mouseEvent = event as MouseEvent;
-  const elements = document.elementsFromPoint(mouseEvent.clientX, mouseEvent.clientY);
+// ─── Hit-test helpers ───────────────────────────────────────────────
+// Group node DOM elements sit above edges (SVG layer) in the render tree,
+// so VueFlow fires onNodeClick for a group even when the user intended to
+// click a child service node or an edge inside the group.
+
+/** Scan elementsFromPoint for service nodes and edges (keeps looking past groups). */
+function hitTestAtPoint(clientX: number, clientY: number) {
+  const elements = document.elementsFromPoint(clientX, clientY);
+  let serviceNodeId: string | null = null;
+  let firstNodeId: string | null = null;
+  let edgeId: string | null = null;
 
   for (const el of elements) {
-    const nodeEl = (el as HTMLElement).closest?.('.vue-flow__node');
-    if (nodeEl) {
-      const id = nodeEl.getAttribute('data-id');
-      if (id) {
-        diagrams.selectNode(id);
-        return;
+    // Keep scanning for a service node even after finding a group
+    if (!serviceNodeId) {
+      const nodeEl = (el as HTMLElement).closest?.('.vue-flow__node');
+      if (nodeEl) {
+        const id = nodeEl.getAttribute('data-id');
+        if (id) {
+          if (!firstNodeId) firstNodeId = id;
+          if (!nodeEl.classList.contains('vue-flow__node-aws-group')) {
+            serviceNodeId = id;
+          }
+        }
       }
+    }
+    if (!edgeId) {
+      const edgeEl = (el as Element).closest?.('.vue-flow__edge');
+      if (edgeEl) {
+        edgeId = edgeEl.getAttribute('data-id');
+      }
+    }
+    if (serviceNodeId && edgeId) break;
+  }
+
+  return { serviceNodeId, firstNodeId, edgeId };
+}
+
+onNodeClick(({ node, event }) => {
+  const mouseEvent = event as MouseEvent;
+  const target = mouseEvent.target as HTMLElement;
+
+  // Primary: check the actual DOM event target — most reliable
+  const targetNode = target.closest?.('.vue-flow__node');
+  if (targetNode) {
+    const targetId = targetNode.getAttribute('data-id');
+    if (targetId && !targetNode.classList.contains('vue-flow__node-aws-group')) {
+      diagrams.selectNode(targetId);
+      return;
     }
   }
 
-  // Fallback to VueFlow's reported node
-  diagrams.selectNode(node.id);
+  // For group clicks, scan for service nodes and edges under the cursor
+  if (node.type === 'aws-group') {
+    const { serviceNodeId, edgeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
+    if (serviceNodeId) {
+      diagrams.selectNode(serviceNodeId);
+      return;
+    }
+    if (edgeId) {
+      diagrams.selectNode(null);
+      diagrams.selectEdge(edgeId);
+      return;
+    }
+  }
+
+  // Fallback: topmost node from elementsFromPoint, or VueFlow's reported node
+  const { firstNodeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
+  diagrams.selectNode(firstNodeId || node.id);
+});
+
+onNodeDoubleClick(({ node, event }) => {
+  const mouseEvent = event as MouseEvent;
+  const target = mouseEvent.target as HTMLElement;
+
+  // If double-clicked directly on a service node, let it handle its own dblclick
+  const targetNode = target.closest?.('.vue-flow__node');
+  if (targetNode && !targetNode.classList.contains('vue-flow__node-aws-group')) return;
+
+  // For groups, check for edges under cursor and open inline editor
+  if (node.type === 'aws-group') {
+    const { serviceNodeId, edgeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
+    if (serviceNodeId) return;
+    if (edgeId) {
+      const container = flowContainer.value;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const edge = findEdge(edgeId);
+      inlineEdgeEdit.value = {
+        edgeId,
+        x: mouseEvent.clientX - rect.left,
+        y: mouseEvent.clientY - rect.top,
+        label: (edge?.data as any)?.label || '',
+      };
+      diagrams.selectNode(null);
+      diagrams.selectEdge(edgeId);
+      nextTick(() => {
+        const input = container.querySelector('.inline-edge-input') as HTMLInputElement;
+        input?.focus();
+        input?.select();
+      });
+    }
+  }
 });
 
 onEdgeClick(({ edge }) => {
@@ -331,10 +408,12 @@ function onDrop(event: DragEvent) {
     return;
   }
 
-  // Check if dropped onto a group container (both services AND groups)
-  const groupId = diagrams.findGroupAtPosition(position, nodeId);
-  if (groupId) {
-    diagrams.setNodeParent(nodeId, groupId);
+  // Only auto-parent service nodes into groups; groups stay independent
+  if (type === 'service') {
+    const groupId = diagrams.findGroupAtPosition(position, nodeId);
+    if (groupId) {
+      diagrams.setNodeParent(nodeId, groupId);
+    }
   }
 
   const node = diagrams.nodes.find(n => n.id === nodeId);
@@ -349,6 +428,19 @@ function onDrop(event: DragEvent) {
 function onKeyDown(event: KeyboardEvent) {
   const tag = (event.target as HTMLElement).tagName;
   const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+  // Ctrl+Z: Undo
+  if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey && !isInput) {
+    event.preventDefault();
+    diagrams.undo();
+    return;
+  }
+  // Ctrl+Shift+Z / Ctrl+Y: Redo
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.shiftKey && event.key === 'z' || event.shiftKey && event.key === 'Z')) && !isInput) {
+    event.preventDefault();
+    diagrams.redo();
+    return;
+  }
 
   // Ctrl+A / Cmd+A: select all nodes
   if ((event.ctrlKey || event.metaKey) && event.key === 'a' && !isInput) {
@@ -529,10 +621,18 @@ function exportSvg() {
   <div data-testid="diagram-editor" class="flex h-full flex-col">
     <!-- Desktop layout -->
     <ResizablePanelGroup v-if="!isMobile" direction="horizontal" class="flex-1">
-      <!-- Left sidebar: Palette -->
+      <!-- Left sidebar: Palette + Layers -->
       <ResizablePanel :default-size="14" :min-size="10" :max-size="22">
         <div class="flex h-full flex-col border-r border-border">
-          <NodePalette />
+          <ResizablePanelGroup direction="vertical">
+            <ResizablePanel :default-size="60" :min-size="20">
+              <NodePalette />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel :default-size="40" :min-size="15">
+              <LayersPanel />
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </div>
       </ResizablePanel>
 
@@ -579,6 +679,7 @@ function exportSvg() {
               :delete-key-code="null"
               :connection-radius="60"
               :connect-on-click="true"
+              :elevate-nodes-on-select="false"
               class="diagram-canvas"
             >
               <template #node-aws-service="nodeProps"><AWSServiceNode v-bind="nodeProps" :hovered-group-id="hoveredGroupId" /></template>
@@ -658,6 +759,7 @@ function exportSvg() {
             :delete-key-code="null"
             :connection-radius="60"
             :connect-on-click="true"
+            :elevate-nodes-on-select="false"
             class="diagram-canvas"
           >
             <template #node-aws-service="nodeProps"><AWSServiceNode v-bind="nodeProps" :hovered-group-id="hoveredGroupId" /></template>
@@ -794,6 +896,18 @@ function exportSvg() {
   pointer-events: none;
 }
 
+/* ─── Group nodes: let pointer events pass through to child service nodes ─── */
+/* Without this, the group wrapper intercepts mousedown and prevents dragging child nodes */
+.diagram-canvas .vue-flow__node-aws-group {
+  pointer-events: none;
+}
+.diagram-canvas .vue-flow__node-aws-group .vue-flow__handle {
+  pointer-events: auto;
+}
+.diagram-canvas .vue-flow__node-aws-group [class*="resize"] {
+  pointer-events: auto;
+}
+
 /* ─── Handles: larger hit area for easier connection dragging ─── */
 .diagram-canvas .vue-flow__handle {
   width: 10px;
@@ -813,11 +927,6 @@ function exportSvg() {
   width: 14px;
   height: 14px;
   transition: width 0.15s, height 0.15s;
-}
-
-/* ─── Group nodes: keep z-index low so children stay clickable ─── */
-.diagram-canvas .vue-flow__node-aws-group.selected {
-  z-index: 1 !important;
 }
 
 /* ─── Animated edge flow ─── */

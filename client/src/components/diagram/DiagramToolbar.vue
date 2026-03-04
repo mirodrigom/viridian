@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   Save, FolderOpen, FilePlus, Maximize2, Download, ImageDown, FileJson, FileType, Grid3x3, MousePointerSquareDashed,
-  Minimize2, Maximize, Film,
+  Minimize2, Maximize, Film, Undo2, Redo2,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -60,6 +60,41 @@ const exportTools = [
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ tool.label }}</TooltipContent>
+      </Tooltip>
+
+      <!-- Separator -->
+      <div class="mx-1 h-4 w-px bg-border" />
+
+      <!-- Undo / Redo -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            data-testid="toolbar-undo"
+            :disabled="!diagrams.canUndo"
+            @click="diagrams.undo()"
+          >
+            <Undo2 class="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            data-testid="toolbar-redo"
+            :disabled="!diagrams.canRedo"
+            @click="diagrams.redo()"
+          >
+            <Redo2 class="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
       </Tooltip>
 
       <!-- Separator -->
