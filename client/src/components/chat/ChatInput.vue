@@ -11,18 +11,26 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from '@/components/ui/select';
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import {
   Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
   ChevronsDown, ChevronsUpDown, FileDown, Sparkles, Bug, Eye, Wrench,
-  FileCode, TestTube, Cpu,
+  FileCode, TestTube, Cpu, Paperclip, Plus, Pencil, Trash2, Settings2,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
 import { exportSession } from '@/composables/useKeyboardShortcuts';
+import { useProviderLogo } from '@/composables/useProviderLogo';
 
 const MAX_IMAGES = 5;
+const MAX_FILES = 5;
+const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html'];
 
 const chat = useChatStore();
 const settings = useSettingsStore();
 const providerStore = useProviderStore();
+const { activeLogo, getLogoComponent } = useProviderLogo();
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const imageInput = ref<HTMLInputElement | null>(null);
@@ -31,6 +39,8 @@ const mentionedFiles = ref<string[]>([]);
 const fileSuggestions = ref<string[]>([]);
 const selectedFileIndex = ref(0);
 const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]);
+const attachedFiles = ref<{ name: string; content: string; type: string; size: number }[]>([]);
+const fileInput = ref<HTMLInputElement | null>(null);
 const isDragging = ref(false);
 let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -331,6 +341,59 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
+// Template management dialog
+const showTemplateDialog = ref(false);
+const editingTemplate = ref<MessageTemplate | null>(null);
+const templateForm = ref({ name: '', text: '', category: '' });
+
+const customTemplates = computed(() => getCustomTemplates());
+
+function openNewTemplate() {
+  editingTemplate.value = null;
+  templateForm.value = { name: '', text: '', category: 'Custom' };
+  showTemplateMenu.value = false;
+  showTemplateDialog.value = true;
+}
+
+function openEditTemplate(template: MessageTemplate) {
+  editingTemplate.value = template;
+  templateForm.value = { name: template.name, text: template.text, category: template.category };
+  showTemplateMenu.value = false;
+  showTemplateDialog.value = true;
+}
+
+function saveTemplate() {
+  const { name, text, category } = templateForm.value;
+  if (!name.trim() || !text.trim()) return;
+
+  const customs = getCustomTemplates();
+  if (editingTemplate.value) {
+    const idx = customs.findIndex(t => t.id === editingTemplate.value!.id);
+    if (idx >= 0) {
+      customs[idx] = { ...customs[idx]!, name: name.trim(), text: text.trim(), category: category.trim() || 'Custom' };
+    }
+  } else {
+    customs.push({
+      id: `custom-${Date.now()}`,
+      name: name.trim(),
+      text: text.trim(),
+      category: category.trim() || 'Custom',
+      icon: Sparkles,
+    });
+  }
+  saveCustomTemplates(customs);
+  showTemplateDialog.value = false;
+}
+
+function deleteTemplate(id: string) {
+  const customs = getCustomTemplates().filter(t => t.id !== id);
+  saveCustomTemplates(customs);
+}
+
+function isCustomTemplate(template: MessageTemplate) {
+  return template.id.startsWith('custom-');
+}
+
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
 });
@@ -587,6 +650,46 @@ function removeImage(idx: number) {
   attachedImages.value.splice(idx, 1);
 }
 
+// Document (PDF/HTML) attachment functions
+function addDocumentFiles(files: FileList | File[]) {
+  const remaining = MAX_FILES - attachedFiles.value.length;
+  const toProcess = Array.from(files)
+    .filter(f => ACCEPTED_FILE_TYPES.includes(f.type) || f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.pdf'))
+    .slice(0, remaining);
+
+  for (const file of toProcess) {
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      // Read PDF as base64 data URL
+      const reader = new FileReader();
+      reader.onload = () => {
+        attachedFiles.value.push({
+          name: file.name,
+          content: reader.result as string,
+          type: 'pdf',
+          size: file.size,
+        });
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Read HTML as text
+      const reader = new FileReader();
+      reader.onload = () => {
+        attachedFiles.value.push({
+          name: file.name,
+          content: reader.result as string,
+          type: 'html',
+          size: file.size,
+        });
+      };
+      reader.readAsText(file);
+    }
+  }
+}
+
+function removeFile(idx: number) {
+  attachedFiles.value.splice(idx, 1);
+}
+
 function handleDragOver(e: DragEvent) {
   e.preventDefault();
   isDragging.value = true;
@@ -599,22 +702,41 @@ function handleDragLeave() {
 function handleDrop(e: DragEvent) {
   e.preventDefault();
   isDragging.value = false;
-  if (e.dataTransfer?.files) addImageFiles(e.dataTransfer.files);
+  if (e.dataTransfer?.files) {
+    const files = e.dataTransfer.files;
+    // Separate images from documents
+    const imageFiles: File[] = [];
+    const docFiles: File[] = [];
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        imageFiles.push(file);
+      } else if (ACCEPTED_FILE_TYPES.includes(file.type) || file.name.endsWith('.html') || file.name.endsWith('.htm') || file.name.endsWith('.pdf')) {
+        docFiles.push(file);
+      }
+    }
+    if (imageFiles.length) addImageFiles(imageFiles);
+    if (docFiles.length) addDocumentFiles(docFiles);
+  }
 }
 
 function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items;
   if (!items) return;
   const imageFiles: File[] = [];
+  const docFiles: File[] = [];
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile();
       if (file) imageFiles.push(file);
+    } else if (ACCEPTED_FILE_TYPES.includes(item.type)) {
+      const file = item.getAsFile();
+      if (file) docFiles.push(file);
     }
   }
-  if (imageFiles.length) {
+  if (imageFiles.length || docFiles.length) {
     e.preventDefault();
-    addImageFiles(imageFiles);
+    if (imageFiles.length) addImageFiles(imageFiles);
+    if (docFiles.length) addDocumentFiles(docFiles);
   }
 }
 
@@ -678,10 +800,35 @@ function handleSubmit() {
     message = `[Context files: ${fileList}]\n\n${trimmed}`;
     mentionedFiles.value = [];
   }
+
+  // Prepend attached document contents as context
+  if (attachedFiles.value.length > 0) {
+    const fileContextParts: string[] = [];
+    const pdfDataUrls: { name: string; dataUrl: string }[] = [];
+    for (const file of attachedFiles.value) {
+      if (file.type === 'html') {
+        fileContextParts.push(`--- Attached HTML file: ${file.name} ---\n${file.content}\n--- End of ${file.name} ---`);
+      } else if (file.type === 'pdf') {
+        // PDF files: send as image-like attachments (base64 data URLs) so the server can save them as temp files
+        pdfDataUrls.push({ name: file.name, dataUrl: file.content });
+      }
+    }
+    if (fileContextParts.length > 0) {
+      message = fileContextParts.join('\n\n') + '\n\n' + message;
+    }
+    // Add PDF data URLs to images array so they get sent to the server the same way
+    if (pdfDataUrls.length > 0) {
+      for (const pdf of pdfDataUrls) {
+        attachedImages.value.push({ name: pdf.name, dataUrl: pdf.dataUrl, size: 0 });
+      }
+    }
+  }
+
   const images = attachedImages.value.length > 0 ? [...attachedImages.value] : undefined;
   emit('send', message, images);
   input.value = '';
   attachedImages.value = [];
+  attachedFiles.value = [];
   nextTick(() => autoResize());
 }
 
@@ -824,6 +971,36 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
     <!-- Status bar: model, permission, context -->
     <TooltipProvider :delay-duration="300">
       <div class="mb-1 sm:mb-2 flex flex-wrap items-center justify-center gap-0.5 sm:gap-1 md:gap-2">
+        <!-- Provider selector (only shown when multiple configured providers are available) -->
+        <Select
+          v-if="providerStore.configuredProviders.length > 1"
+          :model-value="providerStore.activeProviderId"
+          @update:model-value="(v: any) => providerStore.setDefaultProvider(v)"
+        >
+          <SelectTrigger
+            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
+            :title="`Provider: ${providerStore.activeProvider.name}`"
+          >
+            <component :is="activeLogo" class="h-3 w-3" />
+            <span class="hidden sm:inline">{{ providerStore.activeProvider.name }}</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="p in providerStore.configuredProviders"
+              :key="p.id"
+              :value="p.id"
+            >
+              <div class="flex items-center gap-2">
+                <component :is="getLogoComponent(p.icon)" :size="14" class="shrink-0" />
+                <div>
+                  <div class="text-sm">{{ p.name }}</div>
+                  <div class="text-xs text-muted-foreground">{{ p.description }}</div>
+                </div>
+              </div>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
         <!-- Model selector -->
         <Select :model-value="settings.model" :disabled="!providerStore.supportsModelSelection" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
           <SelectTrigger
@@ -1005,32 +1182,85 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         <div class="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
           {{ category }}
         </div>
-        <button
+        <div
           v-for="(template, idx) in templates"
           :key="template.id"
-          class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors"
+          class="group flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors"
           :class="Object.values(templateCategories).flat().indexOf(template) === selectedTemplateIndex
             ? 'bg-accent text-foreground'
             : 'text-muted-foreground hover:bg-accent/50'"
           @mouseenter="selectedTemplateIndex = Object.values(templateCategories).flat().indexOf(template)"
-          @click="insertTemplate(template)"
         >
-          <component :is="template.icon" class="h-4 w-4 shrink-0 text-primary" />
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-medium text-xs">{{ template.name }}</span>
-              <span v-if="template.shortcut" class="ml-auto font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                {{ template.shortcut }}
-              </span>
+          <button class="flex flex-1 items-center gap-3 min-w-0" @click="insertTemplate(template)">
+            <component :is="template.icon" class="h-4 w-4 shrink-0 text-primary" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-xs">{{ template.name }}</span>
+                <span v-if="template.shortcut" class="ml-auto font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  {{ template.shortcut }}
+                </span>
+              </div>
+              <div class="text-xs text-muted-foreground truncate mt-0.5">
+                {{ template.text }}
+              </div>
             </div>
-            <div class="text-xs text-muted-foreground truncate mt-0.5">
-              {{ template.text }}
-            </div>
+          </button>
+          <div v-if="isCustomTemplate(template)" class="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="rounded p-1 hover:bg-muted" title="Edit" @click.stop="openEditTemplate(template)">
+              <Pencil class="h-3 w-3" />
+            </button>
+            <button class="rounded p-1 hover:bg-destructive/20 hover:text-destructive" title="Delete" @click.stop="deleteTemplate(template.id)">
+              <Trash2 class="h-3 w-3" />
+            </button>
           </div>
-        </button>
+        </div>
       </div>
+      <button
+        class="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-primary hover:bg-accent/50 transition-colors"
+        @click="openNewTemplate"
+      >
+        <Plus class="h-3.5 w-3.5" />
+        New Template
+      </button>
     </div>
     </Transition>
+
+    <!-- Template management dialog -->
+    <Dialog v-model:open="showTemplateDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{{ editingTemplate ? 'Edit Template' : 'New Template' }}</DialogTitle>
+          <DialogDescription>
+            {{ editingTemplate ? 'Modify your custom prompt template.' : 'Create a reusable prompt template.' }}
+          </DialogDescription>
+        </DialogHeader>
+        <form class="space-y-3" @submit.prevent="saveTemplate">
+          <div>
+            <label class="text-xs font-medium text-muted-foreground">Name</label>
+            <Input v-model="templateForm.name" placeholder="e.g. API Endpoint" class="mt-1" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-muted-foreground">Category</label>
+            <Input v-model="templateForm.category" placeholder="e.g. Custom" class="mt-1" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-muted-foreground">Prompt text</label>
+            <textarea
+              v-model="templateForm.text"
+              placeholder="e.g. Create a REST API endpoint that..."
+              class="mt-1 block w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              rows="3"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" @click="showTemplateDialog = false">Cancel</Button>
+            <Button type="submit" :disabled="!templateForm.name.trim() || !templateForm.text.trim()">
+              {{ editingTemplate ? 'Save' : 'Create' }}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
 
     <!-- Mentioned files badges -->
     <TransitionGroup
@@ -1068,6 +1298,26 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       </div>
     </div>
 
+    <!-- Document file previews -->
+    <div v-if="attachedFiles.length > 0" class="mb-1.5 flex flex-wrap gap-1.5">
+      <div
+        v-for="(file, idx) in attachedFiles"
+        :key="'file-' + idx"
+        class="group relative inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5"
+      >
+        <FileText v-if="file.type === 'pdf'" class="h-4 w-4 shrink-0 text-red-500" />
+        <FileCode v-else class="h-4 w-4 shrink-0 text-orange-500" />
+        <span class="max-w-32 truncate text-xs font-medium text-foreground">{{ file.name }}</span>
+        <span class="text-[10px] text-muted-foreground">({{ (file.size / 1024).toFixed(0) }}KB)</span>
+        <button
+          class="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          @click="removeFile(idx)"
+        >
+          <X class="h-2.5 w-2.5" />
+        </button>
+      </div>
+    </div>
+
     <!-- Text input -->
     <div
       class="relative rounded-xl border shadow-sm transition-colors"
@@ -1081,7 +1331,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       @drop="handleDrop"
     >
       <div v-if="isDragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-primary/5">
-        <span class="text-xs font-medium text-primary">Drop images here</span>
+        <span class="text-xs font-medium text-primary">Drop images, PDFs, or HTML files here</span>
       </div>
       <textarea
         ref="textarea"
@@ -1109,6 +1359,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
         @paste="handlePaste"
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
+      <input ref="fileInput" type="file" accept=".pdf,.html,.htm,application/pdf,text/html" multiple class="hidden" @change="(e: Event) => addDocumentFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-3 flex items-center gap-1">
         <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" class="hidden sm:block" @transcript="handleVoiceTranscript" />
         <Button
@@ -1121,6 +1372,16 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           @click.stop="showTemplateMenu = !showTemplateMenu; selectedTemplateIndex = 0;"
         >
           <Sparkles class="h-4 w-4" />
+        </Button>
+        <Button
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedFiles.length < MAX_FILES"
+          variant="ghost"
+          size="sm"
+          class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
+          title="Attach PDF or HTML file"
+          @click="fileInput?.click()"
+        >
+          <Paperclip class="h-4 w-4" />
         </Button>
         <Button
           v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedImages.length < MAX_IMAGES"
@@ -1136,7 +1397,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
           v-if="!(chat?.isStreaming ?? false)"
           size="sm"
           class="h-8 w-8 rounded-lg p-0"
-          :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0)"
+          :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-4 w-4" />

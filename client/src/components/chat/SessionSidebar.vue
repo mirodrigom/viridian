@@ -238,6 +238,9 @@ function loadMore() {
 // Real-time session updates via WebSocket
 let sessionsWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let wsReconnectAttempts = 0;
+const WS_BASE_DELAY = 1000;
+const WS_MAX_DELAY = 30_000;
 
 function connectSessionsWs() {
   if (!auth.token) return;
@@ -246,6 +249,7 @@ function connectSessionsWs() {
   sessionsWs = new WebSocket(url);
 
   sessionsWs.onopen = () => {
+    wsReconnectAttempts = 0;
     // Re-fetch sessions on (re)connect — catches data missed during server restarts
     fetchSessions();
   };
@@ -278,7 +282,9 @@ function connectSessionsWs() {
 
   sessionsWs.onclose = () => {
     sessionsWs = null;
-    reconnectTimer = setTimeout(connectSessionsWs, 5000);
+    const delay = Math.min(WS_BASE_DELAY * 2 ** wsReconnectAttempts, WS_MAX_DELAY);
+    wsReconnectAttempts++;
+    reconnectTimer = setTimeout(connectSessionsWs, delay);
   };
 
   sessionsWs.onerror = () => {

@@ -171,6 +171,30 @@ export async function searchFiles(rootPath: string, query: string, limit = 20): 
   return results;
 }
 
+export async function createFile(rootPath: string, filePath: string): Promise<void> {
+  if (!filePath || filePath.includes('..')) {
+    throw new Error('Invalid file path');
+  }
+  const fullPath = join(rootPath, filePath);
+  if (!fullPath.startsWith(rootPath)) {
+    throw new Error('Access denied: path traversal detected');
+  }
+  // Check if file already exists
+  try {
+    await stat(fullPath);
+    throw new Error('File already exists');
+  } catch (err: any) {
+    if (err.message === 'File already exists') throw err;
+    // ENOENT means file doesn't exist — that's what we want
+  }
+  // Ensure parent directory exists
+  const parentDir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+  if (parentDir && parentDir !== rootPath) {
+    await mkdir(parentDir, { recursive: true });
+  }
+  await writeFile(fullPath, '', 'utf-8');
+}
+
 export async function createDirectory(parentPath: string, name: string): Promise<string> {
   if (!name || /[/\\]/.test(name)) {
     throw new Error('Invalid folder name');

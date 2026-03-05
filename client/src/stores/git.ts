@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner';
 import { apiFetch } from '@/lib/apiFetch';
 import { useChatStore } from './chat';
 import { useFilesStore } from './files';
+import { useProviderStore } from './provider';
 
 interface GitFileStatus {
   path: string;
@@ -335,11 +336,12 @@ export const useGitStore = defineStore('git', () => {
     if (!cwd()) return;
     generatingMessage.value = true;
     commitMessage.value = '';
+    const providerStore = useProviderStore();
     try {
       const res = await apiFetch('/api/git/generate-commit-message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd: cwd() }),
+        body: JSON.stringify({ cwd: cwd(), providerId: providerStore.activeProviderId }),
       });
 
       if (!res.ok) {

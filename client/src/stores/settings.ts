@@ -5,7 +5,6 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 /** @deprecated Use provider store's activeModels instead. Kept for backward compatibility. */
 export type ClaudeModel = string;
 export type ThinkingMode = 'standard' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
-
 /** @deprecated Use provider store's activeModels instead. Static fallback for Claude. */
 export const MODEL_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Fast and capable — best balance of speed and quality' },

@@ -3,6 +3,7 @@ import { useChatMessages, type ChatMessage } from '../composables/useChatMessage
 import { useChatSession } from '../composables/useChatSession';
 import { useChatPagination } from '../composables/useChatPagination';
 import { useChatUI } from '../composables/useChatUI';
+import { apiFetch } from '../lib/apiFetch';
 
 // Re-export types for external consumers
 export type { ToolUseInfo, ChatMessage } from '../composables/useChatMessages';
@@ -62,6 +63,45 @@ export const useChatStore = defineStore('chat', () => {
     ui.restorePlanModeFromMessages(messages.messages.value);
   }
 
+  /**
+   * Fork the current session up to (not including) the message with forkBeforeId,
+   * then truncate the local message list to show only the kept history.
+   * Returns the new session ID so the caller can send an edited message.
+   */
+  async function forkSession(forkBeforeId: string): Promise<string | null> {
+    const projectDir = session.activeProjectDir.value;
+    const currentSessionId = session.claudeSessionId.value;
+    if (!projectDir || !currentSessionId) return null;
+
+    try {
+      const res = await apiFetch(`/api/sessions/${currentSessionId}/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectDir, forkBeforeUuid: forkBeforeId }),
+      });
+      if (!res.ok) {
+        console.error('[forkSession] server error', await res.text());
+        return null;
+      }
+      const data = await res.json() as { newSessionId: string };
+
+      // Truncate local messages to everything before the target message
+      const cutoffIdx = messages.messages.value.findIndex(m => m.id === forkBeforeId);
+      if (cutoffIdx >= 0) {
+        messages.messages.value = messages.messages.value.slice(0, cutoffIdx);
+      }
+
+      // Switch to the new session (caller is responsible for URL update if needed)
+      session.claudeSessionId.value = data.newSessionId;
+      session.sessionId.value = null; // will be assigned by the server on first send
+
+      return data.newSessionId;
+    } catch (err) {
+      console.error('[forkSession] error:', err);
+      return null;
+    }
+  }
+
   return {
     // Messages composable
     ...messages,
@@ -82,5 +122,6 @@ export const useChatStore = defineStore('chat', () => {
     loadMessages,
     prependMessages,
     appendMessages,
+    forkSession,
   };
 });

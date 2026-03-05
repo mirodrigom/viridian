@@ -1,112 +1,101 @@
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed } from 'vue';
+import { ref, watch, onUnmounted, computed, nextTick, shallowRef } from 'vue';
 import { useFilesStore, type DiffData } from '@/stores/files';
 import { useSettingsStore } from '@/stores/settings';
-import { MergeView } from '@codemirror/merge';
-import { EditorView, lineNumbers } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language';
-import { javascript } from '@codemirror/lang-javascript';
-import { python } from '@codemirror/lang-python';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
-import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-vue-next';
 
 const files = useFilesStore();
 const settings = useSettingsStore();
 const container = ref<HTMLElement | null>(null);
-let mergeView: MergeView | null = null;
+const diffEditor = shallowRef<any>(null);
+const monacoModule = shallowRef<any>(null);
+const isLoading = ref(true);
 
 const diffData = computed(() => files.diffData);
 const fileName = computed(() => diffData.value?.path.split('/').pop() || '');
 
-function getLanguageExtension(lang: string) {
-  switch (lang) {
-    case 'typescript': return javascript({ typescript: true, jsx: true });
-    case 'javascript': return javascript({ jsx: true });
-    case 'python': return python();
-    case 'html': case 'vue': case 'svelte': case 'astro': return html();
-    case 'css': case 'scss': return css();
-    case 'json': return json();
-    case 'markdown': return markdown();
-    default: return [];
-  }
+const LANG_MAP: Record<string, string> = {
+  typescript: 'typescript',
+  javascript: 'javascript',
+  python: 'python',
+  html: 'html',
+  vue: 'html',
+  svelte: 'html',
+  astro: 'html',
+  css: 'css',
+  scss: 'scss',
+  json: 'json',
+  markdown: 'markdown',
+  yaml: 'yaml',
+  xml: 'xml',
+  sql: 'sql',
+  rust: 'rust',
+  go: 'go',
+  java: 'java',
+  shell: 'shell',
+  bash: 'shell',
+  dockerfile: 'dockerfile',
+};
+
+async function ensureMonaco() {
+  if (monacoModule.value) return monacoModule.value;
+  const monaco = await import('monaco-editor');
+  monacoModule.value = monaco;
+  isLoading.value = false;
+  return monaco;
 }
 
-function createMergeView(data: DiffData) {
-  if (mergeView) {
-    mergeView.destroy();
-    mergeView = null;
+async function createDiffView(data: DiffData) {
+  if (diffEditor.value) {
+    diffEditor.value.dispose();
+    diffEditor.value = null;
   }
   if (!container.value) return;
 
-  const isDark = settings.darkMode;
+  const monaco = await ensureMonaco();
+  const lang = LANG_MAP[data.language] || 'plaintext';
 
-  const diffTheme = EditorView.theme({
-    '&': {
-      backgroundColor: 'var(--background)',
-      color: 'var(--foreground)',
-    },
-    '.cm-gutters': {
-      backgroundColor: isDark ? 'var(--background)' : 'var(--muted)',
-      color: 'var(--muted-foreground)',
-      borderRight: '1px solid var(--border)',
-    },
-    '.cm-activeLine': {
-      backgroundColor: 'var(--accent)',
-    },
-    '.cm-activeLineGutter': {
-      backgroundColor: 'var(--accent)',
-    },
-    '.cm-cursor, .cm-dropCursor': {
-      borderLeftColor: isDark ? '#528bff' : 'var(--foreground)',
-    },
-    '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-      backgroundColor: isDark ? '#3E4451' : 'var(--accent)',
-    },
-  }, { dark: isDark });
-
-  const sharedExtensions = [
-    lineNumbers(),
-    bracketMatching(),
-    getLanguageExtension(data.language),
-    diffTheme,
-    isDark
-      ? syntaxHighlighting(oneDarkHighlightStyle, { fallback: true })
-      : syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    EditorState.readOnly.of(true),
-    EditorView.theme({
-      '&': { height: '100%', fontSize: `${settings.editorFontSize}px` },
-      '.cm-scroller': { overflow: 'auto' },
-      '.cm-content': { fontFamily: "'JetBrains Mono', 'Fira Code', monospace" },
-      '.cm-gutters': { fontSize: `${settings.editorFontSize}px` },
-    }),
-  ];
-
-  mergeView = new MergeView({
-    a: { doc: data.original, extensions: sharedExtensions },
-    b: { doc: data.modified, extensions: sharedExtensions },
-    parent: container.value,
-    collapseUnchanged: { margin: 3, minSize: 4 },
+  const editor = monaco.editor.createDiffEditor(container.value, {
+    theme: settings.darkMode ? 'vs-dark' : 'vs',
+    fontSize: settings.editorFontSize,
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    readOnly: true,
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    renderSideBySide: true,
+    enableSplitViewResizing: true,
+    padding: { top: 4 },
+    minimap: { enabled: false },
   });
+
+  const originalModel = monaco.editor.createModel(data.original, lang);
+  const modifiedModel = monaco.editor.createModel(data.modified, lang);
+
+  editor.setModel({ original: originalModel, modified: modifiedModel });
+  diffEditor.value = editor;
 }
 
 watch(diffData, (data) => {
   if (data) {
-    // Need to wait for DOM
-    requestAnimationFrame(() => createMergeView(data));
-  } else if (mergeView) {
-    mergeView.destroy();
-    mergeView = null;
+    nextTick(() => createDiffView(data));
+  } else if (diffEditor.value) {
+    diffEditor.value.dispose();
+    diffEditor.value = null;
   }
 }, { immediate: true });
 
+watch(
+  () => [settings.darkMode, settings.editorFontSize],
+  () => {
+    if (diffData.value) {
+      nextTick(() => createDiffView(diffData.value!));
+    }
+  },
+);
+
 onUnmounted(() => {
-  mergeView?.destroy();
+  diffEditor.value?.dispose();
 });
 </script>
 
@@ -124,6 +113,9 @@ onUnmounted(() => {
           <X class="h-3.5 w-3.5" />
         </Button>
       </div>
+    </div>
+    <div v-if="isLoading && diffData" class="flex flex-1 items-center justify-center text-muted-foreground">
+      <p class="text-sm">Loading diff editor...</p>
     </div>
     <div ref="container" class="flex-1 overflow-hidden" />
   </div>

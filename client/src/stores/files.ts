@@ -140,6 +140,38 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
+  async function createFile(filePath: string) {
+    try {
+      const res = await apiFetch('/api/files/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root: rootPath.value, path: filePath }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to create file');
+        return false;
+      }
+      const data = await res.json();
+      // Open the newly created file in the editor
+      openFiles.value.push({
+        path: filePath,
+        name: filePath.split('/').pop() || filePath,
+        content: '',
+        language: data.language || 'plaintext',
+        modified: false,
+      });
+      activeFile.value = filePath;
+      // Refresh the file tree so the explorer sidebar shows the new file
+      await fetchTree(rootPath.value);
+      return true;
+    } catch (err) {
+      toast.error('Failed to create file');
+      console.error('createFile error:', err);
+      return false;
+    }
+  }
+
   function closeFile(filePath: string) {
     const idx = openFiles.value.findIndex(f => f.path === filePath);
     if (idx === -1) return;
@@ -167,6 +199,6 @@ export const useFilesStore = defineStore('files', () => {
 
   return {
     tree, rootPath, openFiles, activeFile, loading, diffData,
-    fetchTree, expandFolder, openFile, saveFile, closeFile, updateFileContent, openDiff, closeDiff,
+    fetchTree, expandFolder, openFile, createFile, saveFile, closeFile, updateFileContent, openDiff, closeDiff,
   };
 });

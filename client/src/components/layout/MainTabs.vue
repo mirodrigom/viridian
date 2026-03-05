@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
+import { ref, watch, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
-import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network } from 'lucide-vue-next';
+import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network, BookOpen } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
-import EditorView from '@/components/editor/EditorView.vue';
 import DiffEditorView from '@/components/editor/DiffEditorView.vue';
 import GitView from '@/components/git/GitView.vue';
-import TaskBoard from '@/components/tasks/TaskBoard.vue';
-import GraphEditor from '@/components/graph/GraphEditor.vue';
-import AutopilotView from '@/components/autopilot/AutopilotView.vue';
-import ManagementView from '@/components/management/ManagementView.vue';
-import DiagramEditor from '@/components/diagram/DiagramEditor.vue';
 import FileSidebar from '@/components/layout/FileSidebar.vue';
+const MonacoEditor = defineAsyncComponent(() => import('@/components/editor/MonacoEditor.vue'));
+const TaskBoard = defineAsyncComponent(() => import('@/components/tasks/TaskBoard.vue'));
+const GraphEditor = defineAsyncComponent(() => import('@/components/graph/GraphEditor.vue'));
+const AutopilotView = defineAsyncComponent(() => import('@/components/autopilot/AutopilotView.vue'));
+const ManagementView = defineAsyncComponent(() => import('@/components/management/ManagementView.vue'));
+const DiagramEditor = defineAsyncComponent(() => import('@/components/diagram/DiagramEditor.vue'));
+const ManualsView = defineAsyncComponent(() => import('@/components/manuals/ManualsView.vue'));
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -28,6 +29,7 @@ import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useManagementStore } from '@/stores/management';
 import { useDiagramsStore } from '@/stores/diagrams';
+import { useManualsStore } from '@/stores/manuals';
 
 // Mobile responsive
 const isMobile = ref(false);
@@ -48,6 +50,7 @@ onUnmounted(() => {
 });
 
 const activeTab = defineModel<string>('activeTab', { default: 'chat' });
+const props = defineProps<{ splitView?: boolean }>();
 const files = useFilesStore();
 const chat = useChatStore();
 const git = useGitStore();
@@ -56,6 +59,7 @@ const graphStore = useGraphStore();
 const autopilot = useAutopilotStore();
 const managementStore = useManagementStore();
 const diagramsStore = useDiagramsStore();
+const manualsStore = useManualsStore();
 
 // Auto-switch to editor when a file is opened or diff is opened
 watch(() => files.activeFile, (val) => {
@@ -79,6 +83,7 @@ const tabs = [
   { value: 'graph', label: 'Graph', icon: Workflow },
   { value: 'autopilot', label: 'Autopilot', icon: Bot },
   { value: 'diagrams', label: 'Diagrams', icon: Network },
+  { value: 'manuals', label: 'Manuals', icon: BookOpen },
 ] as const;
 
 function badgeFor(tab: string): number | null {
@@ -88,6 +93,7 @@ function badgeFor(tab: string): number | null {
   if (tab === 'graph' && graphStore.nodeCount > 0) return graphStore.nodeCount;
   if (tab === 'management' && managementStore.runningCount > 0) return managementStore.runningCount;
   if (tab === 'diagrams' && diagramsStore.nodeCount > 0) return diagramsStore.nodeCount;
+  if (tab === 'manuals' && manualsStore.manualCount > 0) return manualsStore.manualCount;
   return null;
 }
 </script>
@@ -139,7 +145,28 @@ function badgeFor(tab: string): number | null {
     </div>
 
     <TabsContent value="chat" class="mt-0 flex-1 overflow-hidden">
-      <ChatView />
+      <!-- Split view: chat + editor side-by-side -->
+      <template v-if="props.splitView && !isMobile">
+        <ResizablePanelGroup direction="horizontal">
+          <ResizablePanel :default-size="50" :min-size="25">
+            <ChatView />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel :default-size="50" :min-size="25">
+            <div class="flex h-full min-h-0 flex-col">
+              <DiffEditorView v-if="files.diffData" />
+              <template v-else>
+                <EditorTabs />
+                <MonacoEditor v-if="files.openFiles.length > 0" class="min-h-0 flex-1" />
+                <div v-else class="flex flex-1 items-center justify-center text-muted-foreground">
+                  <p class="text-sm">Open a file to see it here</p>
+                </div>
+              </template>
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </template>
+      <ChatView v-else />
     </TabsContent>
     <TabsContent value="editor" class="mt-0 flex-1 overflow-hidden">
       <!-- Desktop: side-by-side file sidebar + editor -->
@@ -153,7 +180,7 @@ function badgeFor(tab: string): number | null {
             <DiffEditorView v-if="files.diffData" />
             <div v-else class="flex h-full min-h-0 flex-col">
               <EditorTabs />
-              <EditorView class="min-h-0 flex-1" />
+              <MonacoEditor class="min-h-0 flex-1" />
             </div>
           </ResizablePanel>
         </ResizablePanelGroup>
@@ -174,12 +201,12 @@ function badgeFor(tab: string): number | null {
           <DiffEditorView v-if="files.diffData" />
           <div v-else class="flex h-full min-h-0 flex-col">
             <div class="flex items-center border-b border-border">
-              <Button variant="ghost" size="sm" class="h-8 w-8 shrink-0 p-0 ml-1" @click="showMobileFileSidebar = true">
+              <Button variant="ghost" size="sm" class="h-8 w-8 shrink-0 p-0 ml-1" aria-label="Open file sidebar" @click="showMobileFileSidebar = true">
                 <FolderOpen class="h-4 w-4" />
               </Button>
               <EditorTabs class="flex-1" />
             </div>
-            <EditorView class="min-h-0 flex-1" />
+            <MonacoEditor class="min-h-0 flex-1" />
           </div>
         </div>
       </template>
@@ -205,6 +232,9 @@ function badgeFor(tab: string): number | null {
       :style="{ display: activeTab === 'diagrams' ? undefined : 'none' }"
     >
       <DiagramEditor />
+    </TabsContent>
+    <TabsContent value="manuals" class="mt-0 flex-1 overflow-hidden">
+      <ManualsView />
     </TabsContent>
   </Tabs>
 </template>

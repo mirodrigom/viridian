@@ -239,6 +239,24 @@ function runMigrations(db: Database.Database) {
       completed_at DATETIME
     );
     CREATE INDEX IF NOT EXISTS idx_autopilot_cycles_run ON autopilot_cycles(run_id, cycle_number);
+
+    -- ─── Manuals table ──────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS manuals (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      project_path TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT 'Untitled Manual',
+      prompt TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      logo1_data TEXT DEFAULT '',
+      logo2_data TEXT DEFAULT '',
+      logo1_position TEXT DEFAULT '{"x":50,"y":30,"width":120,"height":60}',
+      logo2_position TEXT DEFAULT '{"x":530,"y":30,"width":120,"height":60}',
+      status TEXT DEFAULT 'draft',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_manuals_user_project ON manuals(user_id, project_path);
   `);
 
   // ── Incremental migrations (safe to run multiple times) ──────────
@@ -287,9 +305,28 @@ function runMigrations(db: Database.Database) {
   safeAddColumn('autopilot_profiles', 'routing_to', "TEXT DEFAULT '[]'");
   safeAddColumn('autopilot_profiles', 'capabilities', "TEXT DEFAULT '[]'");
 
+  // ── Internal session tracking (git commit message generation, graph runner, etc.) ──
+  safeAddColumn('session_cache', 'is_internal', "INTEGER DEFAULT 0");
+
   // ── Management: project scoping ──
   safeAddColumn('management_services', 'project_path', "TEXT DEFAULT ''");
   safeAddColumn('management_scripts', 'project_path', "TEXT DEFAULT ''");
+
+  // ── Manuals: brand colors, PDF enhancement mode ──
+  safeAddColumn('manuals', 'brand_colors', "TEXT DEFAULT '[]'");
+  safeAddColumn('manuals', 'pdf_data', "TEXT DEFAULT ''");
+  safeAddColumn('manuals', 'mode', "TEXT DEFAULT 'generate'");
+
+  // ── Manual versioning ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS manual_versions (
+      id TEXT PRIMARY KEY,
+      manual_id TEXT NOT NULL REFERENCES manuals(id) ON DELETE CASCADE,
+      content TEXT NOT NULL DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_manual_versions_manual ON manual_versions(manual_id, created_at);
+  `);
 
   // ── Seed default services for existing users ──
   const existingUsers = db.prepare('SELECT id FROM users').all() as { id: number }[];
@@ -360,6 +397,29 @@ export function saveProviderConfig(providerId: string, envVars: Record<string, s
   for (const [key, value] of Object.entries(envVars)) {
     if (value) process.env[key] = value;
   }
+}
+
+/** Mark a session as internal (not user-facing) so it's hidden from the chat sidebar. */
+export function markSessionInternal(projectDir: string, sessionId: string): void {
+  try {
+    const database = getDb();
+    database.prepare(`
+      INSERT INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime, is_internal)
+      VALUES (?, ?, '', '', 0, ?, 0, 1)
+      ON CONFLICT(project_dir, id) DO UPDATE SET is_internal = 1
+    `).run(sessionId, projectDir, Date.now());
+  } catch { /* best effort */ }
+}
+
+/** Check if a session is marked as internal in the database. */
+export function isSessionInternal(sessionId: string): boolean {
+  try {
+    const database = getDb();
+    const row = database.prepare(
+      'SELECT is_internal FROM session_cache WHERE id = ? AND is_internal = 1 LIMIT 1',
+    ).get(sessionId) as { is_internal: number } | undefined;
+    return !!row;
+  } catch { return false; }
 }
 
 /** Save the provider used for a session so historical messages can show the correct logo. */

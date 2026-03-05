@@ -10,13 +10,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import {
   TerminalSquare, Settings, LogOut, FolderOpen,
-  Loader2, Moon, Sun, Wrench,
+  Loader2, Moon, Sun, Wrench, Columns2,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
 const chat = useChatStore();
 const settings = useSettingsStore();
 const router = useRouter();
+
+const splitView = defineModel<boolean>('splitView', { default: false });
 
 const emit = defineEmits<{
   toggleTerminal: [];
@@ -60,10 +62,27 @@ function logout() {
 
       <!-- Right: Actions -->
       <div class="flex shrink-0 items-center gap-1 md:gap-1">
+        <!-- Split view toggle: hidden on mobile -->
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="hidden sm:inline-flex h-7 w-7 p-0"
+              :class="splitView ? 'bg-primary/15 text-primary' : ''"
+              aria-label="Toggle Split View"
+              @click="splitView = !splitView"
+            >
+              <Columns2 class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Split View (Chat + Editor)</TooltipContent>
+        </Tooltip>
+
         <!-- Terminal toggle: hidden on mobile (terminal is force-disabled on mobile) -->
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="hidden sm:inline-flex h-7 w-7 p-0" @click="emit('toggleTerminal')">
+            <Button variant="ghost" size="sm" class="hidden sm:inline-flex h-7 w-7 p-0" aria-label="Toggle Terminal" @click="emit('toggleTerminal')">
               <TerminalSquare class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -72,7 +91,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="settings.toggleDarkMode()">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" aria-label="Toggle Dark Mode" @click="settings.toggleDarkMode()">
               <Sun v-if="settings.darkMode" class="h-4 w-4" />
               <Moon v-else class="h-4 w-4" />
             </Button>
@@ -84,7 +103,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="emit('openToolsSettings')">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" aria-label="Tools Settings" @click="emit('openToolsSettings')">
               <Wrench class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -93,7 +112,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="emit('openSettings')">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" aria-label="Settings" @click="emit('openSettings')">
               <Settings class="h-4 w-4" />
             </Button>
           </TooltipTrigger>
@@ -102,7 +121,7 @@ function logout() {
 
         <Tooltip>
           <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" @click="logout">
+            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" aria-label="Logout" @click="logout">
               <LogOut class="h-4 w-4" />
             </Button>
           </TooltipTrigger>

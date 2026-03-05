@@ -5,7 +5,8 @@ import { join } from 'path';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { getDb } from '../db/database.js';
-import { claudeQuery } from '../services/claude-sdk.js';
+import { getProvider, getDefaultProvider } from '../providers/registry.js';
+import type { ProviderId } from '../providers/types.js';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
 
 const router: ReturnType<typeof Router> = Router();
@@ -297,13 +298,14 @@ const JSON_OUTPUT_PROMPT = `Now output the complete task list as JSON. For each 
 
 Each parent task MUST have subtasks. Output ONLY JSON objects, one per line. No markdown, no explanations, no code fences.`;
 
-// POST /parse-prd — use Claude to break a PRD into tasks (SSE stream)
+// POST /parse-prd — use AI to break a PRD into tasks (SSE stream)
 router.post('/parse-prd', (req: AuthRequest, res) => {
-  const { prd, project } = req.body;
+  const { prd, project, providerId } = req.body;
   if (!prd || !project) {
     res.status(400).json({ error: 'prd and project are required' });
     return;
   }
+  const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -332,7 +334,7 @@ ${prd}`;
 
   (async () => {
     try {
-      for await (const msg of claudeQuery({
+      for await (const msg of provider.query({
         prompt,
         cwd: project,
         permissionMode: 'plan',
@@ -367,11 +369,12 @@ ${prd}`;
 
 // POST /prd-chat — one turn of a conversational PRD analysis (SSE stream)
 router.post('/prd-chat', (req: AuthRequest, res) => {
-  const { message, project, sessionId, prd } = req.body;
+  const { message, project, sessionId, prd, providerId } = req.body;
   if (!message || !project) {
     res.status(400).json({ error: 'message and project are required' });
     return;
   }
+  const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -397,7 +400,7 @@ router.post('/prd-chat', (req: AuthRequest, res) => {
 
   (async () => {
     try {
-      for await (const msg of claudeQuery({
+      for await (const msg of provider.query({
         prompt,
         cwd: project,
         permissionMode: 'plan',
@@ -430,11 +433,12 @@ router.post('/prd-chat', (req: AuthRequest, res) => {
 
 // POST /prd-finalize — generate JSON tasks from conversation, save to DB (SSE stream)
 router.post('/prd-finalize', (req: AuthRequest, res) => {
-  const { project, sessionId, prd } = req.body;
+  const { project, sessionId, prd, providerId } = req.body;
   if (!project || !sessionId) {
     res.status(400).json({ error: 'project and sessionId are required' });
     return;
   }
+  const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -456,7 +460,7 @@ router.post('/prd-finalize', (req: AuthRequest, res) => {
 
   (async () => {
     try {
-      for await (const msg of claudeQuery({
+      for await (const msg of provider.query({
         prompt: JSON_OUTPUT_PROMPT,
         cwd: project,
         permissionMode: 'plan',
@@ -491,11 +495,12 @@ router.post('/prd-finalize', (req: AuthRequest, res) => {
   })();
 });
 
-// POST /:id/expand — use Claude to break a task into subtasks (SSE stream)
+// POST /:id/expand — use AI to break a task into subtasks (SSE stream)
 router.post('/:id/expand', (req: AuthRequest, res) => {
   const db = getDb();
   const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as TaskRow | undefined;
   if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+  const provider = req.body?.providerId ? getProvider(req.body.providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -530,7 +535,7 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
 
   (async () => {
     try {
-      for await (const msg of claudeQuery({
+      for await (const msg of provider.query({
         prompt,
         cwd: task.project_path,
         permissionMode: 'plan',

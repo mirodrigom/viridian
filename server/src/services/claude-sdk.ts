@@ -235,12 +235,23 @@ interface BlockState {
 export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
   const claudeBin = findClaudeBinary();
 
-  // Prepare temp image files
+  // Prepare temp image and document files
   let imageTempDir: string | null = null;
   const imagePaths: string[] = [];
+  const documentPaths: string[] = [];
   if (options.images?.length) {
     imageTempDir = mkdtempSync(join(tmpdir(), 'claude-img-'));
     for (const img of options.images) {
+      // Handle PDF files (sent as data URLs with application/pdf mime type)
+      const pdfMatch = img.dataUrl.match(/^data:application\/pdf;base64,(.+)$/);
+      if (pdfMatch) {
+        const buf = Buffer.from(pdfMatch[1]!, 'base64');
+        const filePath = join(imageTempDir, `${img.name || uuid().slice(0, 8) + '.pdf'}`);
+        writeFileSync(filePath, buf);
+        documentPaths.push(filePath);
+        continue;
+      }
+      // Handle image files
       const match = img.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
       if (!match) continue;
       const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
@@ -251,8 +262,12 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     }
   }
 
-  // Build prompt — prepend image paths so Claude can read them with its Read tool
+  // Build prompt — prepend image/document paths so Claude can read them with its Read tool
   let prompt = options.prompt;
+  if (documentPaths.length > 0) {
+    const docRefs = documentPaths.map(p => p).join('\n');
+    prompt = `[Attached PDF documents — use the Read tool to view them]\n${docRefs}\n\n${prompt}`;
+  }
   if (imagePaths.length > 0) {
     const imageRefs = imagePaths.map(p => p).join('\n');
     prompt = `[Attached images — use the Read tool to view them]\n${imageRefs}\n\n${prompt}`;

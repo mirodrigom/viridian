@@ -22,6 +22,7 @@
     "jsonwebtoken": "^9.0.2",
     "langfuse": "^3.38.6",
     "node-pty": "^1.1.0",
+    "puppeteer": "^24.38.0",
     "simple-git": "^3.30.0",
     "uuid": "^11.1.0",
     "ws": "^8.18.0"

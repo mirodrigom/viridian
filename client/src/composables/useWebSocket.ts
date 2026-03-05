@@ -126,8 +126,22 @@ export function useWebSocket(path: string) {
     connected.value = false;
   }
 
+  // Reconnect when page is restored from back/forward cache
+  function handlePageShow(event: PageTransitionEvent) {
+    if (event.persisted && (!ws.value || ws.value.readyState !== WebSocket.OPEN)) {
+      connect();
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pageshow', handlePageShow);
+  }
+
   onUnmounted(() => {
     disconnect();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('pageshow', handlePageShow);
+    }
   });
 
   return { ws, connected, connect, send, on, off, disconnect };

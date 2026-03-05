@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiFetch } from '@/lib/apiFetch';
+import { useProviderStore } from './provider';
 
 export interface Task {
   id: string;
@@ -172,12 +173,13 @@ export const useTasksStore = defineStore('tasks', () => {
 
   async function parsePrd(projectPath: string, prdText: string, onDelta?: (text: string) => void): Promise<Task[]> {
     prdParsing.value = true;
+    const providerStore = useProviderStore();
 
     try {
       const res = await apiFetch('/api/tasks/parse-prd', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prd: prdText, project: projectPath }),
+        body: JSON.stringify({ prd: prdText, project: projectPath, providerId: providerStore.activeProviderId }),
       });
 
       if (!res.ok) throw new Error('Failed to parse PRD');
@@ -224,10 +226,11 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   async function expandTask(taskId: string, onDelta?: (text: string) => void): Promise<Task[]> {
-
+    const providerStore = useProviderStore();
     const res = await apiFetch(`/api/tasks/${taskId}/expand`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId: providerStore.activeProviderId }),
     });
 
     if (!res.ok) throw new Error('Failed to expand task');
@@ -275,11 +278,12 @@ export const useTasksStore = defineStore('tasks', () => {
     onDelta?: (text: string) => void,
   ): Promise<string | undefined> {
     prdChatting.value = true;
+    const providerStore = useProviderStore();
     try {
       const res = await apiFetch('/api/tasks/prd-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, project, sessionId, prd }),
+        body: JSON.stringify({ message, project, sessionId, prd, providerId: providerStore.activeProviderId }),
       });
       if (!res.ok) throw new Error('Failed to start PRD chat');
       if (!res.body) throw new Error('No response body');
@@ -321,11 +325,12 @@ export const useTasksStore = defineStore('tasks', () => {
     onDelta?: (text: string) => void,
   ): Promise<Task[]> {
     prdFinalizing.value = true;
+    const providerStore = useProviderStore();
     try {
       const res = await apiFetch('/api/tasks/prd-finalize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project, sessionId, prd }),
+        body: JSON.stringify({ project, sessionId, prd, providerId: providerStore.activeProviderId }),
       });
       if (!res.ok) throw new Error('Failed to finalize PRD');
       if (!res.body) throw new Error('No response body');

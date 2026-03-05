@@ -1,16 +1,21 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import * as gitService from '../services/git.js';
-import { claudeQuery } from '../services/claude-sdk.js';
+import { getProvider, getDefaultProvider } from '../providers/registry.js';
+import type { ProviderId } from '../providers/types.js';
+import { cwdToHash } from '../utils/platform.js';
+import { markSessionInternal, isSessionInternal } from '../db/database.js';
 
 const router: ReturnType<typeof Router> = Router();
 
 // Track session IDs created by internal utility queries (e.g. commit message generation)
 // so they can be filtered out of the sidebar session list.
+// In-memory set for fast lookups during current server lifetime;
+// also persisted to DB so they survive server restarts.
 const internalSessionIds = new Set<string>();
 
 export function isInternalSession(claudeSessionId: string): boolean {
-  return internalSessionIds.has(claudeSessionId);
+  return internalSessionIds.has(claudeSessionId) || isSessionInternal(claudeSessionId);
 }
 
 router.use(authMiddleware);
@@ -233,8 +238,9 @@ router.get('/file-versions', async (req, res) => {
 
 router.post('/generate-commit-message', async (req, res) => {
   try {
-    const { cwd } = req.body;
+    const { cwd, providerId } = req.body;
     if (!cwd) { res.status(400).json({ error: 'cwd is required' }); return; }
+    const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
     const diff = await gitService.getDiff(cwd, true);
     if (!diff.trim()) {
       res.status(400).json({ error: 'No staged changes to describe' });
@@ -271,7 +277,7 @@ ${truncatedDiff}`;
 
     (async () => {
       try {
-        for await (const msg of claudeQuery({
+        for await (const msg of provider.query({
           prompt,
           cwd,
           permissionMode: 'plan',
@@ -280,9 +286,11 @@ ${truncatedDiff}`;
         })) {
           if (msg.type === 'system' && msg.sessionId) {
             internalSessionIds.add(msg.sessionId);
+            markSessionInternal(cwdToHash(cwd), msg.sessionId);
           }
           if (msg.type === 'result' && msg.sessionId) {
             internalSessionIds.add(msg.sessionId);
+            markSessionInternal(cwdToHash(cwd), msg.sessionId);
           }
           if (msg.type === 'text_delta') {
             res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);

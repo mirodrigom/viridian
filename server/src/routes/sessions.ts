@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
-import { readdirSync, statSync, existsSync, unlinkSync, rmSync } from 'fs';
+import { readdirSync, statSync, existsSync, unlinkSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { createReadStream } from 'fs';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
@@ -10,6 +10,7 @@ import { getDb } from '../db/database.js';
 import { getStreamingClaudeSessionIds } from '../services/claude.js';
 import { isGraphRunnerSession } from '../services/graph-runner.js';
 import { isInternalSession } from './git.js';
+import { randomUUID } from 'crypto';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -212,7 +213,11 @@ router.get('/', async (req, res) => {
         const cached = getCached.get(dir, sessionId) as {
           title: string; project_path: string; message_count: number;
           last_active: number; file_mtime: number; provider?: string;
+          is_internal?: number;
         } | undefined;
+
+        // Skip sessions marked as internal in the DB (persisted across restarts)
+        if (cached?.is_internal) continue;
 
         if (cached && cached.file_mtime === Math.floor(mtimeMs)) {
           sessions.push({
@@ -615,6 +620,88 @@ router.delete('/project/:dir', async (req, res) => {
   } catch (err) {
     console.error('[sessions] Error deleting project:', err);
     res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+/**
+ * POST /api/sessions/:id/fork
+ *
+ * Creates a copy of an existing session up to (not including) the message with
+ * forkBeforeUuid. If omitted, copies the entire session.
+ *
+ * Body: { projectDir: string, forkBeforeUuid?: string }
+ * Returns: { newSessionId: string }
+ */
+router.post('/:id/fork', async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const { projectDir, forkBeforeUuid } = req.body as { projectDir?: string; forkBeforeUuid?: string };
+
+    if (!projectDir) {
+      res.status(400).json({ error: 'projectDir required' });
+      return;
+    }
+
+    if (!/^[\w-]+$/.test(projectDir) || !/^[\w-]+$/.test(sessionId)) {
+      res.status(400).json({ error: 'Invalid projectDir or session id' });
+      return;
+    }
+
+    const srcPath = join(CLAUDE_DIR, projectDir, `${sessionId}.jsonl`);
+    if (!existsSync(srcPath)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    // Read all lines
+    const rawLines = readFileSync(srcPath, 'utf-8').split('\n').filter(l => l.trim());
+
+    let cutoffIdx = rawLines.length; // default: copy entire file
+    if (forkBeforeUuid) {
+      for (let i = 0; i < rawLines.length; i++) {
+        try {
+          const entry = JSON.parse(rawLines[i]!);
+          if (entry.uuid === forkBeforeUuid) {
+            cutoffIdx = i;
+            break;
+          }
+        } catch { /* skip malformed lines */ }
+      }
+    }
+
+    const linesToCopy = rawLines.slice(0, cutoffIdx);
+
+    // Write new JSONL
+    const newSessionId = randomUUID();
+    const destDir = join(CLAUDE_DIR, projectDir);
+    mkdirSync(destDir, { recursive: true });
+    const destPath = join(destDir, `${newSessionId}.jsonl`);
+    writeFileSync(destPath, linesToCopy.join('\n') + (linesToCopy.length ? '\n' : ''), 'utf-8');
+
+    // Seed cache entry with "Fork: " prefix
+    const db = getDb();
+    const srcCache = db.prepare('SELECT * FROM session_cache WHERE project_dir = ? AND id = ?')
+      .get(projectDir, sessionId) as { title?: string; project_path?: string; provider?: string } | undefined;
+
+    db.prepare(`
+      INSERT OR REPLACE INTO session_cache (project_dir, id, title, project_path, message_count, last_active, file_mtime, provider)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      projectDir,
+      newSessionId,
+      `Fork: ${srcCache?.title || sessionId.slice(0, 8)}`,
+      srcCache?.project_path || '',
+      linesToCopy.length,
+      Date.now(),
+      statSync(destPath).mtimeMs,
+      srcCache?.provider || 'claude',
+    );
+
+    console.log(`[sessions] Forked ${sessionId} → ${newSessionId} (${linesToCopy.length} lines, cutoff ${forkBeforeUuid || 'end'})`);
+    res.json({ newSessionId, projectDir });
+  } catch (err) {
+    console.error('[sessions] Fork error:', err);
+    res.status(500).json({ error: 'Failed to fork session' });
   }
 });
 

@@ -17,6 +17,7 @@ import MainTabs from './MainTabs.vue';
 import TerminalPanel from './TerminalPanel.vue';
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
+import CommandPalette from './CommandPalette.vue';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 
 const settings = useSettingsStore();
@@ -34,9 +35,11 @@ const activeTab = ref(initialTab);
 const showTerminal = ref(false);
 const showSettings = ref(false);
 const showToolsSettings = ref(false);
+const showCommandPalette = ref(false);
+const splitView = ref(false);
 const isMobile = ref(false);
 
-useKeyboardShortcuts();
+useKeyboardShortcuts(showCommandPalette, splitView);
 
 // Route → tab: when route changes, sync the active tab
 watch(() => route.meta.tab, (tab) => {
@@ -55,6 +58,7 @@ const TAB_ROUTES: Record<string, string> = {
   graph: 'graph',
   autopilot: 'autopilot',
   diagrams: 'diagrams',
+  manuals: 'manuals',
 };
 
 watch(activeTab, (newTab, oldTab) => {
@@ -103,6 +107,7 @@ function checkMobile() {
   isMobile.value = window.innerWidth < 768;
   if (isMobile.value) {
     showTerminal.value = false;
+    splitView.value = false;
   }
 }
 
@@ -124,14 +129,17 @@ function toggleTerminal() {
 
 <template>
   <div class="flex h-full flex-col overflow-hidden bg-background">
+    <h1 class="sr-only">Viridian</h1>
     <TopBar
+      v-model:split-view="splitView"
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"
       @open-tools-settings="showToolsSettings = true"
     />
-    <ResizablePanelGroup direction="vertical" class="flex-1">
+    <main class="flex-1 overflow-hidden">
+    <ResizablePanelGroup direction="vertical" class="h-full">
       <ResizablePanel :default-size="showTerminal ? 70 : 100" :min-size="30">
-        <MainTabs v-model:active-tab="activeTab" />
+        <MainTabs v-model:active-tab="activeTab" :split-view="splitView" />
       </ResizablePanel>
       <template v-if="showTerminal">
         <ResizableHandle />
@@ -140,8 +148,10 @@ function toggleTerminal() {
         </ResizablePanel>
       </template>
     </ResizablePanelGroup>
+    </main>
 
     <SettingsDialog v-model:open="showSettings" />
     <ToolsSettingsDialog v-model:open="showToolsSettings" />
+    <CommandPalette v-model:open="showCommandPalette" v-model:split-view="splitView" @toggle-terminal="toggleTerminal" />
   </div>
 </template>

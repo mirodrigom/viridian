@@ -182,6 +182,25 @@ function handleVisibility() {
 onMounted(() => document.addEventListener('visibilitychange', handleVisibility));
 onUnmounted(() => document.removeEventListener('visibilitychange', handleVisibility));
 
+function sendBrowserNotification() {
+  if (!document.hidden) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  if (Notification.permission !== 'granted') return;
+  const lastMsg = chat.messages.findLast(m => m.role === 'assistant');
+  const body = lastMsg?.content
+    ? lastMsg.content.slice(0, 120) + (lastMsg.content.length > 120 ? '...' : '')
+    : 'Claude has finished responding.';
+  const n = new Notification('Viridian — Response complete', {
+    body,
+    icon: '/icons/logo-192.png',
+    tag: 'response-complete',
+  });
+  n.onclick = () => { window.focus(); n.close(); };
+}
+
 function showCompletion() {
   showResponseComplete.value = true;
   responseCompleteTime.value = new Date().toLocaleTimeString('en-US', {
@@ -191,6 +210,7 @@ function showCompletion() {
     hour12: true,
   });
   playResponseCompleteSound();
+  sendBrowserNotification();
   document.title = 'Viridian - Response complete';
 }
 
@@ -583,6 +603,7 @@ onUnmounted(() => {
               :is-group-start="isGroupStart(idx)"
               @approve-tool="(id) => emit('approveTool', id)"
               @reject-tool="(id) => emit('rejectTool', id)"
+              @send-prompt="(text) => emit('sendPrompt', text)"
             />
           </div>
         </TransitionGroup>

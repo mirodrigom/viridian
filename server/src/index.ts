@@ -24,6 +24,7 @@ import autopilotRoutes from './routes/autopilot.js';
 import providersRoutes from './routes/providers.js';
 import managementRoutes from './routes/management.js';
 import diagramsRoutes from './routes/diagrams.js';
+import manualsRoutes from './routes/manuals.js';
 import langfuseRoutes from './routes/langfuse.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
@@ -64,6 +65,7 @@ app.use('/api/autopilot', autopilotRoutes);
 app.use('/api/providers', providersRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/api/diagrams', diagramsRoutes);
+app.use('/api/manuals', manualsRoutes);
 app.use('/api/langfuse', authMiddleware, langfuseRoutes);
 
 app.get('/api/health', (_req, res) => {

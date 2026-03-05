@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, type Component } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, type Component } from 'vue';
+import { useRouter } from 'vue-router';
 import type { ChatMessage } from '@/stores/chat';
+import { useChatStore } from '@/stores/chat';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +14,7 @@ import {
   FileText, FileOutput, Pencil, TerminalSquare,
   FolderSearch, Search, ListTodo, Globe,
   Wrench, Bot, MessageCircleQuestion, Minimize2,
+  GitBranch,
 } from 'lucide-vue-next';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
 
@@ -31,7 +34,47 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   approveTool: [requestId: string];
   rejectTool: [requestId: string];
+  sendPrompt: [text: string];
 }>();
+
+const chat = useChatStore();
+const router = useRouter();
+
+// ─── Inline edit + fork ───────────────────────────────────────────
+const isEditing = ref(false);
+const editText = ref('');
+const editTextarea = ref<HTMLTextAreaElement | null>(null);
+const isForking = ref(false);
+
+function startEdit() {
+  editText.value = props.message.content;
+  isEditing.value = true;
+  nextTick(() => {
+    editTextarea.value?.focus();
+    editTextarea.value?.select();
+  });
+}
+
+function cancelEdit() {
+  isEditing.value = false;
+  editText.value = '';
+}
+
+async function confirmEdit() {
+  const text = editText.value.trim();
+  if (!text || isForking.value) return;
+  isForking.value = true;
+  try {
+    const newSessionId = await chat.forkSession(props.message.id);
+    if (newSessionId !== null) {
+      isEditing.value = false;
+      router.replace({ name: 'chat-session', params: { sessionId: newSessionId } });
+      emit('sendPrompt', text);
+    }
+  } finally {
+    isForking.value = false;
+  }
+}
 
 const { activeLogo, activeName, getLogoForProviderId, getNameForProviderId, logoMap } = useProviderLogo();
 
@@ -116,23 +159,55 @@ function formatTime(ts: number) {
   <!-- User message -->
   <div
     v-if="message.role === 'user'"
-    class="flex items-end justify-end gap-1.5 sm:gap-2.5 px-2 sm:px-4 py-3 transition-colors"
+    class="group flex items-end justify-end gap-1.5 sm:gap-2.5 px-2 sm:px-4 py-3 transition-colors"
     :class="{ 'bg-yellow-500/20 border-l-2 border-l-yellow-500': isActiveResult, 'bg-yellow-500/5': isSearchMatch && !isActiveResult }"
   >
     <div class="max-w-[85%] sm:max-w-[75%]">
-      <div class="rounded-2xl rounded-br-md bg-primary px-3 sm:px-4 py-2.5 text-primary-foreground shadow-sm">
-        <div v-if="message.images?.length" class="mb-2 flex flex-wrap gap-1.5">
-          <img
-            v-for="(img, idx) in message.images"
-            :key="idx"
-            :src="img.dataUrl"
-            :alt="img.name"
-            class="max-h-48 max-w-full rounded-lg border border-primary-foreground/20 object-contain"
-          />
+      <!-- Inline edit mode -->
+      <div v-if="isEditing" class="space-y-2">
+        <textarea
+          ref="editTextarea"
+          v-model="editText"
+          class="w-full min-h-[80px] rounded-xl border border-primary/40 bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none focus:border-primary resize-none"
+          @keydown.enter.ctrl.prevent="confirmEdit"
+          @keydown.escape.prevent="cancelEdit"
+        />
+        <div class="flex items-center justify-end gap-2">
+          <span class="text-[10px] text-muted-foreground">Ctrl+Enter to confirm · Esc to cancel</span>
+          <Button variant="ghost" size="sm" class="h-7 px-2 text-xs" @click="cancelEdit">Cancel</Button>
+          <Button size="sm" class="h-7 px-3 text-xs" :disabled="isForking || !editText.trim()" @click="confirmEdit">
+            <GitBranch v-if="!isForking" class="mr-1 h-3 w-3" />
+            <span v-if="isForking" class="mr-1 h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+            {{ isForking ? 'Forking...' : 'Send (fork)' }}
+          </Button>
         </div>
-        <p class="whitespace-pre-wrap text-sm leading-relaxed">{{ message.content }}</p>
       </div>
-      <p class="mt-1 text-right text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
+      <!-- Normal view -->
+      <template v-else>
+        <div class="rounded-2xl rounded-br-md bg-primary px-3 sm:px-4 py-2.5 text-primary-foreground shadow-sm">
+          <div v-if="message.images?.length" class="mb-2 flex flex-wrap gap-1.5">
+            <img
+              v-for="(img, idx) in message.images"
+              :key="idx"
+              :src="img.dataUrl"
+              :alt="img.name"
+              class="max-h-48 max-w-full rounded-lg border border-primary-foreground/20 object-contain"
+            />
+          </div>
+          <p class="whitespace-pre-wrap text-sm leading-relaxed">{{ message.content }}</p>
+        </div>
+        <div class="mt-1 flex items-center justify-end gap-2">
+          <button
+            class="hidden group-hover:flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Edit and re-send (forks the conversation)"
+            @click="startEdit"
+          >
+            <Pencil class="h-3 w-3" />
+            Edit
+          </button>
+          <p class="text-[11px] text-muted-foreground">{{ formatTime(message.timestamp) }}</p>
+        </div>
+      </template>
     </div>
     <Avatar class="h-8 w-8 shrink-0 border border-primary/20 hidden sm:flex">
       <AvatarFallback class="bg-primary/10 text-xs font-semibold text-primary">U</AvatarFallback>

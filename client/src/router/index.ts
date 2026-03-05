@@ -95,6 +95,12 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'diagrams' },
     },
+    {
+      path: '/manuals',
+      name: 'manuals',
+      component: ProjectPage,
+      meta: { tab: 'manuals' },
+    },
   ],
 });
 

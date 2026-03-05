@@ -52,7 +52,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div class="flex min-h-dvh items-center justify-center bg-background p-4">
+  <main class="flex min-h-dvh items-center justify-center bg-background p-4">
     <div class="w-full max-w-sm space-y-6">
       <!-- Logo and title -->
       <div class="text-center">
@@ -69,7 +69,7 @@ async function handleSubmit() {
 
       <Card>
         <CardHeader class="pb-4">
-          <CardTitle class="flex items-center justify-center gap-2 text-lg">
+          <CardTitle as="h2" class="flex items-center justify-center gap-2 text-lg">
             <component :is="isRegister ? UserPlus : LogIn" class="h-5 w-5" />
             {{ needsSetup ? 'Initial Setup' : (isRegister ? 'Create Account' : 'Welcome Back') }}
           </CardTitle>
@@ -139,5 +139,5 @@ async function handleSubmit() {
         Powered by Claude &middot; Anthropic
       </p>
     </div>
-  </div>
+  </main>
 </template>

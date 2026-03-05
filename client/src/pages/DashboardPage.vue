@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, defineAsyncComponent } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { apiFetch } from '@/lib/apiFetch';
 import { useChatStore } from '@/stores/chat';
@@ -10,8 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
-import DirectoryPicker from '@/components/DirectoryPicker.vue';
-import OnboardingWizard from '@/components/OnboardingWizard.vue';
+const DirectoryPicker = defineAsyncComponent(() => import('@/components/DirectoryPicker.vue'));
+const OnboardingWizard = defineAsyncComponent(() => import('@/components/OnboardingWizard.vue'));
 import {
   FolderOpen, ArrowRight, Clock, Moon, Sun, LogOut,
   Search, ArrowUpCircle, X,
@@ -155,30 +155,30 @@ function logout() {
         target="_blank"
         class="ml-1 text-primary underline hover:text-primary/80"
       >View release</a>
-      <button class="ml-2 rounded p-0.5 text-muted-foreground hover:text-foreground" @click="dismissUpdate">
+      <button class="ml-2 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Dismiss update notification" @click="dismissUpdate">
         <X class="h-3.5 w-3.5" />
       </button>
     </div>
 
     <!-- Mini top bar -->
-    <header class="flex h-11 items-center justify-between border-b border-border px-4">
+    <header class="flex h-11 items-center justify-between border-b border-border px-4" role="banner">
       <div class="flex items-center gap-2">
         <ViridianLogo :size="18" />
         <span class="text-sm font-medium text-foreground">Viridian</span>
       </div>
-      <div class="flex items-center gap-1">
-        <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="settings.toggleDarkMode()">
+      <nav aria-label="User actions" class="flex items-center gap-1">
+        <Button variant="ghost" size="sm" class="h-7 w-7 p-0" aria-label="Toggle Dark Mode" @click="settings.toggleDarkMode()">
           <Sun v-if="settings.darkMode" class="h-4 w-4" />
           <Moon v-else class="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="logout">
+        <Button variant="ghost" size="sm" class="h-7 w-7 p-0" aria-label="Logout" @click="logout">
           <LogOut class="h-4 w-4" />
         </Button>
-      </div>
+      </nav>
     </header>
 
     <!-- Main content -->
-    <div class="flex flex-1 items-center justify-center p-6">
+    <main class="flex flex-1 items-center justify-center p-6">
       <div class="w-full max-w-2xl space-y-8">
         <!-- Hero -->
         <div class="text-center">
@@ -198,7 +198,7 @@ function logout() {
         <!-- Open project -->
         <Card>
           <CardHeader class="pb-3">
-            <CardTitle class="flex items-center gap-2 text-lg">
+            <CardTitle as="h2" class="flex items-center gap-2 text-lg">
               <FolderOpen class="h-5 w-5" />
               Open Project
             </CardTitle>
@@ -259,7 +259,7 @@ function logout() {
         <!-- Clone from GitHub -->
         <Card>
           <CardHeader class="pb-3">
-            <CardTitle class="flex items-center gap-2 text-lg">
+            <CardTitle as="h2" class="flex items-center gap-2 text-lg">
               <GitBranch class="h-5 w-5" />
               Clone Repository
             </CardTitle>
@@ -267,9 +267,11 @@ function logout() {
           <CardContent class="space-y-3">
             <div class="flex gap-2">
               <Input
+                id="clone-url"
                 v-model="cloneUrl"
                 placeholder="https://github.com/user/repo.git"
                 class="font-mono text-sm"
+                aria-label="Repository URL"
                 :disabled="cloning"
                 @keydown.enter="cloneRepo"
               />
@@ -293,7 +295,14 @@ function logout() {
             </div>
             <!-- Clone progress -->
             <div v-if="cloning" class="space-y-1.5">
-              <div class="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                class="h-1.5 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                :aria-valuenow="clonePercent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-label="`Clone progress: ${clonePercent}%`"
+              >
                 <div
                   class="h-full rounded-full bg-primary transition-all duration-300"
                   :style="{ width: `${clonePercent}%` }"
@@ -306,10 +315,10 @@ function logout() {
         </Card>
 
       </div>
-    </div>
+    </main>
 
     <!-- Version footer -->
-    <footer v-if="currentVersion" class="py-2 text-center text-[11px] text-muted-foreground">
+    <footer v-if="currentVersion" role="contentinfo" class="py-2 text-center text-[11px] text-muted-foreground">
       Viridian v{{ currentVersion }}
     </footer>
 

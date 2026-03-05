@@ -94,6 +94,9 @@ onMounted(() => {
   init();
   checkMobile();
   window.addEventListener('resize', checkMobile);
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
 });
 
 onUnmounted(() => {

@@ -18,6 +18,8 @@ import { join } from 'path';
 import { claudeQuery, type SDKMessage } from './claude-sdk.js';
 import { validateDelegationRouting as validateRouting } from '../types/agent-metadata.js';
 import type { AgentMetadata } from '../types/agent-metadata.js';
+import { cwdToHash } from '../utils/platform.js';
+import { markSessionInternal, isSessionInternal } from '../db/database.js';
 
 // Debug log to file for tracing delegation flow
 const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
@@ -36,7 +38,7 @@ const graphRunnerSessionIds = new Set<string>();
 
 /** Check if a Claude session ID belongs to a graph runner execution. */
 export function isGraphRunnerSession(claudeSessionId: string): boolean {
-  return graphRunnerSessionIds.has(claudeSessionId);
+  return graphRunnerSessionIds.has(claudeSessionId) || isSessionInternal(claudeSessionId);
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -714,12 +716,14 @@ async function executeSinglePass(
           if (msg.sessionId) {
             ctx.sessionIds.set(nodeId, msg.sessionId);
             graphRunnerSessionIds.add(msg.sessionId);
+            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId);
           }
           break;
         case 'result':
           if (msg.sessionId) {
             ctx.sessionIds.set(nodeId, msg.sessionId);
             graphRunnerSessionIds.add(msg.sessionId);
+            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId);
           }
           break;
         case 'error':

@@ -1,4 +1,4 @@
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, type Ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useChatStore, type ChatMessage } from '@/stores/chat';
 
@@ -27,8 +27,9 @@ export function exportSession() {
 
 /**
  * Register global keyboard shortcuts. Call once from a root component (e.g. AppLayout).
+ * @param commandPaletteOpen - ref to control the command palette visibility
  */
-export function useKeyboardShortcuts() {
+export function useKeyboardShortcuts(commandPaletteOpen?: Ref<boolean>, splitViewOpen?: Ref<boolean>) {
   const router = useRouter();
   const chat = useChatStore();
 
@@ -37,11 +38,21 @@ export function useKeyboardShortcuts() {
     const target = e.target as HTMLElement;
     const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true';
 
-    // Ctrl/Cmd + K — focus chat input
+    // Ctrl/Cmd + K — open command palette (or close if already open)
     if (ctrlOrCmd && e.key === 'k') {
       e.preventDefault();
-      const input = document.querySelector('textarea[placeholder]') as HTMLTextAreaElement;
-      input?.focus();
+      if (commandPaletteOpen) {
+        commandPaletteOpen.value = !commandPaletteOpen.value;
+      }
+      return;
+    }
+
+    // Ctrl/Cmd + \ — toggle split view
+    if (ctrlOrCmd && e.key === '\\') {
+      e.preventDefault();
+      if (splitViewOpen) {
+        splitViewOpen.value = !splitViewOpen.value;
+      }
       return;
     }
 
