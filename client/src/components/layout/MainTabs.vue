@@ -12,6 +12,7 @@ import EditorTabs from '@/components/editor/EditorTabs.vue';
 import DiffEditorView from '@/components/editor/DiffEditorView.vue';
 import GitView from '@/components/git/GitView.vue';
 import FileSidebar from '@/components/layout/FileSidebar.vue';
+import ErrorBoundary from '@/components/ui/ErrorBoundary.vue';
 const MonacoEditor = defineAsyncComponent(() => import('@/components/editor/MonacoEditor.vue'));
 const TaskBoard = defineAsyncComponent(() => import('@/components/tasks/TaskBoard.vue'));
 const GraphEditor = defineAsyncComponent(() => import('@/components/graph/GraphEditor.vue'));
@@ -212,29 +213,29 @@ function badgeFor(tab: string): number | null {
       </template>
     </TabsContent>
     <TabsContent value="git" class="mt-0 flex-1 overflow-hidden">
-      <GitView />
+      <ErrorBoundary name="Git"><GitView /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="tasks" class="mt-0 flex-1 overflow-hidden">
-      <TaskBoard />
+      <ErrorBoundary name="Tasks"><TaskBoard /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="graph" class="mt-0 flex-1 overflow-hidden" :force-mount="true"
       :style="{ display: activeTab === 'graph' ? undefined : 'none' }"
     >
-      <GraphEditor />
+      <ErrorBoundary name="Graph"><GraphEditor /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="autopilot" class="mt-0 flex-1 overflow-hidden">
-      <AutopilotView />
+      <ErrorBoundary name="Autopilot"><AutopilotView /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="management" class="mt-0 flex-1 overflow-hidden">
-      <ManagementView />
+      <ErrorBoundary name="Management"><ManagementView /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="diagrams" class="mt-0 flex-1 overflow-hidden" :force-mount="true"
       :style="{ display: activeTab === 'diagrams' ? undefined : 'none' }"
     >
-      <DiagramEditor />
+      <ErrorBoundary name="Diagrams"><DiagramEditor /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="manuals" class="mt-0 flex-1 overflow-hidden">
-      <ManualsView />
+      <ErrorBoundary name="Manuals"><ManualsView /></ErrorBoundary>
     </TabsContent>
   </Tabs>
 </template>

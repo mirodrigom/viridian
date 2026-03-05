@@ -3,8 +3,7 @@ import { ref, computed } from 'vue';
 import type { Node, Edge, Connection } from '@vue-flow/core';
 import type {
   GraphConfig, GraphNodeType, NodeData, GraphEdgeData,
-  EdgeType, SerializedNode, SerializedEdge,
-  SubagentNodeData, ExpertNodeData, SkillNodeData, RuleNodeData,
+  EdgeType, SubagentNodeData, ExpertNodeData, SkillNodeData, RuleNodeData,
 } from '@/types/graph';
 import { CONNECTION_RULES } from '@/types/graph';
 import { DEFAULT_AGENT_METADATA, validateDelegationRouting } from '@/types/agent-metadata';
@@ -12,6 +11,9 @@ import type { AgentMetadata } from '@/types/agent-metadata';
 import type { GraphTemplate } from '@/data/graphTemplates';
 import { apiFetch } from '@/lib/apiFetch';
 import { uuid } from '@/lib/utils';
+import { getRuleChildrenMap, applyRuleContainers } from './graph-rules';
+import { autoLayout as runAutoLayout } from './graph-layout';
+import { createGraphPersistence } from './graph-persistence';
 
 export const useGraphStore = defineStore('graph', () => {
   // ─── State ──────────────────────────────────────────────────────────
@@ -63,14 +65,12 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   function removeNode(id: string) {
-    // If removing a rule container, unparent all children first
     const removedNode = nodes.value.find(n => n.id === id);
     if (removedNode) {
       const d = removedNode.data as NodeData;
       if (d.nodeType === 'rule' && (d as RuleNodeData).isContainer) {
         for (const child of nodes.value) {
           if (child.parentNode === id) {
-            // Convert relative position to absolute
             child.position = {
               x: child.position.x + removedNode.position.x,
               y: child.position.y + removedNode.position.y,
@@ -90,11 +90,9 @@ export const useGraphStore = defineStore('graph', () => {
   function updateNodeData(id: string, updates: Partial<NodeData>) {
     const node = nodes.value.find(n => n.id === id);
     if (node) {
-      // Prevent nodeType mutation — it must stay in sync with node.type (used by VueFlow for template selection)
       const { nodeType: _, ...safeUpdates } = updates as Record<string, unknown>;
       node.data = { ...node.data, ...safeUpdates };
 
-      // Auto-derive description from systemPrompt (skip during AI generation — it handles description separately at the end)
       if ('systemPrompt' in safeUpdates && !generatingPrompt.value) {
         const prompt = safeUpdates.systemPrompt as string;
         node.data = {
@@ -134,10 +132,8 @@ export const useGraphStore = defineStore('graph', () => {
     const matchingRule = rules.find(rule => rule.targets.includes(targetType));
     if (!matchingRule) return false;
 
-    // Prevent cycles: check if target can already reach source via existing edges
     if (wouldCreateCycle(connection.source, connection.target)) return false;
 
-    // Metadata-based routing validation for delegation edges
     if (matchingRule.edgeType === 'delegation') {
       const sourceData = sourceNode.data as NodeData;
       const targetData = targetNode.data as NodeData;
@@ -153,7 +149,6 @@ export const useGraphStore = defineStore('graph', () => {
     return true;
   }
 
-  /** BFS from target to check if source is reachable — adding this edge would create a cycle. */
   function wouldCreateCycle(source: string, target: string): boolean {
     const visited = new Set<string>();
     const queue = [target];
@@ -190,7 +185,6 @@ export const useGraphStore = defineStore('graph', () => {
     const edgeType = getEdgeType(sourceType, targetType);
     if (!edgeType) return;
 
-    // Prevent duplicate edges
     const exists = edges.value.some(
       e => e.source === connection.source && e.target === connection.target,
     );
@@ -235,7 +229,6 @@ export const useGraphStore = defineStore('graph', () => {
   // ─── Load template ────────────────────────────────────────────────
 
   function loadTemplate(template: GraphTemplate) {
-    // Map old IDs → new UUIDs so each import is unique
     const idMap = new Map<string, string>();
     for (const n of template.nodes) {
       idMap.set(n.id, uuid());
@@ -266,8 +259,6 @@ export const useGraphStore = defineStore('graph', () => {
     graphVersion.value++;
   }
 
-  // ─── Auto-layout ──────────────────────────────────────────────────
-
   // ─── Import project assets ─────────────────────────────────────────
 
   function importNodes(
@@ -288,345 +279,34 @@ export const useGraphStore = defineStore('graph', () => {
     graphVersion.value++;
   }
 
-  /** Build map of ruleId → childIds from rule-constraint edges */
-  function getRuleChildrenMap(): Map<string, string[]> {
-    const map = new Map<string, string[]>();
-    for (const edge of edges.value) {
-      const edgeData = edge.data as GraphEdgeData;
-      if (edgeData?.edgeType === 'rule-constraint') {
-        // edge.source = agent/subagent/expert, edge.target = rule
-        const ruleId = edge.target;
-        const childId = edge.source;
-        if (!map.has(ruleId)) map.set(ruleId, []);
-        map.get(ruleId)!.push(childId);
-      }
-    }
-    return map;
+  // ─── Rules (delegated) ────────────────────────────────────────────
+
+  function _getRuleChildrenMap() {
+    return getRuleChildrenMap(edges.value);
   }
 
-  /** Apply visual grouping: rule containers wrap their child nodes using Vue Flow parentNode */
-  function applyRuleContainers() {
-    const HEADER_HEIGHT = 48;
-    const PADDING = 24;
-    const CHILD_WIDTH = 260;
-    const CHILD_HEIGHT = 160;
-    const CHILD_GAP_H = 20;  // horizontal gap between children in same layer
-    const LAYER_GAP = 30;    // vertical gap between layers
-
-    // Layer order inside rule container: agent on top, subagent middle, expert bottom
-    const LAYER_ORDER: GraphNodeType[] = ['agent', 'subagent', 'expert'];
-
-    const ruleChildren = getRuleChildrenMap();
-
-    // First: clear container state for all rules
-    for (const node of nodes.value) {
-      const d = node.data as NodeData;
-      if (d.nodeType === 'rule') {
-        (d as RuleNodeData).isContainer = false;
-      }
-    }
-
-    // Clear parentNode from all nodes (fresh calculation)
-    for (const node of nodes.value) {
-      if (node.parentNode) {
-        const parent = nodes.value.find(n => n.id === node.parentNode);
-        if (parent) {
-          node.position = {
-            x: node.position.x + parent.position.x,
-            y: node.position.y + parent.position.y,
-          };
-        }
-        delete node.parentNode;
-        delete node.extent;
-      }
-      delete node.style;
-    }
-
-    // Apply container grouping
-    for (const [ruleId, childIds] of ruleChildren) {
-      if (childIds.length === 0) continue;
-      const ruleNode = nodes.value.find(n => n.id === ruleId);
-      if (!ruleNode) continue;
-
-      (ruleNode.data as RuleNodeData).isContainer = true;
-
-      // Group children by type into layers
-      const childNodes = childIds
-        .map(id => nodes.value.find(n => n.id === id))
-        .filter((n): n is typeof nodes.value[number] => n != null);
-
-      const layerMap = new Map<GraphNodeType, typeof childNodes>();
-      for (const child of childNodes) {
-        const nt = (child.data as NodeData).nodeType;
-        if (!layerMap.has(nt)) layerMap.set(nt, []);
-        layerMap.get(nt)!.push(child);
-      }
-
-      // Build ordered layers (agent → subagent → expert, then any others)
-      const orderedLayers: typeof childNodes[] = [];
-      for (const lt of LAYER_ORDER) {
-        const layerNodes = layerMap.get(lt);
-        if (layerNodes && layerNodes.length > 0) {
-          orderedLayers.push(layerNodes);
-          layerMap.delete(lt);
-        }
-      }
-      // Any remaining types not in LAYER_ORDER
-      for (const remaining of layerMap.values()) {
-        if (remaining.length > 0) orderedLayers.push(remaining);
-      }
-
-      // Calculate container dimensions: widest layer determines width
-      let maxLayerWidth = 0;
-      for (const layer of orderedLayers) {
-        const layerWidth = layer.length * CHILD_WIDTH + (layer.length - 1) * CHILD_GAP_H;
-        if (layerWidth > maxLayerWidth) maxLayerWidth = layerWidth;
-      }
-      const containerWidth = PADDING * 2 + maxLayerWidth;
-      const containerHeight = HEADER_HEIGHT + PADDING * 2 +
-        orderedLayers.length * CHILD_HEIGHT +
-        (orderedLayers.length - 1) * LAYER_GAP;
-
-      ruleNode.style = { width: `${containerWidth}px`, height: `${containerHeight}px` };
-
-      // Position children layer by layer, centered horizontally
-      let currentY = HEADER_HEIGHT + PADDING;
-      for (const layer of orderedLayers) {
-        const layerWidth = layer.length * CHILD_WIDTH + (layer.length - 1) * CHILD_GAP_H;
-        let startX = PADDING + (maxLayerWidth - layerWidth) / 2; // center the layer
-
-        for (const child of layer) {
-          child.parentNode = ruleId;
-          child.extent = 'parent';
-          child.position = { x: startX, y: currentY };
-          startX += CHILD_WIDTH + CHILD_GAP_H;
-        }
-        currentY += CHILD_HEIGHT + LAYER_GAP;
-      }
-    }
-
-    isDirty.value = true;
+  function _applyRuleContainers() {
+    applyRuleContainers({ nodes, edges, isDirty });
   }
+
+  // ─── Auto-layout (delegated) ──────────────────────────────────────
 
   function autoLayout() {
-    const ruleChildren = getRuleChildrenMap();
-    // Collect IDs of nodes that will be parented inside rule containers
-    const parentedNodeIds = new Set<string>();
-    for (const childIds of ruleChildren.values()) {
-      for (const id of childIds) parentedNodeIds.add(id);
-    }
-    // Container rule IDs (rules that have children)
-    const containerRuleIds = new Set<string>();
-    for (const [ruleId, childIds] of ruleChildren) {
-      if (childIds.length > 0) containerRuleIds.add(ruleId);
-    }
-
-    // Layers: exclude parented nodes (they go inside containers) and container rules (positioned separately)
-    const layers: GraphNodeType[][] = [
-      ['agent'],
-      ['subagent'],
-      ['expert'],
-      ['skill', 'mcp', 'rule'],
-    ];
-
-    const HORIZONTAL_GAP = 280;
-    const VERTICAL_GAP = 200;
-    let y = 50;
-
-    // Build a map of positioned nodes for edge-aware child alignment
-    const positionedNodes = new Map<string, { x: number; y: number }>();
-
-    for (const layerTypes of layers) {
-      const layerNodes = nodes.value.filter(n => {
-        const nt = (n.data as NodeData).nodeType;
-        if (!layerTypes.includes(nt)) return false;
-        // Exclude nodes that will be parented inside a container
-        if (parentedNodeIds.has(n.id)) return false;
-        // Exclude container rules (positioned after their children)
-        if (containerRuleIds.has(n.id)) return false;
-        return true;
-      });
-      if (layerNodes.length === 0) continue;
-
-      // Sort children by their parent's x position to cluster related nodes
-      if (positionedNodes.size > 0) {
-        layerNodes.sort((a, b) => {
-          const aParentX = getParentAverageX(a.id, positionedNodes);
-          const bParentX = getParentAverageX(b.id, positionedNodes);
-          return aParentX - bParentX;
-        });
-      }
-
-      const totalWidth = layerNodes.length * HORIZONTAL_GAP;
-      let x = -(totalWidth / 2) + HORIZONTAL_GAP / 2;
-
-      for (const node of layerNodes) {
-        node.position = { x, y };
-        positionedNodes.set(node.id, { x, y });
-        x += HORIZONTAL_GAP;
-      }
-      y += VERTICAL_GAP;
-    }
-
-    // Position container rules below everything else, centered
-    const containerRules = nodes.value.filter(n => containerRuleIds.has(n.id));
-    if (containerRules.length > 0) {
-      const CONTAINER_GAP = 40;
-      // First pass: apply containers to calculate sizes
-      applyRuleContainers();
-
-      let totalContainerWidth = 0;
-      for (const cr of containerRules) {
-        const w = parseInt(cr.style?.width || '600');
-        totalContainerWidth += w + CONTAINER_GAP;
-      }
-      totalContainerWidth -= CONTAINER_GAP;
-
-      let cx = -(totalContainerWidth / 2);
-      for (const cr of containerRules) {
-        const w = parseInt(cr.style?.width || '600');
-        cr.position = { x: cx, y: y + 40 };
-        positionedNodes.set(cr.id, cr.position);
-        cx += w + CONTAINER_GAP;
-      }
-
-      // Re-apply containers now that positions are set
-      applyRuleContainers();
-    }
-
-    isDirty.value = true;
-    graphVersion.value++;
-  }
-
-  /** Average x of all parent nodes (sources of edges targeting this node). Falls back to 0. */
-  function getParentAverageX(nodeId: string, positionedNodes: Map<string, { x: number; y: number }>): number {
-    const parentEdges = edges.value.filter(e => e.target === nodeId);
-    const parentPositions = parentEdges
-      .map(e => positionedNodes.get(e.source))
-      .filter((p): p is { x: number; y: number } => p != null);
-
-    if (parentPositions.length === 0) return 0;
-    return parentPositions.reduce((sum, p) => sum + p.x, 0) / parentPositions.length;
-  }
-
-  // ─── Serialization ────────────────────────────────────────────────
-
-  function serialize(viewport?: { x: number; y: number; zoom: number }): { nodes: SerializedNode[]; edges: SerializedEdge[]; viewport?: { x: number; y: number; zoom: number } } {
-    return {
-      nodes: nodes.value.map(n => ({
-        id: n.id,
-        type: (n.data as NodeData).nodeType,
-        position: n.position,
-        data: n.data as NodeData,
-        ...(n.parentNode && { parentNode: n.parentNode }),
-        ...(n.extent && { extent: n.extent as string }),
-        ...(n.style && { style: n.style as Record<string, string> }),
-      })),
-      edges: edges.value.map(e => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
-        data: e.data as GraphEdgeData,
-      })),
-      ...(viewport && { viewport }),
-    };
-  }
-
-  function deserialize(config: GraphConfig) {
-    currentGraphId.value = config.id;
-    currentGraphName.value = config.name;
-    savedViewport.value = config.viewport ?? null;
-    nodes.value = config.nodes.map(n => ({
-      id: n.id,
-      type: n.data.nodeType ?? n.type, // data.nodeType is the source of truth
-      position: n.position,
-      data: n.data,
-      ...(n.parentNode && { parentNode: n.parentNode }),
-      ...(n.extent && { extent: n.extent }),
-      ...(n.style && { style: n.style }),
-    }));
-    edges.value = config.edges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.sourceHandle,
-      targetHandle: e.targetHandle,
-      type: 'custom',
-      data: e.data,
-    }));
-    // Backfill description for nodes that have a systemPrompt but empty description (legacy data)
-    for (const n of nodes.value) {
-      const d = n.data as NodeData;
-      if (!d.description && 'systemPrompt' in d) {
-        const prompt = (d as { systemPrompt: string }).systemPrompt;
-        if (prompt?.trim()) {
-          n.data = { ...d, description: summarizePrompt(prompt.trim()) };
-        }
-      }
-    }
-
-    isDirty.value = false;
-    graphVersion.value++;
-  }
-
-  // ─── Persistence ──────────────────────────────────────────────────
-
-  async function fetchGraphList(projectPath: string) {
-    loading.value = true;
-    try {
-      const res = await apiFetch(`/api/graphs?project=${encodeURIComponent(projectPath)}`);
-      if (!res.ok) throw new Error('Failed to fetch graphs');
-      const data = await res.json();
-      graphList.value = data.graphs;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function loadGraph(id: string) {
-    loading.value = true;
-    try {
-      const res = await apiFetch(`/api/graphs/${id}`);
-      if (!res.ok) throw new Error('Failed to load graph');
-      const config: GraphConfig = await res.json();
-      deserialize(config);
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function saveGraph(projectPath: string, viewport?: { x: number; y: number; zoom: number }) {
-    const graphData = serialize(viewport);
-    const method = currentGraphId.value ? 'PUT' : 'POST';
-    const url = currentGraphId.value ? `/api/graphs/${currentGraphId.value}` : '/api/graphs';
-
-    const res = await apiFetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: currentGraphName.value,
-        project: projectPath,
-        graphData,
-      }),
+    runAutoLayout({
+      nodes, edges, isDirty, graphVersion,
+      applyRuleContainers: _applyRuleContainers,
+      getRuleChildrenMap: _getRuleChildrenMap,
     });
-
-    if (!res.ok) throw new Error('Failed to save graph');
-    const saved: GraphConfig = await res.json();
-    currentGraphId.value = saved.id;
-    isDirty.value = false;
-    return saved;
   }
 
-  async function deleteGraph(id: string) {
-    const res = await apiFetch(`/api/graphs/${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) throw new Error('Failed to delete graph');
-    graphList.value = graphList.value.filter(g => g.id !== id);
-    if (currentGraphId.value === id) newGraph();
-  }
+  // ─── Persistence (delegated) ──────────────────────────────────────
+
+  const persistence = createGraphPersistence({
+    nodes, edges, selectedNodeId,
+    currentGraphId, currentGraphName,
+    isDirty, loading, graphList, graphVersion, savedViewport,
+    newGraph, summarizePrompt,
+  });
 
   // ─── AI prompt generation ──────────────────────────────────────────
 
@@ -761,7 +441,6 @@ export const useGraphStore = defineStore('graph', () => {
         updateNodeData(nodeId, { [promptField]: existingPrompt } as Partial<NodeData>);
       } else {
         updateNodeData(nodeId, { [promptField]: accumulated.trim() } as Partial<NodeData>);
-        // Auto-generate description from system prompt
         if (promptField === 'systemPrompt') {
           updateNodeData(nodeId, { description: summarizePrompt(accumulated.trim()) } as Partial<NodeData>);
         }
@@ -780,8 +459,15 @@ export const useGraphStore = defineStore('graph', () => {
     selectedNode, nodeCount, edgeCount, nodesByType,
     addNode, removeNode, updateNodeData, updateNodePosition, selectNode,
     canConnect, getEdgeType, addEdge, removeEdge,
-    fetchGraphList, loadGraph, saveGraph, deleteGraph,
-    newGraph, loadTemplate, importNodes, autoLayout, applyRuleContainers, serialize, deserialize, generatePrompt,
+    fetchGraphList: persistence.fetchGraphList,
+    loadGraph: persistence.loadGraph,
+    saveGraph: persistence.saveGraph,
+    deleteGraph: persistence.deleteGraph,
+    newGraph, loadTemplate, importNodes, autoLayout,
+    applyRuleContainers: _applyRuleContainers,
+    serialize: persistence.serialize,
+    deserialize: persistence.deserialize,
+    generatePrompt,
   };
 });
 

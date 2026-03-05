@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { toast } from 'vue-sonner';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useTasksStore, STATUS_OPTIONS, PRIORITY_OPTIONS, type Task, type TaskStatus, type TaskPriority } from '@/stores/tasks';
 import { useChatStore } from '@/stores/chat';
 import { useConfirmDialog } from '@/composables/useConfirmDialog';
+import { usePrdParser } from '@/composables/tasks/usePrdParser';
+import { useTaskDragDrop } from '@/composables/tasks/useTaskDragDrop';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,8 +35,27 @@ const chat = useChatStore();
 const router = useRouter();
 const { confirm } = useConfirmDialog();
 
+// ── Composables ────────────────────────────────────────────────────────────
+
+const {
+  showPrdDialog, prdText, prdOutput,
+  prdPhase, prdMessages, prdChatInput, prdStreamBuffer,
+  prdChatSessionId, prdFinalizingOutput, prdChatScroll,
+  resetPrdDialog,
+  handleStartPrdChat, handlePrdReply, handleFinalizePrd, handleParsePrd,
+} = usePrdParser({
+  projectPath: () => chat.projectPath,
+  tasksStore: tasks,
+});
+
+const {
+  draggingTaskId, dragOverColumn,
+  onDragStart, onDragEnd, onColumnDragOver, onColumnDragLeave, onColumnDrop,
+} = useTaskDragDrop({ tasksStore: tasks });
+
+// ── Local state ────────────────────────────────────────────────────────────
+
 const showCreateDialog = ref(false);
-const showPrdDialog = ref(false);
 const expandingTaskId = ref<string | null>(null);
 const expandOutput = ref('');
 
@@ -43,24 +63,6 @@ const expandOutput = ref('');
 const newTitle = ref('');
 const newDescription = ref('');
 const newPriority = ref<TaskPriority>('medium');
-
-// PRD form
-const prdText = ref('');
-const prdOutput = ref('');
-
-// PRD chat state
-type PrdPhase = 'input' | 'chat' | 'finalizing';
-const prdPhase = ref<PrdPhase>('input');
-const prdMessages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
-const prdChatInput = ref('');
-const prdStreamBuffer = ref('');
-const prdChatSessionId = ref<string | null>(null);
-const prdFinalizingOutput = ref('');
-const prdChatScroll = ref<HTMLElement | null>(null);
-
-// Drag and drop state
-const draggingTaskId = ref<string | null>(null);
-const dragOverColumn = ref<TaskStatus | null>(null);
 
 // Subtask collapse state
 const collapsedParents = ref<Set<string>>(new Set());
@@ -89,11 +91,7 @@ watch(() => chat.projectPath, (path) => {
   if (path) tasks.fetchTasks(path);
 });
 
-watch(showPrdDialog, (open) => {
-  if (!open) resetPrdDialog();
-});
-
-// ── Create / PRD / Expand ──────────────────────────────────────────────────
+// ── Create / Expand ────────────────────────────────────────────────────────
 
 async function handleCreate() {
   if (!newTitle.value.trim() || !chat.projectPath) return;
@@ -106,102 +104,6 @@ async function handleCreate() {
   newDescription.value = '';
   newPriority.value = 'medium';
   showCreateDialog.value = false;
-}
-
-function scrollPrdToBottom() {
-  nextTick(() => {
-    if (prdChatScroll.value) prdChatScroll.value.scrollTop = prdChatScroll.value.scrollHeight;
-  });
-}
-
-function resetPrdDialog() {
-  prdPhase.value = 'input';
-  prdMessages.value = [];
-  prdChatInput.value = '';
-  prdStreamBuffer.value = '';
-  prdChatSessionId.value = null;
-  prdFinalizingOutput.value = '';
-  prdOutput.value = '';
-}
-
-async function handleStartPrdChat() {
-  if (!prdText.value.trim() || !chat.projectPath) return;
-  const userMessage = 'Please analyze this PRD and describe how you\'d break it into implementation tasks.';
-  prdMessages.value = [{ role: 'user', content: userMessage }];
-  prdStreamBuffer.value = '';
-  prdPhase.value = 'chat';
-  scrollPrdToBottom();
-
-  try {
-    const sid = await tasks.sendPrdMessage(
-      chat.projectPath,
-      userMessage,
-      prdText.value,
-      undefined,
-      (text) => { prdStreamBuffer.value += text; scrollPrdToBottom(); },
-    );
-    prdMessages.value.push({ role: 'assistant', content: prdStreamBuffer.value });
-    prdStreamBuffer.value = '';
-    if (sid) prdChatSessionId.value = sid;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'PRD analysis failed');
-    prdPhase.value = 'input';
-  }
-}
-
-async function handlePrdReply() {
-  const message = prdChatInput.value.trim();
-  if (!message || !chat.projectPath || !prdChatSessionId.value) return;
-  prdChatInput.value = '';
-  prdMessages.value.push({ role: 'user', content: message });
-  prdStreamBuffer.value = '';
-  scrollPrdToBottom();
-
-  try {
-    const sid = await tasks.sendPrdMessage(
-      chat.projectPath,
-      message,
-      undefined,
-      prdChatSessionId.value,
-      (text) => { prdStreamBuffer.value += text; scrollPrdToBottom(); },
-    );
-    prdMessages.value.push({ role: 'assistant', content: prdStreamBuffer.value });
-    prdStreamBuffer.value = '';
-    if (sid) prdChatSessionId.value = sid;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Reply failed');
-  }
-}
-
-async function handleFinalizePrd() {
-  if (!chat.projectPath || !prdChatSessionId.value) return;
-  prdPhase.value = 'finalizing';
-  prdFinalizingOutput.value = '';
-
-  try {
-    await tasks.finalizePrd(
-      chat.projectPath,
-      prdChatSessionId.value,
-      prdText.value,
-      (text) => { prdFinalizingOutput.value += text; },
-    );
-    prdText.value = '';
-    resetPrdDialog();
-    showPrdDialog.value = false;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Task generation failed');
-    prdPhase.value = 'chat';
-  }
-}
-
-async function handleParsePrd() {
-  if (!prdText.value.trim() || !chat.projectPath) return;
-  prdOutput.value = '';
-  await tasks.parsePrd(chat.projectPath, prdText.value, (text) => {
-    prdOutput.value += text;
-  });
-  prdText.value = '';
-  showPrdDialog.value = false;
 }
 
 async function handleExpand(taskId: string) {
@@ -243,55 +145,6 @@ const statusIcon = (status: TaskStatus) => {
   if (status === 'in_progress') return Clock;
   return Circle;
 };
-
-// ── Drag and drop ──────────────────────────────────────────────────────────
-
-function onDragStart(event: DragEvent, task: Task) {
-  if (!event.dataTransfer) return;
-  event.dataTransfer.setData('text/plain', task.id);
-  event.dataTransfer.effectAllowed = 'move';
-  draggingTaskId.value = task.id;
-}
-
-function onDragEnd() {
-  draggingTaskId.value = null;
-  dragOverColumn.value = null;
-}
-
-function onColumnDragOver(event: DragEvent, status: TaskStatus) {
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  dragOverColumn.value = status;
-}
-
-function onColumnDragLeave(event: DragEvent, status: TaskStatus) {
-  const related = event.relatedTarget as HTMLElement | null;
-  const current = event.currentTarget as HTMLElement;
-  if (!related || !current.contains(related)) {
-    if (dragOverColumn.value === status) dragOverColumn.value = null;
-  }
-}
-
-async function onColumnDrop(event: DragEvent, targetStatus: TaskStatus) {
-  event.preventDefault();
-  dragOverColumn.value = null;
-
-  const taskId = event.dataTransfer?.getData('text/plain');
-  if (!taskId) return;
-
-  const task = tasks.getTask(taskId);
-  if (!task) return;
-
-  if (task.status !== targetStatus) {
-    await tasks.updateTask(taskId, { status: targetStatus });
-  }
-
-  const columnTasks = tasks.tasksByStatus[targetStatus].map(t => t.id);
-  if (!columnTasks.includes(taskId)) columnTasks.push(taskId);
-  await tasks.reorderTasks(columnTasks);
-
-  draggingTaskId.value = null;
-}
 
 // ── Subtask collapse ───────────────────────────────────────────────────────
 

@@ -1,406 +1,107 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { ref, nextTick, watch, onMounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
-import { apiFetch } from '@/lib/apiFetch';
-import { useSettingsStore, PERMISSION_OPTIONS, THINKING_OPTIONS, type PermissionMode, type ThinkingMode } from '@/stores/settings';
-import { useProviderStore } from '@/stores/provider';
-import { uuid } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger,
-} from '@/components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
-  Send, Square, Zap, Shield, FileEdit, ClipboardList, Brain, FileText, X, ImagePlus,
-  ChevronsDown, ChevronsUpDown, FileDown, Sparkles, Bug, Eye, Wrench,
-  FileCode, TestTube, Cpu, Paperclip, Plus, Pencil, Trash2, Settings2,
+  Send, Square, Zap, Shield, FileText, X, ImagePlus, Sparkles, Bug, Eye, Wrench,
+  FileCode, TestTube, Paperclip, Plus, Pencil, Trash2,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
-import { exportSession } from '@/composables/useKeyboardShortcuts';
-import { useProviderLogo } from '@/composables/useProviderLogo';
+import ChatStatusBar from './ChatStatusBar.vue';
+
+// Composables
+import { useDraftPersistence } from '@/composables/chat/useDraftPersistence';
+import { useMessageHistory } from '@/composables/chat/useMessageHistory';
+import { useMessageTemplates } from '@/composables/chat/useMessageTemplates';
+import { useSlashCommands } from '@/composables/chat/useSlashCommands';
+import { useFileMentions } from '@/composables/chat/useFileMentions';
+import { useRateLimitParser } from '@/composables/chat/useRateLimitParser';
 
 const MAX_IMAGES = 5;
 const MAX_FILES = 5;
 const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html'];
 
 const chat = useChatStore();
-const settings = useSettingsStore();
-const providerStore = useProviderStore();
-const { activeLogo, getLogoComponent } = useProviderLogo();
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const imageInput = ref<HTMLInputElement | null>(null);
-const selectedCommandIndex = ref(0);
-const mentionedFiles = ref<string[]>([]);
-const fileSuggestions = ref<string[]>([]);
-const selectedFileIndex = ref(0);
 const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]);
 const attachedFiles = ref<{ name: string; content: string; type: string; size: number }[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
 const isDragging = ref(false);
-let fileSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Message history navigation
-const messageHistory = ref<string[]>([]);
-const historyIndex = ref(-1);
-const currentDraft = ref('');
-const isNavigatingHistory = ref(false);
-
-// Message templates
-const showTemplateMenu = ref(false);
-const selectedTemplateIndex = ref(0);
-const templateMenuRef = ref<HTMLElement | null>(null);
-
-// Draft persistence - save/restore typed text per session
-const DRAFT_KEY = 'chat-draft';
-function getDrafts(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-function saveDraft() {
-  const key = chat.sessionId || '_new';
-  const drafts = getDrafts();
-  if (input.value.trim()) {
-    drafts[key] = input.value;
-  } else {
-    delete drafts[key];
-  }
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
-}
-function loadDraft() {
-  const key = chat.sessionId || '_new';
-  const drafts = getDrafts();
-  input.value = drafts[key] || '';
-  nextTick(() => autoResize());
-}
-
-// Message history persistence
-const HISTORY_KEY = 'chat-message-history';
-const MAX_HISTORY = 50;
-
-function getMessageHistory(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveMessageHistory() {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(messageHistory.value));
-}
-
-function addToHistory(message: string) {
-  const trimmed = message.trim();
-  if (!trimmed) return;
-
-  // Remove duplicate if it exists
-  const existing = messageHistory.value.indexOf(trimmed);
-  if (existing !== -1) {
-    messageHistory.value.splice(existing, 1);
-  }
-
-  // Add to the beginning
-  messageHistory.value.unshift(trimmed);
-
-  // Keep only the latest MAX_HISTORY entries
-  if (messageHistory.value.length > MAX_HISTORY) {
-    messageHistory.value = messageHistory.value.slice(0, MAX_HISTORY);
-  }
-
-  saveMessageHistory();
-}
-
-function loadMessageHistory() {
-  messageHistory.value = getMessageHistory();
-}
-
-function resetHistoryNavigation() {
-  historyIndex.value = -1;
-  currentDraft.value = '';
-  isNavigatingHistory.value = false;
-}
-
-function navigateHistory(direction: 'up' | 'down') {
-  if (direction === 'up') {
-    if (historyIndex.value === -1) {
-      // Starting navigation - save current input as draft
-      currentDraft.value = input.value;
-      if (messageHistory.value.length === 0) return;
-      historyIndex.value = 0;
-    } else if (historyIndex.value < messageHistory.value.length - 1) {
-      historyIndex.value++;
-    } else {
-      return; // Already at the oldest message
-    }
-
-    input.value = messageHistory.value[historyIndex.value] || '';
-    isNavigatingHistory.value = true;
-  } else if (direction === 'down') {
-    if (historyIndex.value === -1) return; // Not navigating
-
-    if (historyIndex.value > 0) {
-      historyIndex.value--;
-      input.value = messageHistory.value[historyIndex.value] || '';
-    } else {
-      // Return to draft
-      input.value = currentDraft.value;
-      resetHistoryNavigation();
-    }
-  }
-
-  nextTick(() => {
-    autoResize();
-    // Move cursor to end
-    const el = textarea.value;
-    if (el) {
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  });
-}
-
-// Message Templates System
-interface MessageTemplate {
-  id: string;
-  name: string;
-  text: string;
-  category: string;
-  icon: any;
-  shortcut?: string;
-}
-
-const DEFAULT_TEMPLATES: MessageTemplate[] = [
-  // Debug category
-  { id: 'debug-error', name: 'Debug Error', text: 'Help me debug this error:', category: 'Debug', icon: Bug, shortcut: 'Ctrl+1' },
-  { id: 'debug-explain', name: 'Explain Issue', text: 'Explain what\'s causing this issue and how to fix it:', category: 'Debug', icon: Bug },
-  { id: 'debug-trace', name: 'Trace Problem', text: 'Help me trace through this code to find the problem:', category: 'Debug', icon: Bug },
-
-  // Code Review category
-  { id: 'review-improvements', name: 'Review Code', text: 'Review this code for improvements and best practices:', category: 'Review', icon: Eye, shortcut: 'Ctrl+2' },
-  { id: 'review-security', name: 'Security Check', text: 'Check this code for security vulnerabilities:', category: 'Review', icon: Shield },
-  { id: 'review-performance', name: 'Performance Review', text: 'Analyze this code for performance issues:', category: 'Review', icon: Zap },
-
-  // Refactoring category
-  { id: 'refactor-clean', name: 'Clean Refactor', text: 'Refactor this code to be cleaner and more maintainable:', category: 'Refactor', icon: Wrench, shortcut: 'Ctrl+3' },
-  { id: 'refactor-optimize', name: 'Optimize Code', text: 'Optimize this code for better performance:', category: 'Refactor', icon: Zap },
-  { id: 'refactor-structure', name: 'Restructure', text: 'Help me restructure this code with better architecture:', category: 'Refactor', icon: Wrench },
-
-  // Documentation category
-  { id: 'docs-add', name: 'Add Docs', text: 'Add comprehensive documentation to this code:', category: 'Docs', icon: FileCode, shortcut: 'Ctrl+4' },
-  { id: 'docs-explain', name: 'Explain Code', text: 'Explain how this code works in detail:', category: 'Docs', icon: FileText },
-  { id: 'docs-comments', name: 'Add Comments', text: 'Add helpful comments to this code:', category: 'Docs', icon: FileCode },
-
-  // Testing category
-  { id: 'test-unit', name: 'Unit Tests', text: 'Write comprehensive unit tests for this code:', category: 'Testing', icon: TestTube, shortcut: 'Ctrl+5' },
-  { id: 'test-integration', name: 'Integration Tests', text: 'Help me write integration tests for this feature:', category: 'Testing', icon: TestTube },
-  { id: 'test-edge-cases', name: 'Edge Cases', text: 'What edge cases should I test for this code?', category: 'Testing', icon: TestTube },
-];
-
-const TEMPLATES_KEY = 'chat-message-templates';
-
-function getCustomTemplates(): MessageTemplate[] {
-  try {
-    const stored = localStorage.getItem(TEMPLATES_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomTemplates(templates: MessageTemplate[]) {
-  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
-}
-
-const allTemplates = computed(() => {
-  const custom = getCustomTemplates();
-  return [...DEFAULT_TEMPLATES, ...custom];
-});
-
-const templateCategories = computed(() => {
-  const categories: Record<string, MessageTemplate[]> = {};
-  allTemplates.value.forEach(template => {
-    if (!categories[template.category]) {
-      categories[template.category] = [];
-    }
-    categories[template.category].push(template);
-  });
-  return categories;
-});
-
-function insertTemplate(template: MessageTemplate) {
-  const textToInsert = template.text + (input.value ? ' ' : '');
-  const currentValue = input.value;
+function autoResize() {
   const el = textarea.value;
-
-  if (el) {
-    const start = el.selectionStart || 0;
-    const end = el.selectionEnd || 0;
-
-    // Insert template text at cursor position
-    const newValue = currentValue.slice(0, start) + textToInsert + currentValue.slice(end);
-    input.value = newValue;
-
-    // Set cursor position after inserted text
-    nextTick(() => {
-      const newCursorPos = start + textToInsert.length;
-      el.setSelectionRange(newCursorPos, newCursorPos);
-      el.focus();
-      autoResize();
-    });
-  } else {
-    // Fallback: append to input
-    input.value = currentValue + (currentValue ? ' ' : '') + textToInsert;
-    nextTick(() => {
-      autoResize();
-      textarea.value?.focus();
-    });
-  }
-
-  showTemplateMenu.value = false;
-  selectedTemplateIndex.value = 0;
-
-  // Reset history navigation if active
-  if (isNavigatingHistory.value) {
-    resetHistoryNavigation();
-  }
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
-function handleTemplateKeydown(e: KeyboardEvent) {
-  if (!showTemplateMenu.value) return false;
+// --- Composables setup ---
 
-  const categories = Object.keys(templateCategories.value);
-  const allTemplatesFlat = Object.values(templateCategories.value).flat();
+const { saveDraft, loadDraft, clearDraft } = useDraftPersistence(
+  input,
+  () => chat.sessionId,
+  autoResize,
+);
 
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    selectedTemplateIndex.value = Math.min(selectedTemplateIndex.value + 1, allTemplatesFlat.length - 1);
-    return true;
-  }
+const {
+  messageHistory,
+  historyIndex,
+  currentDraft,
+  isNavigatingHistory,
+  addToHistory,
+  loadMessageHistory,
+  resetHistoryNavigation,
+  navigateHistory,
+} = useMessageHistory(input, textarea, autoResize);
 
-  if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    selectedTemplateIndex.value = Math.max(selectedTemplateIndex.value - 1, 0);
-    return true;
-  }
+const {
+  showTemplateMenu,
+  selectedTemplateIndex,
+  templateMenuRef,
+  showTemplateDialog,
+  editingTemplate,
+  templateForm,
+  allTemplates,
+  templateCategories,
+  customTemplates,
+  insertTemplate,
+  handleTemplateKeydown,
+  handleTemplateShortcuts,
+  openNewTemplate,
+  openEditTemplate,
+  saveTemplate,
+  deleteTemplate,
+  isCustomTemplate,
+  closeTemplateMenu,
+} = useMessageTemplates(input, textarea, autoResize, resetHistoryNavigation, isNavigatingHistory);
 
-  if (e.key === 'Enter' || e.key === 'Tab') {
-    e.preventDefault();
-    const template = allTemplatesFlat[selectedTemplateIndex.value];
-    if (template) {
-      insertTemplate(template);
-    }
-    return true;
-  }
+const {
+  selectedCommandIndex,
+  slashCommands,
+  showCommandMenu,
+  filteredCommands,
+} = useSlashCommands(input, closeTemplateMenu);
 
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    showTemplateMenu.value = false;
-    selectedTemplateIndex.value = 0;
-    return true;
-  }
+const {
+  mentionedFiles,
+  fileSuggestions,
+  selectedFileIndex,
+  mentionQuery,
+  showFileMenu,
+  selectFileMention,
+  removeFileMention,
+} = useFileMentions(input, textarea, showCommandMenu, closeTemplateMenu);
 
-  return false;
-}
+const { rateLimitCountdown } = useRateLimitParser();
 
-// Handle keyboard shortcuts for templates
-function handleTemplateShortcuts(e: KeyboardEvent): boolean {
-  if (e.ctrlKey && !e.shiftKey && !e.altKey) {
-    const shortcuts: Record<string, string> = {
-      '1': 'debug-error',
-      '2': 'review-improvements',
-      '3': 'refactor-clean',
-      '4': 'docs-add',
-      '5': 'test-unit',
-    };
+// --- Watchers ---
 
-    const templateId = shortcuts[e.key];
-    if (templateId) {
-      const template = allTemplates.value.find(t => t.id === templateId);
-      if (template) {
-        e.preventDefault();
-        insertTemplate(template);
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-// Click outside handler for template menu
-function handleClickOutside(event: MouseEvent) {
-  if (showTemplateMenu.value && templateMenuRef.value && !templateMenuRef.value.contains(event.target as Node)) {
-    showTemplateMenu.value = false;
-    selectedTemplateIndex.value = 0;
-  }
-}
-
-// Template management dialog
-const showTemplateDialog = ref(false);
-const editingTemplate = ref<MessageTemplate | null>(null);
-const templateForm = ref({ name: '', text: '', category: '' });
-
-const customTemplates = computed(() => getCustomTemplates());
-
-function openNewTemplate() {
-  editingTemplate.value = null;
-  templateForm.value = { name: '', text: '', category: 'Custom' };
-  showTemplateMenu.value = false;
-  showTemplateDialog.value = true;
-}
-
-function openEditTemplate(template: MessageTemplate) {
-  editingTemplate.value = template;
-  templateForm.value = { name: template.name, text: template.text, category: template.category };
-  showTemplateMenu.value = false;
-  showTemplateDialog.value = true;
-}
-
-function saveTemplate() {
-  const { name, text, category } = templateForm.value;
-  if (!name.trim() || !text.trim()) return;
-
-  const customs = getCustomTemplates();
-  if (editingTemplate.value) {
-    const idx = customs.findIndex(t => t.id === editingTemplate.value!.id);
-    if (idx >= 0) {
-      customs[idx] = { ...customs[idx]!, name: name.trim(), text: text.trim(), category: category.trim() || 'Custom' };
-    }
-  } else {
-    customs.push({
-      id: `custom-${Date.now()}`,
-      name: name.trim(),
-      text: text.trim(),
-      category: category.trim() || 'Custom',
-      icon: Sparkles,
-    });
-  }
-  saveCustomTemplates(customs);
-  showTemplateDialog.value = false;
-}
-
-function deleteTemplate(id: string) {
-  const customs = getCustomTemplates().filter(t => t.id !== id);
-  saveCustomTemplates(customs);
-}
-
-function isCustomTemplate(template: MessageTemplate) {
-  return template.id.startsWith('custom-');
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
-});
 // Auto-save draft on input change (debounced via watch)
 watch(input, () => {
   // Reset history navigation when user types
@@ -408,10 +109,7 @@ watch(input, () => {
     resetHistoryNavigation();
   }
   // Close template menu when user types (if it's open)
-  if (showTemplateMenu.value) {
-    showTemplateMenu.value = false;
-    selectedTemplateIndex.value = 0;
-  }
+  closeTemplateMenu();
   saveDraft();
 });
 // Restore draft when session changes
@@ -437,201 +135,12 @@ onMounted(() => {
   loadMessageHistory();
 });
 
-// Rate limit countdown — ticks every second to update remaining time display
-const rateLimitCountdown = ref('');
-let rateLimitInterval: ReturnType<typeof setInterval> | null = null;
-
-function updateRateLimitCountdown() {
-  if (!(chat?.isRateLimited ?? false)) {
-    rateLimitCountdown.value = '';
-    if (rateLimitInterval) {
-      clearInterval(rateLimitInterval);
-      rateLimitInterval = null;
-    }
-    return;
-  }
-  const remaining = chat?.rateLimitRemainingMs ?? 0;
-  const hours = Math.floor(remaining / 3600000);
-  const minutes = Math.floor((remaining % 3600000) / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
-  if (hours > 0) {
-    rateLimitCountdown.value = `${hours}h ${minutes}m ${seconds}s`;
-  } else if (minutes > 0) {
-    rateLimitCountdown.value = `${minutes}m ${seconds}s`;
-  } else {
-    rateLimitCountdown.value = `${seconds}s`;
-  }
-}
-
-watch(() => chat?.isRateLimited ?? false, (limited) => {
-  if (limited) {
-    updateRateLimitCountdown();
-    rateLimitInterval = setInterval(updateRateLimitCountdown, 1000);
-  } else {
-    rateLimitCountdown.value = '';
-    if (rateLimitInterval) {
-      clearInterval(rateLimitInterval);
-      rateLimitInterval = null;
-    }
-  }
-}, { immediate: true });
-
-onUnmounted(() => {
-  if (rateLimitInterval) clearInterval(rateLimitInterval);
-});
+// --- Emit & event handlers ---
 
 const emit = defineEmits<{
   send: [message: string, images?: { name: string; dataUrl: string }[]];
   abort: [];
 }>();
-
-interface SlashCommand {
-  name: string;
-  description: string;
-  action: () => void;
-}
-
-const slashCommands: SlashCommand[] = [
-  { name: '/clear', description: 'Clear current conversation', action: () => { chat.clearMessages(); input.value = ''; } },
-  { name: '/model', description: 'Switch to next model', action: () => {
-    const models = providerStore.activeModels.map(m => m.id);
-    const idx = models.indexOf(settings.model);
-    settings.model = models[(idx + 1) % models.length]!;
-    settings.save();
-    chat.addMessage({ id: uuid(), role: 'system', content: `Model switched to ${settings.modelLabel}`, timestamp: Date.now() });
-    input.value = '';
-  }},
-  { name: '/think', description: 'Toggle thinking mode (Standard/Think/Think Hard)', action: () => {
-    const modes = THINKING_OPTIONS.map(t => t.value);
-    const idx = modes.indexOf(settings.thinkingMode);
-    settings.thinkingMode = modes[(idx + 1) % modes.length] as ThinkingMode;
-    settings.save();
-    chat.addMessage({ id: uuid(), role: 'system', content: `Thinking mode: ${settings.thinkingLabel}`, timestamp: Date.now() });
-    input.value = '';
-  }},
-  { name: '/permission', description: 'Toggle permission mode', action: () => {
-    const modes = PERMISSION_OPTIONS.map(p => p.value);
-    const idx = modes.indexOf(settings.permissionMode);
-    settings.permissionMode = modes[(idx + 1) % modes.length] as PermissionMode;
-    settings.save();
-    chat.addMessage({ id: uuid(), role: 'system', content: `Permission mode: ${settings.permissionLabel}`, timestamp: Date.now() });
-    input.value = '';
-  }},
-  { name: '/status', description: 'Show current session info', action: () => {
-    const lines = [
-      `Model: ${settings.modelLabel}`,
-      `Thinking: ${settings.thinkingLabel}`,
-      `Permission: ${settings.permissionLabel}`,
-      `Messages: ${chat.messages.length}`,
-      `Context: ${chat.contextPercent}%`,
-      chat.usage.totalCost > 0 ? `Cost: $${chat.usage.totalCost.toFixed(4)}` : '',
-    ].filter(Boolean);
-    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
-    input.value = '';
-  }},
-  { name: '/cost', description: 'Show token usage and cost', action: () => {
-    const lines = [
-      `Input tokens: ${formatTokens(chat.usage.inputTokens)}`,
-      `Output tokens: ${formatTokens(chat.usage.outputTokens)}`,
-      `Context: ${chat.contextPercent}% used`,
-      `Total cost: $${chat.usage.totalCost.toFixed(4)}`,
-    ];
-    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
-    input.value = '';
-  }},
-  { name: '/help', description: 'Show available commands', action: () => {
-    const lines = slashCommands.map(c => `${c.name} — ${c.description}`);
-    chat.addMessage({ id: uuid(), role: 'system', content: lines.join('\n'), timestamp: Date.now() });
-    input.value = '';
-  }},
-];
-
-const showCommandMenu = computed(() => {
-  return input.value.startsWith('/') && !input.value.includes(' ');
-});
-
-const filteredCommands = computed(() => {
-  if (!showCommandMenu.value) return [];
-  const q = input.value.toLowerCase();
-  return slashCommands.filter(c => c.name.startsWith(q));
-});
-
-watch(showCommandMenu, (show) => {
-  if (show) {
-    selectedCommandIndex.value = 0;
-    // Close template menu when command menu opens
-    if (showTemplateMenu.value) {
-      showTemplateMenu.value = false;
-      selectedTemplateIndex.value = 0;
-    }
-  }
-});
-
-// File mention system (@file autocomplete)
-const mentionQuery = computed(() => {
-  if (showCommandMenu.value) return null;
-  const el = textarea.value;
-  if (!el) return null;
-  const pos = el.selectionStart;
-  const text = input.value.slice(0, pos);
-  const atIdx = text.lastIndexOf('@');
-  if (atIdx === -1) return null;
-  // Must be start of line or after whitespace
-  if (atIdx > 0 && !/\s/.test(text[atIdx - 1]!)) return null;
-  const query = text.slice(atIdx + 1);
-  // Stop if there's whitespace after the @ (mention already complete)
-  if (/\s/.test(query)) return null;
-  return { query, start: atIdx };
-});
-
-const showFileMenu = computed(() => {
-  return mentionQuery.value !== null && mentionQuery.value.query.length >= 1 && fileSuggestions.value.length > 0;
-});
-
-// Close template menu when file menu opens
-watch(showFileMenu, (show) => {
-  if (show && showTemplateMenu.value) {
-    showTemplateMenu.value = false;
-    selectedTemplateIndex.value = 0;
-  }
-});
-
-watch(mentionQuery, (mq) => {
-  if (fileSearchTimer) clearTimeout(fileSearchTimer);
-  if (!mq || mq.query.length < 1) {
-    fileSuggestions.value = [];
-    return;
-  }
-  fileSearchTimer = setTimeout(async () => {
-    if (!chat.projectPath) return;
-    try {
-      const res = await apiFetch(
-        `/api/files/search?root=${encodeURIComponent(chat.projectPath)}&q=${encodeURIComponent(mq.query)}`,
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      fileSuggestions.value = (data.files || []).filter((f: string) => !mentionedFiles.value.includes(f));
-      selectedFileIndex.value = 0;
-    } catch { /* ignore */ }
-  }, 200);
-});
-
-function selectFileMention(filePath: string) {
-  if (!mentionedFiles.value.includes(filePath)) {
-    mentionedFiles.value.push(filePath);
-  }
-  // Remove the @query from input
-  const mq = mentionQuery.value;
-  if (mq) {
-    input.value = input.value.slice(0, mq.start) + input.value.slice(mq.start + 1 + mq.query.length);
-  }
-  fileSuggestions.value = [];
-  nextTick(() => textarea.value?.focus());
-}
-
-function removeFileMention(filePath: string) {
-  mentionedFiles.value = mentionedFiles.value.filter(f => f !== filePath);
-}
 
 // Image attachment functions
 function addImageFiles(files: FileList | File[]) {
@@ -756,14 +265,11 @@ function handleVoiceTranscript(text: string, mode: string) {
   });
 }
 
-function executeCommand(cmd: SlashCommand) {
+function executeCommand(cmd: { action: () => void }) {
   // Clear draft for the current session before the command runs,
   // otherwise the command text (e.g. "/clear") gets persisted and
   // reappears when navigating back to this session.
-  const key = chat.sessionId || '_new';
-  const drafts = getDrafts();
-  delete drafts[key];
-  localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts));
+  clearDraft();
 
   // Reset history navigation
   resetHistoryNavigation();
@@ -929,36 +435,6 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-function autoResize() {
-  const el = textarea.value;
-  if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toString();
-}
-
-const permissionIcons: Record<string, typeof Zap> = {
-  bypassPermissions: Zap,
-  acceptEdits: FileEdit,
-  plan: ClipboardList,
-  default: Shield,
-};
-
-const effectivePermissionLabel = computed(() =>
-  chat.inPlanMode ? 'Plan Mode' : settings.permissionLabel
-);
-
-const effectivePermissionIcon = computed(() =>
-  chat.inPlanMode ? ClipboardList : (permissionIcons[settings.permissionMode] || Shield)
-);
-
-// All modes use --primary which is overridden per mode via chat-mode-* CSS classes
-const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
 </script>
 
 <template>
@@ -968,173 +444,7 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       ? 'border-red-500/50 bg-red-950/30'
       : 'border-border bg-background'"
   >
-    <!-- Status bar: model, permission, context -->
-    <TooltipProvider :delay-duration="300">
-      <div class="mb-1 sm:mb-2 flex flex-wrap items-center justify-center gap-0.5 sm:gap-1 md:gap-2">
-        <!-- Provider selector (only shown when multiple configured providers are available) -->
-        <Select
-          v-if="providerStore.configuredProviders.length > 1"
-          :model-value="providerStore.activeProviderId"
-          @update:model-value="(v: any) => providerStore.setDefaultProvider(v)"
-        >
-          <SelectTrigger
-            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
-            :title="`Provider: ${providerStore.activeProvider.name}`"
-          >
-            <component :is="activeLogo" class="h-3 w-3" />
-            <span class="hidden sm:inline">{{ providerStore.activeProvider.name }}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="p in providerStore.configuredProviders"
-              :key="p.id"
-              :value="p.id"
-            >
-              <div class="flex items-center gap-2">
-                <component :is="getLogoComponent(p.icon)" :size="14" class="shrink-0" />
-                <div>
-                  <div class="text-sm">{{ p.name }}</div>
-                  <div class="text-xs text-muted-foreground">{{ p.description }}</div>
-                </div>
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <!-- Model selector -->
-        <Select :model-value="settings.model" :disabled="!providerStore.supportsModelSelection" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
-          <SelectTrigger
-            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
-            :class="{ 'opacity-50 cursor-not-allowed': !providerStore.supportsModelSelection }"
-            :title="providerStore.supportsModelSelection ? settings.modelLabel : settings.modelLabel + ' (model selection not available for this provider)'"
-          >
-            <Cpu class="h-3 w-3 sm:hidden" />
-            <span class="hidden sm:inline">{{ settings.modelLabel }}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              v-for="m in providerStore.activeModels"
-              :key="m.id"
-              :value="m.id"
-              :disabled="providerStore.activeFailedModelIds.has(m.id)"
-              :class="providerStore.activeFailedModelIds.has(m.id) ? 'bg-red-500/10 data-[highlighted]:bg-red-500/15 opacity-60' : ''"
-            >
-              <div>
-                <div class="text-sm" :class="providerStore.activeFailedModelIds.has(m.id) ? 'text-red-400' : ''">{{ m.label }}</div>
-                <div class="text-xs text-muted-foreground">{{ m.description }}</div>
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <!-- Permission mode -->
-        <Select :model-value="settings.permissionMode" @update:model-value="(v: any) => { settings.permissionMode = v; settings.save(); if (v !== 'plan') chat.inPlanMode = false; }">
-          <SelectTrigger
-            class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] transition-colors shrink-0"
-            :class="permissionColorClass"
-            :title="effectivePermissionLabel"
-          >
-            <component :is="effectivePermissionIcon" class="h-3 w-3" />
-            <span class="hidden sm:inline">{{ effectivePermissionLabel }}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="p in PERMISSION_OPTIONS.filter(o => providerStore.activeCapabilities.supportedPermissionModes.includes(o.value))" :key="p.value" :value="p.value">
-              <div class="flex items-center gap-2">
-                <span>{{ p.icon }}</span>
-                <div>
-                  <div class="text-sm">{{ p.label }}</div>
-                  <div class="text-xs text-muted-foreground">{{ p.description }}</div>
-                </div>
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <!-- Thinking mode (hidden when provider doesn't support it) -->
-        <Select v-if="providerStore.supportsThinking" :model-value="settings.thinkingMode" @update:model-value="(v: any) => { settings.thinkingMode = v; settings.save(); }">
-          <SelectTrigger class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0" :title="settings.thinkingLabel">
-            <Brain class="h-3 w-3" />
-            <span class="hidden sm:inline">{{ settings.thinkingLabel }}</span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="t in THINKING_OPTIONS" :key="t.value" :value="t.value">
-              <div>
-                <div class="text-sm">{{ t.label }}</div>
-                <div class="text-xs text-muted-foreground">{{ t.description }}</div>
-              </div>
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <!-- Context usage (progress bar) — hidden when provider doesn't report token usage -->
-        <Tooltip v-if="chat.usage.inputTokens > 0 || chat.usage.outputTokens > 0 || chat.messages.length === 0">
-          <TooltipTrigger as-child>
-            <div class="flex h-8 sm:h-auto items-center gap-1.5 rounded-md bg-muted/50 px-2 py-0.5 cursor-default shrink-0">
-              <span class="text-[10px] tabular-nums text-muted-foreground">
-                {{ chat.contextPercent }}%
-              </span>
-              <div class="h-1.5 w-12 sm:w-16 overflow-hidden rounded-full bg-muted">
-                <div
-                  class="h-full rounded-full transition-all duration-300"
-                  :class="chat.contextPercent > 80 ? 'bg-destructive' : chat.contextPercent > 50 ? 'bg-yellow-500' : 'bg-primary'"
-                  :style="{ width: `${Math.max(chat.contextPercent, 2)}%` }"
-                />
-              </div>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <div class="space-y-1.5 text-xs">
-              <div class="flex items-center gap-1.5">
-                <span class="inline-block h-2 w-2 rounded-full bg-primary" />
-                Input: {{ formatTokens(chat.usage.inputTokens) }} tokens
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span class="inline-block h-2 w-2 rounded-full bg-violet-500" />
-                Output: {{ formatTokens(chat.usage.outputTokens) }} tokens
-              </div>
-              <div class="border-t border-border pt-1">Context: {{ chat.contextPercent }}% used</div>
-              <div v-if="chat.lastResponseMs">Last: {{ (chat.lastResponseMs / 1000).toFixed(1) }}s</div>
-              <div v-if="chat.tokensPerMin > 0">Rate: {{ formatTokens(chat.tokensPerMin) }}/min</div>
-              <div v-if="chat.usage.totalCost > 0">Cost: ${{ chat.usage.totalCost.toFixed(4) }}</div>
-              <div v-if="chat.sessionDurationMin > 0" class="border-t border-border pt-1 text-muted-foreground">Session: {{ chat.sessionDurationMin }}min</div>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-
-        <!-- Export session -->
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <button
-              class="hidden sm:flex h-8 sm:h-6 items-center gap-1 rounded-md bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              :disabled="chat.messages.length === 0"
-              @click="exportSession"
-            >
-              <FileDown class="h-3 w-3" />
-              <span class="hidden sm:inline">Export</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Export session as Markdown (Ctrl+Shift+E)</TooltipContent>
-        </Tooltip>
-
-        <!-- Auto-scroll toggle -->
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <button
-              class="hidden sm:flex h-8 sm:h-6 items-center gap-1 rounded-md px-2 text-[11px] transition-colors shrink-0"
-              :class="chat.autoScroll
-                ? 'bg-primary/15 text-primary hover:bg-primary/25'
-                : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'"
-              @click="chat.autoScroll = !chat.autoScroll"
-            >
-              <ChevronsDown v-if="chat.autoScroll" class="h-3 w-3" />
-              <ChevronsUpDown v-else class="h-3 w-3" />
-              <span class="hidden sm:inline">{{ chat.autoScroll ? 'Auto-scroll' : 'Scroll locked' }}</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{{ chat.autoScroll ? 'Auto-scroll enabled — click to disable' : 'Auto-scroll disabled — click to enable' }}</TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
+    <ChatStatusBar />
 
     <!-- Slash command menu -->
     <Transition name="scale-fade">

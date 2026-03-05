@@ -3,6 +3,8 @@ import { ref, computed, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import { apiFetch } from '@/lib/apiFetch';
 import { useProviderStore } from '@/stores/provider';
+import { useLoginFlow } from '@/composables/settings/useLoginFlow';
+import { useProviderTest } from '@/composables/settings/useProviderTest';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -32,120 +34,8 @@ const providerStore = useProviderStore();
 const apiKey = ref('');
 const selectedEnvVar = ref('');
 const saving = ref(false);
-const testing = ref(false);
 const deleting = ref<string | null>(null);  // envVarName being deleted
 const configuredKeys = ref<Record<string, string>>({});  // masked values
-
-// ─── Login flow state (for Kiro-style device code auth) ──────────────────
-const loginLoading = ref(false);
-const loginUrl = ref<string | null>(null);
-const loginDeviceCode = ref<string | null>(null);
-const loginMessage = ref('');
-const loginDone = ref(false);
-const loginStep = ref<'choose' | 'waiting'>('choose');
-// Pro (Identity Center) fields
-const idcStartUrl = ref('');
-const idcRegion = ref('us-east-1');
-
-async function startLoginFlow(license: 'free' | 'pro') {
-  if (!props.provider || loginLoading.value) return;
-  loginLoading.value = true;
-  loginUrl.value = null;
-  loginDeviceCode.value = null;
-  loginMessage.value = 'Starting login...';
-  loginDone.value = false;
-  loginStep.value = 'waiting';
-
-  try {
-    const body: Record<string, string> = { license };
-    if (license === 'pro') {
-      if (idcStartUrl.value.trim()) body.identityProvider = idcStartUrl.value.trim();
-      if (idcRegion.value.trim()) body.region = idcRegion.value.trim();
-    }
-
-    const res = await apiFetch(`/api/providers/${props.provider.id}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json() as {
-      success: boolean;
-      output?: string;
-      loginUrl?: string;
-      deviceCode?: string;
-      message?: string;
-    };
-
-    if (!data.success && !data.loginUrl) {
-      // Login failed (e.g. invalid identity provider URL) — stay on choose step
-      loginStep.value = 'choose';
-      const rawError = (data.output || data.message || '').trim();
-      loginMessage.value = rawError.includes('dispatch failure')
-        ? 'Login failed. Check your Identity Center Start URL and region, then try again.'
-        : rawError || 'Login failed.';
-      toast.error(loginMessage.value);
-      return;
-    }
-
-    loginUrl.value = data.loginUrl || null;
-    loginDeviceCode.value = data.deviceCode || null;
-    loginMessage.value = data.message || data.output || '';
-
-    if (data.loginUrl) {
-      window.open(data.loginUrl, '_blank');
-    }
-
-    if (data.success && !data.loginUrl) {
-      loginDone.value = true;
-      toast.success(`${props.provider.name} authenticated!`);
-      await providerStore.fetchProviders();
-      emit('configured', true, []);
-    }
-  } catch (err) {
-    loginStep.value = 'choose';
-    loginMessage.value = err instanceof Error ? err.message : 'Login failed';
-    toast.error(`Failed to start ${props.provider?.name} login`);
-  } finally {
-    loginLoading.value = false;
-  }
-}
-
-async function checkLoginStatus() {
-  if (!props.provider) return;
-  loginLoading.value = true;
-  loginMessage.value = 'Checking authentication...';
-
-  try {
-    await providerStore.fetchProviders();
-    const updated = providerStore.providers.find(p => p.id === props.provider!.id);
-    if (updated?.configured) {
-      loginDone.value = true;
-      loginMessage.value = 'Authentication successful!';
-      toast.success(`${props.provider.name} authenticated!`);
-      emit('configured', true, []);
-    } else {
-      loginMessage.value = 'Not authenticated yet. Complete the login in your browser, then click "Check again".';
-    }
-  } catch {
-    loginMessage.value = 'Failed to check status.';
-  } finally {
-    loginLoading.value = false;
-  }
-}
-
-interface TestResult {
-  label: string;
-  envVarName: string;
-  modelId?: string;  // set when this row represents an individual model test
-  status: 'pending' | 'running' | 'success' | 'error' | 'unconfigured';
-  message: string;
-}
-
-const testResults = ref<TestResult[]>([]);
-const showResults = computed(() => testResults.value.length > 0);
-
-// Tracks last test outcome per envVarName: 'ok' | 'error' | 'untested'
-const keyStatuses = ref<Record<string, 'ok' | 'error' | 'untested'>>({});
 
 // ─── Per-provider setup config ──────────────────────────────────────────
 
@@ -273,6 +163,29 @@ const setup = computed<ProviderSetup | null>(() =>
   props.provider ? (PROVIDER_SETUPS[props.provider.id] ?? null) : null
 );
 
+// ─── Login flow composable ──────────────────────────────────────────────
+
+const {
+  loginLoading, loginUrl, loginDeviceCode, loginMessage, loginDone, loginStep,
+  idcStartUrl, idcRegion,
+  startLoginFlow, checkLoginStatus, resetLoginFlow,
+} = useLoginFlow({
+  getProviderId: () => props.provider?.id,
+  getProviderName: () => props.provider?.name,
+  onAuthenticated: (anySuccess, failedModelIds) => emit('configured', anySuccess, failedModelIds),
+});
+
+// ─── Provider test composable ───────────────────────────────────────────
+
+const {
+  testResults, testing, showResults, keyStatuses,
+  runTests, clearResults, resetKeyStatuses,
+} = useProviderTest({
+  getSetup: () => setup.value,
+});
+
+// ─── Computed helpers ───────────────────────────────────────────────────
+
 const activeEnvVarOption = computed<EnvVarOption | null>(() => {
   if (!setup.value) return null;
   if (setup.value.envVar) return setup.value.envVar;
@@ -325,10 +238,10 @@ watch(() => props.provider?.id, (newId, oldId) => {
   // Only reset keyStatuses when switching to a different provider,
   // not on object-reference changes caused by fetchProviders() refreshes
   if (newId !== oldId) {
-    keyStatuses.value = {};
+    resetKeyStatuses();
   }
   apiKey.value = '';
-  testResults.value = [];
+  clearResults();
   configuredKeys.value = {};
   if (setup.value?.envVarOptions) {
     selectedEnvVar.value = setup.value.envVarOptions[0]?.name ?? '';
@@ -338,14 +251,9 @@ watch(() => props.provider?.id, (newId, oldId) => {
 watch(open, (isOpen) => {
   if (isOpen) {
     fetchConfiguredKeys();
-    // Reset login flow state
-    loginStep.value = 'choose';
-    loginUrl.value = null;
-    loginDeviceCode.value = null;
-    loginMessage.value = '';
-    loginDone.value = false;
+    resetLoginFlow();
   } else {
-    testResults.value = [];
+    clearResults();
     apiKey.value = '';
     // keyStatuses intentionally kept so badge color persists across re-opens
   }
@@ -371,102 +279,12 @@ async function deleteKey(envVarName: string) {
     await providerStore.fetchProviders();
     await fetchConfiguredKeys();
     // If we deleted the only key, clear any test results
-    if (!hasAnyConfiguredKey.value) testResults.value = [];
+    if (!hasAnyConfiguredKey.value) clearResults();
   } catch {
     toast.error('Failed to remove key');
   } finally {
     deleting.value = null;
   }
-}
-
-// ─── Run tests (shared by "Save & Test" and "Test" button) ───────────────
-
-async function runTests(
-  providerId: string,
-  providerName: string,
-): Promise<{ anySuccess: boolean; failedModelIds: string[] }> {
-  const backends: Array<{ label: string; envVarName?: string }> = [];
-  if (setup.value?.envVarOptions) {
-    for (const opt of setup.value.envVarOptions) {
-      backends.push({ label: opt.label, envVarName: opt.name });
-    }
-  } else {
-    backends.push({ label: providerName });
-  }
-
-  testResults.value = backends.map(b => ({
-    label: b.label,
-    envVarName: b.envVarName ?? '',
-    status: 'pending' as const,
-    message: '',
-  }));
-
-  testing.value = true;
-  let anySuccess = false;
-  const failedModelIds: string[] = [];
-  let rowIdx = 0;
-
-  for (const backend of backends) {
-    testResults.value[rowIdx]!.status = 'running';
-    const testBody: Record<string, string> = {};
-    if (backend.envVarName) testBody.envVarName = backend.envVarName;
-
-    try {
-      const testRes = await apiFetch(`/api/providers/${providerId}/test`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(testBody),
-      });
-      const testData = await testRes.json() as {
-        success: boolean;
-        message: string;
-        models?: Array<{ id: string; label: string; success: boolean; message: string }>;
-      };
-
-      const envVarName = backend.envVarName ?? '';
-      const isUnconfigured = !testData.success && /no api key/i.test(testData.message);
-      const modelList = testData.models ?? [];
-
-      if (modelList.length > 1) {
-        // Per-model results (e.g. Gemini) — expand this placeholder row into one row per model
-        const modelRows: TestResult[] = modelList.map(m => ({
-          label: m.label,
-          envVarName,
-          modelId: m.id,
-          status: (isUnconfigured ? 'unconfigured' : m.success ? 'success' : 'error') as TestResult['status'],
-          message: m.message,
-        }));
-        testResults.value.splice(rowIdx, 1, ...modelRows);
-        rowIdx += modelList.length;
-        for (const m of modelList) {
-          if (!m.success && !isUnconfigured) failedModelIds.push(m.id);
-        }
-      } else {
-        // Single result (connection test or no models list)
-        testResults.value[rowIdx]!.status = isUnconfigured ? 'unconfigured' : testData.success ? 'success' : 'error';
-        testResults.value[rowIdx]!.message = modelList[0]?.message ?? testData.message;
-        rowIdx++;
-      }
-
-      // Update key badge status: envVar is set for multi-backend; fall back to setup.envVar for single
-      const envVar = envVarName || setup.value?.envVar?.name || '';
-      if (!isUnconfigured && envVar) {
-        keyStatuses.value[envVar] = testData.success ? 'ok' : 'error';
-      }
-      if (testData.success) anySuccess = true;
-    } catch (err) {
-      testResults.value[rowIdx]!.status = 'error';
-      testResults.value[rowIdx]!.message = err instanceof Error ? err.message : 'Request failed';
-      const envVar = backend.envVarName || setup.value?.envVar?.name || '';
-      if (envVar) keyStatuses.value[envVar] = 'error';
-      rowIdx++;
-    }
-  }
-
-  testing.value = false;
-  return { anySuccess, failedModelIds };
 }
 
 // ─── Test existing key without saving ───────────────────────────────────
@@ -482,7 +300,7 @@ async function testOnly() {
 async function save() {
   if (!props.provider || !apiKey.value.trim() || !activeEnvVarOption.value) return;
   saving.value = true;
-  testResults.value = [];
+  clearResults();
 
   const providerId = props.provider.id;
   const providerName = props.provider.name;
@@ -515,7 +333,6 @@ async function save() {
     toast.error(err instanceof Error ? err.message : 'Network error');
   } finally {
     saving.value = false;
-    testing.value = false;
   }
 }
 </script>
@@ -877,7 +694,7 @@ async function save() {
 
           <!-- Results mode -->
           <template v-if="showResults">
-            <Button variant="outline" size="sm" :disabled="testing" @click="testResults = []">
+            <Button variant="outline" size="sm" :disabled="testing" @click="clearResults()">
               Back
             </Button>
             <Button size="sm" :disabled="testing" @click="open = false">

@@ -15,6 +15,9 @@ import {
   MessageSquare, Plus,
   Clock, RefreshCw, Trash2, Search, ArrowUpDown, Loader2,
 } from 'lucide-vue-next';
+import { useProviderLogo } from '@/composables/useProviderLogo';
+
+const { getLogoForProviderId } = useProviderLogo();
 
 interface SessionItem {
   id: string;
@@ -24,6 +27,7 @@ interface SessionItem {
   messageCount: number;
   lastActive: number;
   isStreaming?: boolean;
+  provider?: string;
 }
 
 const chat = useChatStore();
@@ -376,6 +380,11 @@ onUnmounted(() => {
         @click="resumeSession(session)"
       >
         <Loader2 v-if="session.isStreaming || (chat.isStreaming && session.id === sidebarSessionId)" class="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <component
+          v-else-if="session.provider && session.provider !== 'claude'"
+          :is="getLogoForProviderId(session.provider)"
+          class="mt-0.5 h-3.5 w-3.5 shrink-0"
+        />
         <MessageSquare v-else class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <div class="min-w-0 flex-1">
           <p class="truncate text-xs text-foreground" :title="session.title">{{ session.title }}</p>

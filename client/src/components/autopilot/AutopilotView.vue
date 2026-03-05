@@ -40,7 +40,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col">
+  <div data-testid="autopilot-view" class="flex h-full flex-col">
     <!-- Desktop layout -->
     <template v-if="!isMobile">
       <div class="flex-1 overflow-hidden">

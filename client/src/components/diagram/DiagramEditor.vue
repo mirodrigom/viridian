@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue';
-import { VueFlow, useVueFlow, MarkerType, SelectionMode } from '@vue-flow/core';
+import { ref, computed } from 'vue';
+import { VueFlow, useVueFlow, SelectionMode } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
 import { Background } from '@vue-flow/background';
-import type { Connection, NodeDragEvent } from '@vue-flow/core';
-import { useDiagramsStore, type DiagramNodeType, type DiagramEdgeData } from '@/stores/diagrams';
-import { useChatStore } from '@/stores/chat';
+import { useDiagramsStore } from '@/stores/diagrams';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { Plus, X } from 'lucide-vue-next';
-import { toast } from 'vue-sonner';
 
 import DiagramToolbar from './DiagramToolbar.vue';
 import NodePalette from './NodePalette.vue';
@@ -23,6 +20,11 @@ import AWSGroupNode from './nodes/AWSGroupNode.vue';
 import AnimatedFlowEdge from './edges/AnimatedFlowEdge.vue';
 import ExportGifDialog from './dialogs/ExportGifDialog.vue';
 
+import { useCanvasExport } from '@/composables/diagram/useCanvasExport';
+import { useVueFlowSync } from '@/composables/diagram/useVueFlowSync';
+import { useDiagramEvents } from '@/composables/diagram/useDiagramEvents';
+import { useMobileResponsive } from '@/composables/diagram/useMobileResponsive';
+
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import '@vue-flow/minimap/dist/style.css';
@@ -30,29 +32,12 @@ import '@vue-flow/controls/dist/style.css';
 import '@vue-flow/node-resizer/dist/style.css';
 
 const diagrams = useDiagramsStore();
-const chat = useChatStore();
 const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showGifDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
 const snapToGrid = ref(true);
 const hoveredGroupId = ref<string | null>(null);
-
-// Mobile responsive
-const isMobile = ref(false);
-const showMobilePalette = ref(false);
-
-// Multi-select count
-const selectedCount = computed(() => {
-  return getSelectedNodes.value.length;
-});
-
-function onResize() {
-  isMobile.value = window.innerWidth < 768;
-  if (!isMobile.value) {
-    showMobilePalette.value = false;
-  }
-}
 
 const {
   fitView, onConnect, onNodeDragStop, onPaneClick, onNodeClick, onNodeDoubleClick,
@@ -62,442 +47,64 @@ const {
   getViewport, setViewport, onNodeDragStart,
 } = useVueFlow('diagram-editor');
 
-// ─── Inline edge label editing ─────────────────────────────────────
+// ─── Mobile responsive ───────────────────────────────────────────────
+const { isMobile, showMobilePalette } = useMobileResponsive();
+
+// ─── Multi-select count ──────────────────────────────────────────────
+const selectedCount = computed(() => {
+  return getSelectedNodes.value.length;
+});
+
+// ─── Inline edge label editing state ─────────────────────────────────
 const inlineEdgeEdit = ref<{ edgeId: string; x: number; y: number; label: string } | null>(null);
 
-function commitInlineEdgeLabel() {
-  if (!inlineEdgeEdit.value) return;
-  diagrams.updateEdgeData(inlineEdgeEdit.value.edgeId, { label: inlineEdgeEdit.value.label });
-  inlineEdgeEdit.value = null;
-}
-
-function cancelInlineEdgeLabel() {
-  inlineEdgeEdit.value = null;
-}
-
-// ─── Sync VueFlow when store changes ──────────────────────────────
-// Compute nesting depth: 0 for root nodes, 1 for direct children, etc.
-function getNodeDepth(nodeId: string): number {
-  let depth = 0;
-  let current = diagrams.nodes.find(n => n.id === nodeId);
-  while (current?.parentNode) {
-    depth++;
-    current = diagrams.nodes.find(n => n.id === current!.parentNode);
-    if (depth > 10) break; // safety guard against cycles
-  }
-  return depth;
-}
-
-watch(
-  () => diagrams.diagramVersion,
-  async () => {
-    // Sort by nesting depth: parents first, deeper children last
-    // This ensures proper DOM ordering so children render on top of parents
-    const sorted = [...diagrams.nodes].sort((a, b) => {
-      return getNodeDepth(a.id) - getNodeDepth(b.id);
-    });
-
-    // Auto-set z-index based on depth so children are always above parents
-    for (const node of sorted) {
-      const depth = getNodeDepth(node.id);
-      if (depth > 0) {
-        const currentZ = (node as any).zIndex ?? 0;
-        if (currentZ < depth * 10) {
-          (node as any).zIndex = depth * 10;
-        }
-      }
-    }
-    setNodes(sorted.map(n => ({ ...n })));
-    setEdges(diagrams.edges.map(e => ({ ...e })));
-    await nextTick();
-    setTimeout(() => {
-      if (diagrams.savedViewport) {
-        setViewport(diagrams.savedViewport);
-      } else {
-        fitView();
-      }
-    }, 50);
-  },
-);
-
-// ─── Sync individual node data changes ──────────────────────────────
-watch(
-  () => diagrams.nodes.map(n => n.data),
-  () => {
-    for (const storeNode of diagrams.nodes) {
-      const vfNode = findNode(storeNode.id);
-      if (vfNode && vfNode.data !== storeNode.data) {
-        vfNode.data = storeNode.data;
-      }
-    }
-  },
-  { deep: true },
-);
-
-// ─── Sync individual edge data changes ──────────────────────────────
-watch(
-  () => diagrams.edges.map(e => e.data),
-  () => {
-    for (const storeEdge of diagrams.edges) {
-      const vfEdge = findEdge(storeEdge.id);
-      if (vfEdge && vfEdge.data !== storeEdge.data) {
-        vfEdge.data = storeEdge.data;
-      }
-    }
-  },
-  { deep: true },
-);
-
-// ─── Sync node/edge removals from store to Vue Flow ──────────────────
-// When nodes are deleted via the trash icon (which only calls store.removeNode),
-// this watcher ensures VueFlow's internal graph stays in sync.
-watch(
-  () => diagrams.nodes.map(n => n.id),
-  (storeNodeIds) => {
-    const storeIdSet = new Set(storeNodeIds);
-    const toRemove = getNodes.value.filter(n => !storeIdSet.has(n.id));
-    if (toRemove.length) removeNodes(toRemove);
-  },
-);
-
-watch(
-  () => diagrams.edges.map(e => e.id),
-  (storeEdgeIds) => {
-    const storeIdSet = new Set(storeEdgeIds);
-    const toRemove = getEdges.value.filter(e => !storeIdSet.has(e.id));
-    if (toRemove.length) removeEdges(toRemove);
-  },
-);
-
-// ─── Sync zIndex changes from store to Vue Flow ──────────────────────
-watch(
-  () => diagrams.nodes.map(n => (n as any).zIndex ?? 0),
-  () => {
-    for (const storeNode of diagrams.nodes) {
-      const vfNode = findNode(storeNode.id);
-      if (vfNode) {
-        const storeZ = (storeNode as any).zIndex ?? 0;
-        if (vfNode.zIndex !== storeZ) {
-          vfNode.zIndex = storeZ;
-        }
-      }
-    }
-  },
-);
-
-// ─── Sync store selection to VueFlow visual selection ─────────────────
-// When diagrams.selectNode() is called (from onNodeClick, PropertiesPanel, etc.),
-// VueFlow's own node.selected must stay in sync to show/hide resize handles correctly.
-watch(
-  () => diagrams.selectedNodeId,
-  (newId) => {
-    // Skip during multi-select (getSelectedNodes > 1)
-    if (getSelectedNodes.value.length > 1) return;
-    for (const node of getNodes.value) {
-      const shouldBeSelected = newId ? node.id === newId : false;
-      if (node.selected !== shouldBeSelected) {
-        node.selected = shouldBeSelected;
-      }
-    }
-  },
-);
-
-// ─── Events ──────────────────────────────────────────────────────────
-
-onConnect(async (connection: Connection) => {
-  const prevCount = diagrams.edges.length;
-  diagrams.addEdge(connection);
-  // Only add to VueFlow if the store actually created a new edge (not a duplicate)
-  if (diagrams.edges.length > prevCount) {
-    const lastEdge = diagrams.edges[diagrams.edges.length - 1];
-    // Spread to break Pinia reactivity proxy — VueFlow needs a plain object
-    addEdges([{ ...lastEdge }]);
-    // Force VueFlow to compute edge path on the next render cycle
-    await nextTick();
-  }
+// ─── Sync VueFlow with store ─────────────────────────────────────────
+useVueFlowSync({
+  diagrams,
+  getNodes,
+  getEdges,
+  getSelectedNodes,
+  setNodes,
+  setEdges,
+  findNode,
+  findEdge,
+  removeNodes,
+  removeEdges,
+  fitView,
+  setViewport,
 });
 
-onNodeDragStop((event: NodeDragEvent) => {
-  for (const node of event.nodes) {
-    diagrams.updateNodePosition(node.id, node.position);
-
-    // Only auto-parent service nodes into groups; groups stay independent
-    if (!node.parentNode && node.type !== 'aws-group') {
-      // Use absolute position from store (handles nested coordinate systems)
-      const absPos = diagrams.getAbsolutePosition(node.id);
-      const groupId = diagrams.findGroupAtPosition(absPos, node.id);
-      if (groupId) {
-        diagrams.setNodeParent(node.id, groupId);
-        // Force VueFlow to re-render with the new parent
-        const storeNode = diagrams.nodes.find(n => n.id === node.id);
-        if (storeNode) {
-          const vfNode = findNode(node.id);
-          if (vfNode) {
-            vfNode.parentNode = storeNode.parentNode;
-            vfNode.extent = storeNode.extent as 'parent' | undefined;
-            vfNode.position = { ...storeNode.position };
-          }
-        }
-      }
-    }
-  }
-  hoveredGroupId.value = null;
+// ─── Events (click, drag, drop, keyboard) ────────────────────────────
+const { commitInlineEdgeLabel, cancelInlineEdgeLabel, onDragOver, onDrop } = useDiagramEvents({
+  diagrams,
+  flowContainer,
+  hoveredGroupId,
+  inlineEdgeEdit,
+  onConnect,
+  onNodeDragStop,
+  onNodeDragStart,
+  onPaneClick,
+  onNodeClick,
+  onNodeDoubleClick,
+  onEdgeClick,
+  onEdgeDoubleClick,
+  addNodes,
+  addEdges,
+  removeNodes,
+  removeEdges,
+  screenToFlowCoordinate,
+  getNodes,
+  getEdges,
+  getSelectedNodes,
+  findNode,
+  findEdge,
 });
 
-onPaneClick(() => {
-  diagrams.selectNode(null);
-  diagrams.selectEdge(null);
-  inlineEdgeEdit.value = null;
-});
-
-// ─── Hit-test helpers ───────────────────────────────────────────────
-// Group node DOM elements sit above edges (SVG layer) in the render tree,
-// so VueFlow fires onNodeClick for a group even when the user intended to
-// click a child service node or an edge inside the group.
-
-/** Scan elementsFromPoint for service nodes and edges (keeps looking past groups). */
-function hitTestAtPoint(clientX: number, clientY: number) {
-  const elements = document.elementsFromPoint(clientX, clientY);
-  let serviceNodeId: string | null = null;
-  let firstNodeId: string | null = null;
-  let edgeId: string | null = null;
-
-  for (const el of elements) {
-    // Keep scanning for a service node even after finding a group
-    if (!serviceNodeId) {
-      const nodeEl = (el as HTMLElement).closest?.('.vue-flow__node');
-      if (nodeEl) {
-        const id = nodeEl.getAttribute('data-id');
-        if (id) {
-          if (!firstNodeId) firstNodeId = id;
-          if (!nodeEl.classList.contains('vue-flow__node-aws-group')) {
-            serviceNodeId = id;
-          }
-        }
-      }
-    }
-    if (!edgeId) {
-      const edgeEl = (el as Element).closest?.('.vue-flow__edge');
-      if (edgeEl) {
-        edgeId = edgeEl.getAttribute('data-id');
-      }
-    }
-    if (serviceNodeId && edgeId) break;
-  }
-
-  return { serviceNodeId, firstNodeId, edgeId };
-}
-
-onNodeClick(({ node, event }) => {
-  const mouseEvent = event as MouseEvent;
-  const target = mouseEvent.target as HTMLElement;
-
-  // Primary: check the actual DOM event target — most reliable
-  const targetNode = target.closest?.('.vue-flow__node');
-  if (targetNode) {
-    const targetId = targetNode.getAttribute('data-id');
-    if (targetId && !targetNode.classList.contains('vue-flow__node-aws-group')) {
-      diagrams.selectNode(targetId);
-      return;
-    }
-  }
-
-  // For group clicks, scan for service nodes and edges under the cursor
-  if (node.type === 'aws-group') {
-    const { serviceNodeId, edgeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
-    if (serviceNodeId) {
-      diagrams.selectNode(serviceNodeId);
-      return;
-    }
-    if (edgeId) {
-      diagrams.selectNode(null);
-      diagrams.selectEdge(edgeId);
-      return;
-    }
-  }
-
-  // Fallback: topmost node from elementsFromPoint, or VueFlow's reported node
-  const { firstNodeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
-  diagrams.selectNode(firstNodeId || node.id);
-});
-
-onNodeDoubleClick(({ node, event }) => {
-  const mouseEvent = event as MouseEvent;
-  const target = mouseEvent.target as HTMLElement;
-
-  // If double-clicked directly on a service node, let it handle its own dblclick
-  const targetNode = target.closest?.('.vue-flow__node');
-  if (targetNode && !targetNode.classList.contains('vue-flow__node-aws-group')) return;
-
-  // For groups, check for edges under cursor and open inline editor
-  if (node.type === 'aws-group') {
-    const { serviceNodeId, edgeId } = hitTestAtPoint(mouseEvent.clientX, mouseEvent.clientY);
-    if (serviceNodeId) return;
-    if (edgeId) {
-      const container = flowContainer.value;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const edge = findEdge(edgeId);
-      inlineEdgeEdit.value = {
-        edgeId,
-        x: mouseEvent.clientX - rect.left,
-        y: mouseEvent.clientY - rect.top,
-        label: (edge?.data as any)?.label || '',
-      };
-      diagrams.selectNode(null);
-      diagrams.selectEdge(edgeId);
-      nextTick(() => {
-        const input = container.querySelector('.inline-edge-input') as HTMLInputElement;
-        input?.focus();
-        input?.select();
-      });
-    }
-  }
-});
-
-onEdgeClick(({ edge }) => {
-  diagrams.selectEdge(edge.id);
-});
-
-onEdgeDoubleClick(({ edge, event }) => {
-  const container = flowContainer.value;
-  if (!container) return;
-  const rect = container.getBoundingClientRect();
-  const mouseEvent = event as MouseEvent;
-  inlineEdgeEdit.value = {
-    edgeId: edge.id,
-    x: mouseEvent.clientX - rect.left,
-    y: mouseEvent.clientY - rect.top,
-    label: (edge.data as any)?.label || '',
-  };
-  diagrams.selectEdge(edge.id);
-  nextTick(() => {
-    const input = container.querySelector('.inline-edge-input') as HTMLInputElement;
-    input?.focus();
-    input?.select();
-  });
-});
-
-// ─── Drop handler ────────────────────────────────────────────────────
-
-function onDragOver(event: DragEvent) {
-  event.preventDefault();
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'move';
-  }
-}
-
-function onDrop(event: DragEvent) {
-  if (!event.dataTransfer) return;
-  const type = event.dataTransfer.getData('application/diagram-type') as string;
-  const itemId = event.dataTransfer.getData('application/diagram-id');
-  if (!type || !itemId) return;
-
-  // Convert screen coordinates to graph-space position
-  const position = screenToFlowCoordinate({
-    x: event.clientX,
-    y: event.clientY,
-  });
-
-  let nodeId: string;
-  if (type === 'service') {
-    nodeId = diagrams.addServiceNode(itemId, position);
-  } else if (type === 'group') {
-    nodeId = diagrams.addGroupNode(itemId, position);
-  } else {
-    return;
-  }
-
-  // Only auto-parent service nodes into groups; groups stay independent
-  if (type === 'service') {
-    const groupId = diagrams.findGroupAtPosition(position, nodeId);
-    if (groupId) {
-      diagrams.setNodeParent(nodeId, groupId);
-    }
-  }
-
-  const node = diagrams.nodes.find(n => n.id === nodeId);
-  if (node) {
-    addNodes([{ ...node }]);
-  }
-  hoveredGroupId.value = null;
-}
-
-// ─── Keyboard shortcuts ──────────────────────────────────────────────
-
-function onKeyDown(event: KeyboardEvent) {
-  const tag = (event.target as HTMLElement).tagName;
-  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-
-  // Ctrl+Z: Undo
-  if ((event.ctrlKey || event.metaKey) && event.key === 'z' && !event.shiftKey && !isInput) {
-    event.preventDefault();
-    diagrams.undo();
-    return;
-  }
-  // Ctrl+Shift+Z / Ctrl+Y: Redo
-  if ((event.ctrlKey || event.metaKey) && (event.key === 'y' || (event.shiftKey && event.key === 'z' || event.shiftKey && event.key === 'Z')) && !isInput) {
-    event.preventDefault();
-    diagrams.redo();
-    return;
-  }
-
-  // Ctrl+A / Cmd+A: select all nodes
-  if ((event.ctrlKey || event.metaKey) && event.key === 'a' && !isInput) {
-    event.preventDefault();
-    for (const node of getNodes.value) {
-      node.selected = true;
-    }
-    return;
-  }
-
-  if (event.key === 'Delete' || event.key === 'Backspace') {
-    if (isInput) return;
-
-    // Multi-select delete
-    const selected = getSelectedNodes.value;
-    if (selected.length > 0) {
-      for (const node of selected) {
-        const connectedEdges = diagrams.edges.filter(e => e.source === node.id || e.target === node.id);
-        if (connectedEdges.length) removeEdges(connectedEdges);
-      }
-      removeNodes(selected);
-      diagrams.removeSelectedNodes(selected.map(n => n.id));
-      diagrams.selectNode(null);
-    } else if (diagrams.selectedNodeId) {
-      const id = diagrams.selectedNodeId;
-      const connectedEdges = diagrams.edges.filter(e => e.source === id || e.target === id);
-      if (connectedEdges.length) removeEdges(connectedEdges);
-      const vfNode = getNodes.value.find(n => n.id === id);
-      if (vfNode) removeNodes([vfNode]);
-      diagrams.removeNode(id);
-    } else if (diagrams.selectedEdgeId) {
-      const id = diagrams.selectedEdgeId;
-      const edge = diagrams.edges.find(e => e.id === id);
-      if (edge) removeEdges([edge]);
-      diagrams.removeEdge(id);
-    }
-  }
-
-  if (event.key === 'Escape') {
-    diagrams.selectNode(null);
-    diagrams.selectEdge(null);
-    // Deselect all
-    for (const node of getNodes.value) {
-      node.selected = false;
-    }
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('keydown', onKeyDown);
-  onResize();
-  window.addEventListener('resize', onResize);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', onKeyDown);
-  window.removeEventListener('resize', onResize);
+// ─── Canvas export (PNG, SVG, JSON) ──────────────────────────────────
+const { exportJson, exportPng, exportSvg } = useCanvasExport({
+  flowContainer,
+  diagrams,
+  getViewport,
 });
 
 // ─── Toolbar actions ─────────────────────────────────────────────────
@@ -513,107 +120,6 @@ function onNew() {
 function onSave() {
   diagrams.savedViewport = getViewport();
   showSaveDialog.value = true;
-}
-
-function exportJson() {
-  const data = diagrams.serialize(getViewport());
-  const json = JSON.stringify({ name: diagrams.currentDiagramName, ...data }, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast.success('Diagram exported as JSON');
-}
-
-async function exportPng() {
-  try {
-    const captureTarget = flowContainer.value?.querySelector('.vue-flow__transformationpane') as HTMLElement
-      ?? flowContainer.value?.querySelector('.vue-flow__viewport') as HTMLElement
-      ?? flowContainer.value;
-    if (!captureTarget) { toast.error('Cannot find canvas element'); return; }
-
-    const html2canvas = (await import('html2canvas')).default;
-    const bounds = diagrams.getContentBounds(50);
-    const viewport = getViewport();
-
-    if (bounds) {
-      // Compute the screen-space rect of the content bounds
-      const screenX = bounds.x * viewport.zoom + viewport.x;
-      const screenY = bounds.y * viewport.zoom + viewport.y;
-      const screenW = bounds.width * viewport.zoom;
-      const screenH = bounds.height * viewport.zoom;
-
-      const scale = 2;
-      const canvas = await html2canvas(captureTarget, {
-        x: screenX,
-        y: screenY,
-        width: screenW,
-        height: screenH,
-        scale,
-        backgroundColor: '#0a0a0a',
-        logging: false,
-        useCORS: true,
-        allowTaint: true,
-      });
-
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast.success('Diagram exported as PNG (cropped to content)');
-      });
-    } else {
-      toast.error('No nodes to export');
-    }
-  } catch (err) {
-    console.error('PNG export error:', err);
-    toast.error('PNG export failed');
-  }
-}
-
-function exportSvg() {
-  try {
-    const el = flowContainer.value?.querySelector('.vue-flow__viewport svg') as SVGSVGElement | null;
-    if (!el) {
-      toast.error('Cannot find SVG element');
-      return;
-    }
-
-    // Clone SVG so we can set a viewBox for content cropping
-    const clone = el.cloneNode(true) as SVGSVGElement;
-    const bounds = diagrams.getContentBounds(50);
-    const viewport = getViewport();
-
-    if (bounds) {
-      const vbX = bounds.x * viewport.zoom + viewport.x;
-      const vbY = bounds.y * viewport.zoom + viewport.y;
-      const vbW = bounds.width * viewport.zoom;
-      const vbH = bounds.height * viewport.zoom;
-      clone.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
-      clone.setAttribute('width', String(Math.round(bounds.width)));
-      clone.setAttribute('height', String(Math.round(bounds.height)));
-    }
-
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(clone);
-    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Diagram exported as SVG (cropped to content)');
-  } catch {
-    toast.error('SVG export failed');
-  }
 }
 </script>
 

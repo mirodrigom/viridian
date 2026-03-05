@@ -19,8 +19,9 @@ app.use(router);
 app.use(i18n);
 
 app.config.errorHandler = (err, _instance, info) => {
-  console.error('Vue error:', err, info);
-  toast.error('Something went wrong');
+  console.error('[Vue error]', info, err);
+  const message = err instanceof Error ? err.message : String(err);
+  toast.error(message.length > 80 ? message.slice(0, 80) + '...' : message);
 };
 
 // Init settings (dark mode, etc.) before mounting

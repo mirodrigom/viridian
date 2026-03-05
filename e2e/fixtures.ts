@@ -46,6 +46,7 @@ type TestFixtures = {
   diagramPage: Page
   graphPage: Page
   managementPage: Page
+  autopilotPage: Page
 }
 
 export const test = base.extend<TestFixtures>({
@@ -75,6 +76,14 @@ export const test = base.extend<TestFixtures>({
     await page.goto('/management')
     await page.waitForLoadState('networkidle')
     await page.waitForSelector('[data-testid="management-view"]', { timeout: 10_000 })
+    await use(page)
+  },
+
+  autopilotPage: async ({ page }, use) => {
+    await loginAsTestUser(page)
+    await page.goto('/autopilot')
+    await page.waitForLoadState('networkidle')
+    await page.waitForSelector('[data-testid="autopilot-view"]', { timeout: 10_000 })
     await use(page)
   },
 })
