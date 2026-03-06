@@ -32,7 +32,12 @@
       "Bash(cmd.exe:*)",
       "Bash(ip -4 addr show)",
       "Bash(echo exit: $?:*)",
-      "Bash(ipconfig)"
+      "Bash(ipconfig)",
+      "Bash(curl -s http://localhost:5174/api/sessions)",
+      "Bash(lsof -i :3001 -t)",
+      "Bash(ss -tlnp 'sport = :3001')",
+      "Bash(netstat -tlnp)",
+      "Bash(ss -tulnp)"
     ]
   }
 }

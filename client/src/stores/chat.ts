@@ -91,9 +91,14 @@ export const useChatStore = defineStore('chat', () => {
         messages.messages.value = messages.messages.value.slice(0, cutoffIdx);
       }
 
-      // Switch to the new session (caller is responsible for URL update if needed)
+      // Switch to the new session (caller is responsible for URL update if needed).
+      // Suppress clear_session: the sessionId watcher would fire and send clear_session
+      // to the server, which would detach the emitter right after the forked chat
+      // message is sent — causing the response to be silently dropped.
+      // The caller resets suppressClearSession after nextTick (once the watcher has fired).
+      session.suppressClearSession.value = true;
       session.claudeSessionId.value = data.newSessionId;
-      session.sessionId.value = null; // will be assigned by the server on first send
+      session.sessionId.value = data.newSessionId; // known from fork response; prevents handleRoute from triggering loadSessionFromUrl
 
       return data.newSessionId;
     } catch (err) {

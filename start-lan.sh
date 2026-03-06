@@ -36,7 +36,7 @@ export CORS_ORIGIN="http://${LAN_IP}:5174"
 # Client config
 export VITE_HOST="0.0.0.0"
 
-LANGFUSE_PORT="${LANGFUSE_PORT:-3001}"
+LANGFUSE_PORT="${LANGFUSE_PORT:-3002}"
 export LANGFUSE_BASE_URL="http://${LAN_IP}:${LANGFUSE_PORT}"
 
 echo "============================================"
@@ -76,14 +76,6 @@ if [ -n "$COMPOSE_CMD" ]; then
   fi
   echo "  Langfuse dashboard: http://${LAN_IP}:${LANGFUSE_PORT}"
   echo ""
-  # Open browser to Langfuse dashboard (cross-platform)
-  if command -v xdg-open &>/dev/null; then
-    xdg-open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
-  elif command -v open &>/dev/null; then
-    open "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
-  elif command -v start &>/dev/null; then
-    start "http://${LAN_IP}:${LANGFUSE_PORT}" 2>/dev/null || true
-  fi
 else
   echo "  (Neither podman-compose nor docker found — skipping Langfuse)"
   echo ""

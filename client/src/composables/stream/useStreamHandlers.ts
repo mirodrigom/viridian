@@ -234,6 +234,10 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
       if (urlSessionId) {
         const currentUrlId = router.currentRoute.value.params.sessionId;
         if (currentUrlId !== urlSessionId) {
+          // Align chat.sessionId with the URL we're navigating to.
+          // Without this, handleRoute sees (urlSessionId !== server-internal-UUID)
+          // and calls loadSessionFromUrl, wiping the just-received messages.
+          chat.sessionId = urlSessionId;
           router.replace({
             name: 'chat-session',
             params: { sessionId: urlSessionId },

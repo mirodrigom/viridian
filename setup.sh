@@ -78,17 +78,20 @@ step "Dependencies"
 LOCKFILE="$SCRIPT_DIR/pnpm-lock.yaml"
 STAMP="$SCRIPT_DIR/node_modules/.install-stamp"
 
+# Use a checksum of the lockfile so manual `pnpm install` doesn't trigger a re-install
+LOCK_HASH=$(md5sum "$LOCKFILE" 2>/dev/null | cut -d' ' -f1)
+
 needs_install=false
 if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   needs_install=true
-elif [ ! -f "$STAMP" ] || [ "$LOCKFILE" -nt "$STAMP" ]; then
+elif [ ! -f "$STAMP" ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$LOCK_HASH" ]; then
   needs_install=true
 fi
 
 if $needs_install; then
   warn "Installing packages (lockfile changed or first run)..."
   host "cd '$SCRIPT_DIR' && pnpm install" 2>&1 | sed 's/^/    /'
-  touch "$STAMP"
+  echo "$LOCK_HASH" > "$STAMP"
   ok "Packages installed"
 else
   ok "Already up to date"

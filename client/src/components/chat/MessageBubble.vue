@@ -70,8 +70,13 @@ async function confirmEdit() {
       isEditing.value = false;
       router.replace({ name: 'chat-session', params: { sessionId: newSessionId } });
       emit('sendPrompt', text);
+      // Wait for Vue's sessionId watcher to flush (it's suppressed by forkSession).
+      // Without this, the watcher fires after sendMessage and sends clear_session,
+      // which detaches the server emitter and silently drops the response.
+      await nextTick();
     }
   } finally {
+    chat.suppressClearSession = false;
     isForking.value = false;
   }
 }
@@ -198,7 +203,7 @@ function formatTime(ts: number) {
         </div>
         <div class="mt-1 flex items-center justify-end gap-2">
           <button
-            class="hidden group-hover:flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            class="invisible group-hover:visible pointer-events-none group-hover:pointer-events-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Edit and re-send (forks the conversation)"
             @click="startEdit"
           >

@@ -247,7 +247,8 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
 
   proc.on('error', (err) => {
     procError = err;
-    push({ type: 'error', error: `Failed to start Claude: ${err.message}` });
+    debugLog(`[ClaudeSDK] spawn error: ${err.message} (bin=${spawnBin}, cwd=${options.cwd})`);
+    push({ type: 'error', error: `Failed to start Claude: ${err.message} (bin=${spawnBin}, cwd=${options.cwd})` });
     finish();
   });
 
