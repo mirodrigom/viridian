@@ -594,6 +594,7 @@ onUnmounted(() => {
             v-for="(msg, idx) in chat.messages"
             :key="msg.id"
             :id="`msg-${msg.id}`"
+            class="msg-virtual"
           >
             <MessageBubble
               :message="msg"
@@ -661,3 +662,11 @@ onUnmounted(() => {
     </Transition>
   </div>
 </template>
+
+<style scoped>
+/* Let the browser skip rendering off-screen messages for long conversations */
+.msg-virtual {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+</style>

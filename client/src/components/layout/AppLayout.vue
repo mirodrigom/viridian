@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   ResizablePanelGroup,
@@ -14,7 +14,7 @@ import { useAutopilotStore } from '@/stores/autopilot';
 import { useDiagramsStore } from '@/stores/diagrams';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
-import TerminalPanel from './TerminalPanel.vue';
+const TerminalPanel = defineAsyncComponent(() => import('./TerminalPanel.vue'));
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import CommandPalette from './CommandPalette.vue';

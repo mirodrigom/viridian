@@ -9,7 +9,7 @@ import { useGitStore } from '@/stores/git';
 import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network, BookOpen } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
-import DiffEditorView from '@/components/editor/DiffEditorView.vue';
+const DiffEditorView = defineAsyncComponent(() => import('@/components/editor/DiffEditorView.vue'));
 import GitView from '@/components/git/GitView.vue';
 import FileSidebar from '@/components/layout/FileSidebar.vue';
 import ErrorBoundary from '@/components/ui/ErrorBoundary.vue';
