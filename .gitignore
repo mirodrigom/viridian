@@ -6,3 +6,5 @@ server/data
 .env.local
 docs/--host/
 server/logs/
+.claude/settings.local.json
+.kiro/settings.local.json

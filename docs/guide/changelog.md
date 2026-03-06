@@ -2,6 +2,28 @@
 
 All notable changes to Viridian are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-03-06
+
+### Added
+
+- **Multi-provider support** — Provider abstraction layer supporting Claude Code (primary), Kiro, Gemini CLI, Codex CLI, Aider, Qwen Code, and OpenCode. Active provider is selected in Settings; detected automatically from `PATH`.
+- **CSV file attachments** — Drag & drop or attach `.csv` files in chat; content is sent as a fenced code block in the prompt.
+- **Pino structured logging** — Server now uses [pino](https://getpino.io/) for structured JSON logging with pretty-printing in development. Log level controlled via `LOG_LEVEL` env var.
+- **Pino-roll log rotation** — Daily log rotation with 7-day retention via `pino-roll`. Log files written to `server/logs/` (excluded from git).
+- **Projects and services tables** — New `projects` and `project_services` tables in the SQLite schema for persisting project metadata and management services.
+- **Zod route validation** — All REST API routes now validate request bodies and params with [Zod](https://zod.dev/) schemas, returning structured 400 errors on invalid input.
+
+### Changed
+
+- **Langfuse default port** — Changed from `3001` to `3002` to avoid conflicts with common local services. Update `.env` and `docker-compose.yml` accordingly.
+- **setup.sh lockfile checksum** — Install step now skips `pnpm install` only when the `pnpm-lock.yaml` checksum is unchanged (more reliable than mtime).
+
+### Fixed
+
+- **Fork-session race condition** — Suppressed `clear_session` during session fork to prevent WebSocket emitter detachment on the forked session.
+- **Session ID sync on fork** — `chat.sessionId` is now set before the route `replace()` call to avoid `loadSessionFromUrl` wiping the forked session state.
+- **Edit button layout shift** — Switched from `hidden`/`flex` to `invisible`/`visible` on the message edit button to prevent layout reflow.
+
 ## [0.3.0] — 2026-02-22
 
 ### Added

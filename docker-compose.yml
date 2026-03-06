@@ -10,7 +10,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@langfuse-db:5432/langfuse
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-in-production}
       SALT: ${LANGFUSE_SALT:-changeme-in-production}
-      NEXTAUTH_URL: ${LANGFUSE_URL:-http://192.168.100.244:3002}
+      NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:3002}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
       # Auto-create user, org, project and API keys on first start

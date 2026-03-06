@@ -14,7 +14,7 @@ Viridian is a full-stack web application that provides a browser-based UI for [C
 Clone the repository and run the bootstrap script:
 
 ```bash
-git clone <your-repo-url> viridian
+git clone https://github.com/mirodrigom/viridian.git viridian
 cd viridian
 bash setup.sh
 ```
@@ -31,7 +31,7 @@ bash setup.sh
 Alternatively, install manually:
 
 ```bash
-git clone <your-repo-url> viridian
+git clone https://github.com/mirodrigom/viridian.git viridian
 cd viridian
 pnpm install
 cp .env.example .env
@@ -76,11 +76,11 @@ docker compose up -d
 podman-compose up -d
 ```
 
-Langfuse will be available at `http://localhost:3001`.
+Langfuse will be available at `http://localhost:3002`.
 
 ### Getting API keys
 
-1. Open `http://localhost:3001` in your browser
+1. Open `http://localhost:3002` in your browser
 2. Register an account and create a new project
 3. Copy the **public key** and **secret key** from Project Settings → API Keys
 
@@ -89,7 +89,7 @@ Langfuse will be available at `http://localhost:3001`.
 Add the keys to `.env`:
 
 ```ini
-LANGFUSE_BASE_URL=http://localhost:3001
+LANGFUSE_BASE_URL=http://localhost:3002
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```

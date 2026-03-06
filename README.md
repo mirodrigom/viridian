@@ -3,14 +3,14 @@
 
   # Viridian
 
-  **A full-featured browser UI for Claude Code CLI**
+  **A full-featured browser UI for AI coding CLIs**
 
-  [![Version](https://img.shields.io/badge/version-0.2.0-teal)](./package.json)
+  [![Version](https://img.shields.io/badge/version-0.4.0-teal)](./package.json)
   [![Vue 3](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js)](https://vuejs.org)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript)](https://typescriptlang.org)
   [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-  Chat with Claude, edit code, manage git, run a terminal, orchestrate agents — all from your browser.
+  Chat with AI, edit code, manage git, run a terminal, orchestrate agents — all from your browser.
 
 </div>
 
@@ -18,9 +18,43 @@
 
 ## What is Viridian?
 
-Viridian transforms the Claude Code CLI into a rich, browser-based IDE. Instead of working in a terminal, you get a full-featured workspace accessible from any device on your network — with real-time streaming, visual git tools, a live terminal, kanban tasks, and an autonomous multi-agent Autopilot system.
+Viridian turns AI coding CLIs into a rich, browser-based IDE. Instead of working in a terminal, you get a full-featured workspace accessible from any device on your network — with real-time streaming, visual git tools, a live terminal, kanban tasks, and an autonomous multi-agent Autopilot system.
 
-It works by spawning the Claude CLI as a child process on your server and streaming its output to your browser over WebSocket.
+It works by spawning the AI CLI as a child process on your server and streaming its output to your browser over WebSocket.
+
+---
+
+## Supported Providers
+
+Viridian has a provider abstraction layer that supports multiple AI coding CLIs. Each provider is detected automatically if its binary is available in `PATH`.
+
+| Provider | CLI binary | Status | Notes |
+|---|---|---|---|
+| **Claude Code** | `claude` | ✅ Tested | Full feature support — primary provider |
+| **Kiro** | `kiro-cli` | ⚠️ Experimental | Steering, custom agents, Bedrock models |
+| **Gemini CLI** | `gemini` | ⚠️ Experimental | No session resume, no sub-agents |
+| **Codex CLI** | `codex` | ⚠️ Experimental | No control requests, no plan mode |
+| **Aider** | `aider` | ⚠️ Experimental | Plain text, resume via chat history file |
+| **Qwen Code** | `qwen` | ⚠️ Experimental | 256k context, multi-model support |
+| **OpenCode** | `opencode` | ⚠️ Experimental | Multi-provider, LSP integration |
+
+> **Experimental providers** have adapters implemented but have not been thoroughly tested end-to-end. If you try one and run into issues, please [open an issue](https://github.com/mirodrigom/viridian/issues) — I'll look into it.
+
+### Feature Matrix
+
+| Feature | Claude | Kiro | Gemini | Codex | Aider | Qwen | OpenCode |
+|---|---|---|---|---|---|---|---|
+| Text streaming | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Extended thinking | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Tool use (file ops) | ✅ | ✅ | MCP | ✅ | ✅ | ✅ | ✅ |
+| Session resume | ✅ | ✅ | ❌ | ✅ | ✅† | ✅ | ✅ |
+| Permission modes | 4 | 2 | 1 | 2 | 1 | 1 | 2 |
+| Interactive approval | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Image input | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Sub-agents / Autopilot | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| Plan mode | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+*† Aider resumes via chat history file, not a native session ID.*
 
 ---
 
@@ -32,7 +66,7 @@ It works by spawning the Claude CLI as a child process on your server and stream
 - **Thinking modes** — Standard, Think, Think Hard, Think Harder, Ultrathink
 - Interactive tool approval with countdown timer
 - Voice input with enhancement modes (Raw, Clean, Expand, Code)
-- File mentions (`@filename`), image attachments (drag & drop), and slash commands
+- File mentions (`@filename`), image & CSV attachments (drag & drop), and slash commands
 - Token tracking with cost estimation and response time metrics
 - Chat search (Ctrl+F), message history navigation, draft persistence
 
@@ -68,14 +102,14 @@ It works by spawning the Claude CLI as a child process on your server and stream
 - **DVR-like timeline replay** — play, pause, step, variable speed
 
 ### Autopilot
-- **Dual-Claude autonomous collaboration** — two specialized agents work together in cycles
+- **Dual-AI autonomous collaboration** — two specialized agents work together in cycles
 - 6 built-in profiles: Research, Architecture, Implementation, Testing, Documentation, Integration
 - Scheduled execution with time windows
 - Automatic scoped git commits per cycle
 - Real-time WebSocket updates with 24 event types
 
 ### Sessions & Projects
-- Browse and resume past Claude sessions
+- Browse and resume past sessions
 - Multi-project listing from `~/.claude/projects/`
 - Real-time session updates, search, pagination, and delete
 - GitHub clone with streaming progress
@@ -92,9 +126,11 @@ It works by spawning the Claude CLI as a child process on your server and stream
 | **Graphs** | Vue Flow |
 | **Backend** | Express 5, WebSocket (ws), SQLite (better-sqlite3) |
 | **Auth** | JWT + bcrypt |
+| **Logging** | pino + pino-roll (structured JSON, daily rotation) |
+| **Validation** | Zod (all REST routes) |
 | **Terminal backend** | node-pty |
 | **Git** | simple-git |
-| **Claude integration** | @anthropic-ai/claude-code CLI (child_process + stream-json) |
+| **AI integration** | Provider abstraction layer — Claude Code, Kiro, Gemini, Codex, Aider, Qwen, OpenCode |
 | **Build** | Vite 7, pnpm workspaces, TypeScript strict |
 
 ---
@@ -103,17 +139,23 @@ It works by spawning the Claude CLI as a child process on your server and stream
 
 ### Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 20+
 - **pnpm** 9+
-- **Claude Code CLI** installed and authenticated (`claude` in PATH)
+- At least one supported AI CLI installed and authenticated (e.g. `claude`, `kiro-cli`, `gemini`, `codex`)
 - **Git**
 
 ### Install
 
 ```bash
-git clone https://github.com/your-username/viridian.git
+git clone https://github.com/mirodrigom/viridian.git
 cd viridian
 pnpm install
+```
+
+Or use the bootstrap script (checks deps, copies `.env`, optionally pulls Langfuse images):
+
+```bash
+bash setup.sh
 ```
 
 ### Configure
@@ -131,6 +173,8 @@ JWT_SECRET=your-secure-secret-at-least-32-chars
 CORS_ORIGIN=http://localhost:5174
 NODE_ENV=development
 ```
+
+Generate a secure JWT secret: `openssl rand -base64 64`
 
 ### Run (development)
 
@@ -156,7 +200,7 @@ node server/dist/index.js
 
 ### LAN access
 
-For access from other devices on your network (e.g. a tablet), use the provided scripts:
+For access from other devices on your network (e.g. a tablet):
 
 ```bash
 ./start-lan.sh
@@ -171,16 +215,17 @@ viridian/
 ├── client/          # Vue 3 SPA (Vite)
 │   └── src/
 │       ├── components/   # chat, editor, git, terminal, tasks, graph, autopilot
-│       ├── stores/       # Pinia state (chat, git, files, settings, autopilot, graphs)
+│       ├── stores/       # Pinia state (chat, git, files, settings, autopilot, graphs, provider)
 │       ├── composables/  # useClaudeStream, useWebSocket, useConfirmDialog, …
 │       ├── pages/        # Route-level components
 │       └── types/        # TypeScript interfaces
 │
 ├── server/          # Express + WebSocket backend
 │   └── src/
-│       ├── routes/       # REST API (auth, files, git, sessions, graphs, autopilot, …)
+│       ├── providers/    # AI provider adapters (claude, kiro, gemini, codex, aider, qwen, opencode)
+│       ├── routes/       # REST API (auth, files, git, sessions, graphs, autopilot, providers, …)
 │       ├── ws/           # WebSocket handlers (chat, shell, sessions, graph-runner, autopilot)
-│       ├── services/     # Business logic (claude, git, terminal, autopilot, providers)
+│       ├── services/     # Business logic (claude, git, terminal, autopilot)
 │       └── db/           # SQLite schema and migrations
 │
 ├── docs/            # VitePress documentation
@@ -218,6 +263,18 @@ Full documentation is available in the `docs/` folder and served via VitePress (
 - [Autopilot](./docs/guide/autopilot.md)
 - [Architecture Overview](./docs/architecture/overview.md)
 - [Changelog](./docs/guide/changelog.md)
+
+---
+
+## Contributing
+
+Issues and PRs are welcome. If you test an experimental provider and hit a bug, please [open an issue](https://github.com/mirodrigom/viridian/issues) describing:
+
+- Which provider (Kiro, Gemini, Codex, etc.)
+- The error or unexpected behavior
+- Your OS and CLI version
+
+I'll verify and fix.
 
 ---
 
