@@ -5,3 +5,4 @@ server/data
 .env
 .env.local
 docs/--host/
+server/logs/

@@ -261,6 +261,28 @@ function runMigrations(db: Database.Database) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_manuals_user_project ON manuals(user_id, project_path);
+
+    -- ─── Projects table ─────────────────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
+
+    CREATE TABLE IF NOT EXISTS project_services (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_services_project ON project_services(project_id);
   `);
 
   // ── Incremental migrations (safe to run multiple times) ──────────
