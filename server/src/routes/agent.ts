@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { createHash } from 'crypto';
+import { z } from 'zod';
 import { createSession, getSession, sendMessage, abortSession, removeSession, type SendMessageOptions } from '../services/claude.js';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getHomeDir } from '../utils/platform.js';
 import { verifyToken } from '../services/auth.js';
 import { getDb } from '../db/database.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('agent');
 const router: ReturnType<typeof Router> = Router();
 
 /**
@@ -66,13 +70,18 @@ function agentAuth(req: AuthRequest, res: any, next: any) {
 router.use(agentAuth as any);
 
 // POST /run — one-shot execution with SSE streaming
-router.post('/run', (req, res) => {
+router.post('/run', validate({
+  body: z.object({
+    prompt: z.string().min(1),
+    cwd: z.string().optional(),
+    model: z.string().optional(),
+    permissionMode: z.string().optional(),
+    maxOutputTokens: z.number().optional(),
+    allowedTools: z.array(z.string()).optional(),
+    disallowedTools: z.array(z.string()).optional(),
+  }),
+}), (req, res) => {
   const { prompt, cwd, model, permissionMode, maxOutputTokens, allowedTools, disallowedTools } = req.body;
-
-  if (!prompt || typeof prompt !== 'string') {
-    res.status(400).json({ error: 'prompt is required' });
-    return;
-  }
 
   const projectDir = cwd || getHomeDir();
   const session = createSession(projectDir);
@@ -176,14 +185,18 @@ router.post('/sessions', (req, res) => {
 });
 
 // POST /sessions/:id — send message to existing session (SSE stream)
-router.post('/sessions/:id', (req, res) => {
+router.post('/sessions/:id', validate({
+  body: z.object({
+    prompt: z.string().min(1),
+    model: z.string().optional(),
+    permissionMode: z.string().optional(),
+    maxOutputTokens: z.number().optional(),
+    allowedTools: z.array(z.string()).optional(),
+    disallowedTools: z.array(z.string()).optional(),
+  }),
+}), (req, res) => {
   const { id } = req.params;
   const { prompt, model, permissionMode, maxOutputTokens, allowedTools, disallowedTools } = req.body;
-
-  if (!prompt || typeof prompt !== 'string') {
-    res.status(400).json({ error: 'prompt is required' });
-    return;
-  }
 
   const session = getSession(id);
   if (!session) {

@@ -11,7 +11,11 @@ import { getStreamingClaudeSessionIds } from '../services/claude.js';
 import { isGraphRunnerSession } from '../services/graph-runner.js';
 import { isInternalSession } from './git.js';
 import { randomUUID } from 'crypto';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { z } from 'zod';
 
+const log = createLogger('sessions');
 const router: ReturnType<typeof Router> = Router();
 
 router.use(authMiddleware);
@@ -266,7 +270,7 @@ router.get('/', async (req, res) => {
     res.set('Cache-Control', 'no-cache');
     res.json({ sessions });
   } catch (err) {
-    console.error('[sessions] Error:', err);
+    log.error({ err }, 'Failed to list sessions');
     res.status(500).json({ error: 'Failed to list sessions' });
   }
 });
@@ -276,21 +280,13 @@ router.get('/', async (req, res) => {
  *
  * Reads a session JSONL file and returns user/assistant messages.
  */
-router.get('/:id/messages', async (req, res) => {
+router.get('/:id/messages', validate({
+  query: z.object({ projectDir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }).passthrough(),
+  params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
+}), async (req, res) => {
   try {
     const sessionId = req.params.id;
-    const projectDir = req.query.projectDir as string | undefined;
-
-    if (!projectDir) {
-      res.status(400).json({ error: 'projectDir query param required' });
-      return;
-    }
-
-    // Sanitize: only allow alphanumeric, hyphens, underscores in dir/id
-    if (!/^[\w-]+$/.test(projectDir) || !/^[\w-]+$/.test(sessionId)) {
-      res.status(400).json({ error: 'Invalid projectDir or session id' });
-      return;
-    }
+    const projectDir = req.query.projectDir as string;
 
     const filePath = join(CLAUDE_DIR, projectDir, `${sessionId}.jsonl`);
 
@@ -535,7 +531,7 @@ router.get('/:id/messages', async (req, res) => {
 
     res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming, sessionProvider });
   } catch (err) {
-    console.error('[sessions] Error loading messages:', err);
+    log.error({ err }, 'Failed to load messages');
     res.status(500).json({ error: 'Failed to load session messages' });
   }
 });
@@ -545,20 +541,13 @@ router.get('/:id/messages', async (req, res) => {
  *
  * Deletes a session JSONL file.
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validate({
+  query: z.object({ projectDir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }),
+  params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
+}), async (req, res) => {
   try {
     const sessionId = req.params.id;
-    const projectDir = req.query.projectDir as string | undefined;
-
-    if (!projectDir) {
-      res.status(400).json({ error: 'projectDir query param required' });
-      return;
-    }
-
-    if (!/^[\w-]+$/.test(projectDir) || !/^[\w-]+$/.test(sessionId)) {
-      res.status(400).json({ error: 'Invalid projectDir or session id' });
-      return;
-    }
+    const projectDir = req.query.projectDir as string;
 
     const filePath = join(CLAUDE_DIR, projectDir, `${sessionId}.jsonl`);
 
@@ -569,10 +558,10 @@ router.delete('/:id', async (req, res) => {
 
     unlinkSync(filePath);
     // Clean up cache
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch (err) { console.warn('[sessions] Cache cleanup failed:', err); }
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
     res.json({ success: true });
   } catch (err) {
-    console.error('[sessions] Error deleting session:', err);
+    log.error({ err }, 'Failed to delete session');
     res.status(500).json({ error: 'Failed to delete session' });
   }
 });
@@ -582,14 +571,11 @@ router.delete('/:id', async (req, res) => {
  *
  * Deletes all sessions in a project directory.
  */
-router.delete('/project/:dir', async (req, res) => {
+router.delete('/project/:dir', validate({
+  params: z.object({ dir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }),
+}), async (req, res) => {
   try {
     const projectDir = req.params.dir;
-
-    if (!/^[\w-]+$/.test(projectDir)) {
-      res.status(400).json({ error: 'Invalid projectDir' });
-      return;
-    }
 
     const dirPath = join(CLAUDE_DIR, projectDir);
 
@@ -605,7 +591,7 @@ router.delete('/project/:dir', async (req, res) => {
     }
 
     // Clean up cache for this project
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch (err) { console.warn('[sessions] Cache cleanup failed:', err); }
+    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
 
     // Remove the directory if empty
     try {
@@ -613,12 +599,12 @@ router.delete('/project/:dir', async (req, res) => {
       if (remaining.length === 0) {
         rmSync(dirPath, { recursive: true });
       }
-    } catch (err) { console.warn('[sessions] Dir cleanup failed:', err); }
+    } catch (e) { log.warn({ err: e }, 'Dir cleanup failed'); }
 
-    console.log(`[sessions] Deleted project ${projectDir} (${files.length} sessions)`);
+    log.info({ projectDir, count: files.length }, 'Deleted project');
     res.json({ success: true, deleted: files.length });
   } catch (err) {
-    console.error('[sessions] Error deleting project:', err);
+    log.error({ err }, 'Failed to delete project');
     res.status(500).json({ error: 'Failed to delete project' });
   }
 });
@@ -632,20 +618,13 @@ router.delete('/project/:dir', async (req, res) => {
  * Body: { projectDir: string, forkBeforeUuid?: string }
  * Returns: { newSessionId: string }
  */
-router.post('/:id/fork', async (req, res) => {
+router.post('/:id/fork', validate({
+  body: z.object({ projectDir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }).passthrough(),
+  params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
+}), async (req, res) => {
   try {
     const sessionId = req.params.id;
-    const { projectDir, forkBeforeUuid } = req.body as { projectDir?: string; forkBeforeUuid?: string };
-
-    if (!projectDir) {
-      res.status(400).json({ error: 'projectDir required' });
-      return;
-    }
-
-    if (!/^[\w-]+$/.test(projectDir) || !/^[\w-]+$/.test(sessionId)) {
-      res.status(400).json({ error: 'Invalid projectDir or session id' });
-      return;
-    }
+    const { projectDir, forkBeforeUuid } = req.body as { projectDir: string; forkBeforeUuid?: string };
 
     const srcPath = join(CLAUDE_DIR, projectDir, `${sessionId}.jsonl`);
     if (!existsSync(srcPath)) {
@@ -697,10 +676,10 @@ router.post('/:id/fork', async (req, res) => {
       srcCache?.provider || 'claude',
     );
 
-    console.log(`[sessions] Forked ${sessionId} → ${newSessionId} (${linesToCopy.length} lines, cutoff ${forkBeforeUuid || 'end'})`);
+    log.info({ from: sessionId, to: newSessionId, lines: linesToCopy.length, cutoff: forkBeforeUuid || 'end' }, 'Forked session');
     res.json({ newSessionId, projectDir });
   } catch (err) {
-    console.error('[sessions] Fork error:', err);
+    log.error({ err }, 'Fork failed');
     res.status(500).json({ error: 'Failed to fork session' });
   }
 });

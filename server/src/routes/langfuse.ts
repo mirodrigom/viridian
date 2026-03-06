@@ -4,7 +4,9 @@
  */
 
 import { Router } from 'express';
+import { createLogger } from '../logger.js';
 
+const log = createLogger('langfuse');
 const router: ReturnType<typeof Router> = Router();
 
 function getConfig(): { baseUrl: string; authHeader: string } | null {
@@ -59,6 +61,7 @@ router.get('/traces', async (req, res) => {
     const data = await r.json() as Record<string, unknown>;
     res.json({ configured: true, ...data });
   } catch (err) {
+    log.warn({ err }, 'Failed to fetch traces');
     const msg = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: msg });
   }
@@ -74,6 +77,7 @@ router.get('/traces/:id', async (req, res) => {
     if (!r.ok) { res.status(r.status).json({ error: 'Langfuse error' }); return; }
     res.json(await r.json());
   } catch (err) {
+    log.warn({ err }, 'Failed to fetch trace detail');
     const msg = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({ error: msg });
   }

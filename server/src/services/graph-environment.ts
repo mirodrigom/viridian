@@ -10,6 +10,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { ResolvedNode } from './graph-resolver.js';
 import { debugLog } from './graph-utils.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('graph-env');
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -126,7 +129,7 @@ export function prepareNodeEnvironment(
     cleanup: () => {
       try {
         rmSync(tmpDir, { recursive: true, force: true });
-      } catch (err) { console.warn('[GraphRunner] node tmpdir cleanup failed:', err); }
+      } catch (err) { log.warn({ err }, 'Node tmpdir cleanup failed'); }
     },
   };
 }
@@ -153,7 +156,7 @@ export function prepareRunSandbox(runId: string, projectCwd: string): RunSandbox
         rmSync(sandboxDir, { recursive: true, force: true });
         debugLog(`[GraphRunner] Cleaned up sandbox: ${sandboxDir}`);
       } catch (err) {
-        console.warn('[GraphRunner] sandbox cleanup failed:', err);
+        log.warn({ err }, 'Sandbox cleanup failed');
       }
     },
   };

@@ -2,10 +2,14 @@ import { Router } from 'express';
 import { spawn } from 'child_process';
 import { basename, join } from 'path';
 import { existsSync } from 'fs';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getFileTree, getDirectoryChildren, getFileContent, saveFileContent, getLanguageFromPath, searchFiles, createDirectory, createFile } from '../services/files.js';
 import { getHomeDir } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('files');
 const router: ReturnType<typeof Router> = Router();
 
 router.use(authMiddleware);
@@ -17,19 +21,15 @@ router.get('/tree', async (req, res) => {
     const tree = await getFileTree(rootPath, depth);
     res.json({ tree, rootPath });
   } catch (err) {
-    console.warn('[files/tree]', err);
+    log.warn({ err }, 'Failed to get file tree');
     res.status(500).json({ error: 'Failed to read directory' });
   }
 });
 
-router.get('/tree/children', async (req, res) => {
+router.get('/tree/children', validate({ query: z.object({ root: z.string().min(1) }).passthrough() }), async (req, res) => {
   try {
     const rootPath = req.query.root as string;
     const relativePath = (req.query.path as string) || '';
-    if (!rootPath) {
-      res.status(400).json({ error: 'root is required' });
-      return;
-    }
     const children = await getDirectoryChildren(rootPath, relativePath);
     res.json({ children });
   } catch (err) {
@@ -38,14 +38,10 @@ router.get('/tree/children', async (req, res) => {
   }
 });
 
-router.get('/content', async (req, res) => {
+router.get('/content', validate({ query: z.object({ root: z.string().min(1), path: z.string().min(1) }) }), async (req, res) => {
   try {
     const rootPath = req.query.root as string;
     const filePath = req.query.path as string;
-    if (!rootPath || !filePath) {
-      res.status(400).json({ error: 'root and path are required' });
-      return;
-    }
     const content = await getFileContent(rootPath, filePath);
     const language = getLanguageFromPath(filePath);
     res.json({ content, language, path: filePath });
@@ -55,13 +51,11 @@ router.get('/content', async (req, res) => {
   }
 });
 
-router.put('/content', async (req, res) => {
+router.put('/content', validate({
+  body: z.object({ root: z.string().min(1), path: z.string().min(1), content: z.string() }),
+}), async (req, res) => {
   try {
     const { root, path, content } = req.body;
-    if (!root || !path || content === undefined) {
-      res.status(400).json({ error: 'root, path, and content are required' });
-      return;
-    }
     await saveFileContent(root, path, content);
     res.json({ success: true });
   } catch (err) {
@@ -70,29 +64,23 @@ router.put('/content', async (req, res) => {
   }
 });
 
-router.get('/search', async (req, res) => {
+router.get('/search', validate({ query: z.object({ root: z.string().min(1), q: z.string().min(1) }) }), async (req, res) => {
   try {
     const rootPath = req.query.root as string;
     const query = req.query.q as string;
-    if (!rootPath || !query) {
-      res.status(400).json({ error: 'root and q are required' });
-      return;
-    }
     const files = await searchFiles(rootPath, query);
     res.json({ files });
   } catch (err) {
-    console.warn('[files/search]', err);
+    log.warn({ err }, 'Failed to search files');
     res.status(500).json({ error: 'Failed to search files' });
   }
 });
 
-router.post('/create', async (req, res) => {
+router.post('/create', validate({
+  body: z.object({ root: z.string().min(1), path: z.string().min(1) }),
+}), async (req, res) => {
   try {
     const { root, path } = req.body;
-    if (!root || !path) {
-      res.status(400).json({ error: 'root and path are required' });
-      return;
-    }
     await createFile(root, path);
     const language = getLanguageFromPath(path);
     res.json({ success: true, path, language });
@@ -103,13 +91,11 @@ router.post('/create', async (req, res) => {
   }
 });
 
-router.post('/mkdir', async (req, res) => {
+router.post('/mkdir', validate({
+  body: z.object({ parentPath: z.string().min(1), name: z.string().min(1) }),
+}), async (req, res) => {
   try {
     const { parentPath, name } = req.body;
-    if (!parentPath || !name) {
-      res.status(400).json({ error: 'parentPath and name are required' });
-      return;
-    }
     const fullPath = await createDirectory(parentPath, name);
     res.json({ path: fullPath });
   } catch (err) {
@@ -120,9 +106,10 @@ router.post('/mkdir', async (req, res) => {
 });
 
 /** Clone a git repository with SSE progress streaming */
-router.post('/clone', (req, res) => {
+router.post('/clone', validate({
+  body: z.object({ url: z.string().min(1), targetDir: z.string().optional() }),
+}), (req, res) => {
   const { url, targetDir } = req.body;
-  if (!url) { res.status(400).json({ error: 'url is required' }); return; }
 
   // Validate URL
   const validPattern = /^(https?:\/\/|git@)/;

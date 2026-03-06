@@ -8,6 +8,11 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { getProvider } from '../providers/registry.js';
 import type { ProviderId } from '../providers/types.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { z } from 'zod';
+
+const log = createLogger('manuals');
 import puppeteer from 'puppeteer';
 
 const router: ReturnType<typeof Router> = Router();
@@ -69,12 +74,8 @@ function rowToSummary(row: ManualRow) {
 }
 
 // GET / — list manuals for a project
-router.get('/', (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { project } = req.query;
-  if (!project || typeof project !== 'string') {
-    res.status(400).json({ error: 'project query param required' });
-    return;
-  }
 
   const db = getDb();
   const rows = db.prepare(
@@ -99,12 +100,8 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create manual
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
   const { title, project, prompt, logo1Data, logo2Data } = req.body;
-  if (!project) {
-    res.status(400).json({ error: 'project is required' });
-    return;
-  }
 
   const db = getDb();
   const id = randomUUID();
@@ -416,7 +413,7 @@ ${logoInstructions}`;
     }
 
     const provider = getProvider(providerId);
-    console.log(`[manuals] generate start: mode=${manual.mode} provider=${providerId} hasPdf=${!!tempPdfPath}`);
+    log.info({ mode: manual.mode, provider: providerId, hasPdf: !!tempPdfPath }, 'Generate start');
     sendEvent('progress', { text: 'Connecting to provider...' });
 
     let accumulatedText = '';
@@ -455,13 +452,13 @@ ${logoInstructions}`;
       try {
         const { readFileSync } = await import('fs');
         accumulatedText = readFileSync(lastWrittenFilePath, 'utf-8');
-        console.log(`[manuals] fallback: read file written by Claude: ${lastWrittenFilePath}`);
+        log.info({ path: lastWrittenFilePath }, 'Fallback: read file written by Claude');
       } catch (readErr) {
-        console.warn(`[manuals] fallback file read failed: ${readErr}`);
+        log.warn({ err: readErr }, 'Fallback file read failed');
       }
     }
 
-    console.log(`[manuals] generate done: ${accumulatedText.length} chars`);
+    log.info({ chars: accumulatedText.length }, 'Generate done');
     sendEvent('progress', { text: 'Injecting logos and styles...' });
 
     // Inject CSS + logos server-side (not sent to Claude to avoid token limit)
@@ -481,7 +478,7 @@ ${logoInstructions}`;
     res.end();
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[manuals] generate error:', errorMsg, err);
+    log.error({ err, errorMsg }, 'Generate failed');
     sendEvent('error', { error: errorMsg });
     res.end();
   } finally {
@@ -524,7 +521,7 @@ router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
     const msg = err instanceof Error ? err.message : 'PDF generation failed';
-    console.error('[manuals] export-pdf error:', msg);
+    log.error({ err: msg }, 'PDF export failed');
     res.status(500).json({ error: msg });
   }
 });

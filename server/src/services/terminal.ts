@@ -1,5 +1,8 @@
 import { v4 as uuid } from 'uuid';
 import { getDefaultShell } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('terminal');
 
 let pty: typeof import('node-pty') | null = null;
 
@@ -8,7 +11,7 @@ async function loadPty() {
     try {
       pty = await import('node-pty');
     } catch {
-      console.warn('[terminal] node-pty not available — terminal feature disabled');
+      log.warn('node-pty not available — terminal feature disabled');
     }
   }
   return pty;

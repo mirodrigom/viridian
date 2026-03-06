@@ -2,8 +2,12 @@ import { Router } from 'express';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('mcp');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware as any);
 
@@ -47,17 +51,13 @@ router.get('/servers', (_req, res) => {
 });
 
 // POST /api/mcp/servers — add or update a server
-router.post('/servers', (req, res) => {
+router.post('/servers', validate({
+  body: z.object({
+    name: z.string().min(1),
+    config: z.record(z.unknown()),
+  }),
+}), (req, res) => {
   const { name, config: serverConfig } = req.body;
-  if (!name || typeof name !== 'string') {
-    res.status(400).json({ error: 'Server name is required' });
-    return;
-  }
-  if (!serverConfig || typeof serverConfig !== 'object') {
-    res.status(400).json({ error: 'Server config is required' });
-    return;
-  }
-
   const settings = readSettings();
   if (!settings.mcpServers) settings.mcpServers = {};
   settings.mcpServers[name] = serverConfig;

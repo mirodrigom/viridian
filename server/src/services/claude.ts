@@ -17,6 +17,9 @@ import { upsertSessionProvider } from '../db/database.js';
 import * as lf from './langfuse.js';
 import { gracefulKill, cwdToHash } from '../utils/platform.js';
 import { initSessionFile, appendUserMessage, appendAssistantMessage, cleanupSession } from './session-writer.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('session-manager');
 
 // Ensure providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -200,7 +203,7 @@ export function sendMessage(sessionId: string, prompt: string, options?: SendMes
       // swallowed the stream_end). Force-emit stream_end so the client isn't left hanging.
       // Only if this is still the current generation — a newer sendMessage may have started.
       if (session.isStreaming && session.streamGeneration === generation) {
-        console.warn(`[SessionManager] stream generator finished but session ${session.id} still marked as streaming — forcing stream_end`);
+        log.warn({ sessionId: session.id }, 'Stream generator finished but session still marked as streaming — forcing stream_end');
         session.isStreaming = false;
         session.lastActivity = Date.now();
         session.emitter.emit('stream_end', {
@@ -439,7 +442,7 @@ export function respondToPermission(
 ) {
   const session = activeSessions.get(sessionId);
   if (!session) {
-    console.warn(`[respondToPermission] Session ${sessionId} not found — tool response dropped`);
+    log.warn({ sessionId }, 'Session not found — tool response dropped');
     return;
   }
 
@@ -457,7 +460,7 @@ export function respondToPermission(
         const pending = session.pendingControlRequest.toolInput as Record<string, unknown>;
         if (Array.isArray(pending.questions)) {
           resolvedQuestions = pending.questions;
-          console.warn(`[respondToPermission] Using questions from pendingControlRequest (client sent none)`);
+          log.warn({ sessionId }, 'Using questions from pendingControlRequest (client sent none)');
         }
       }
       updatedInput = {
@@ -473,7 +476,7 @@ export function respondToPermission(
       session.stdinWrite(response);
     }
   } else {
-    console.warn(`[respondToPermission] stdinWrite is undefined for session ${sessionId} — tool response cannot be sent`);
+    log.warn({ sessionId }, 'stdinWrite is undefined — tool response cannot be sent');
   }
 
   // Flush buffered events (held back while waiting for tool approval)

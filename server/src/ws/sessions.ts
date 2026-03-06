@@ -4,7 +4,9 @@ import { watch } from 'chokidar';
 import { join } from 'path';
 import { verifyToken } from '../services/auth.js';
 import { getHomeDir } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
 
+const log = createLogger('sessions-ws');
 const CLAUDE_DIR = join(getHomeDir(), '.claude', 'projects');
 
 export function setupSessionsWs(server: Server) {
@@ -75,7 +77,7 @@ export function setupSessionsWs(server: Server) {
     const watched = watcher.getWatched();
     const dirs = Object.keys(watched);
     const fileCount = dirs.reduce((sum, d) => sum + watched[d]!.length, 0);
-    console.log(`[sessions-ws] Watcher ready — ${dirs.length} dirs, ${fileCount} files`);
+    log.info({ dirs: dirs.length, files: fileCount }, 'Watcher ready');
   });
 
   watcher.on('error', (err: unknown) => {
@@ -83,7 +85,7 @@ export function setupSessionsWs(server: Server) {
     const code = (err as NodeJS.ErrnoException)?.code;
     const msg = (err as Error)?.message ?? String(err);
     if (code === 'EPERM' || code === 'EACCES' || msg.includes('Access is denied')) return;
-    console.error(`[sessions-ws] Watcher error:`, err);
+    log.error({ err }, 'Watcher error');
   });
 
   function isJsonlFile(filePath: string): boolean {
@@ -103,7 +105,7 @@ export function setupSessionsWs(server: Server) {
       ? { projectDir: parts[0], sessionId: parts[1]!.replace('.jsonl', ''), eventType }
       : undefined;
 
-    console.log(`[sessions-ws] File ${eventType}: ${relative} → broadcast to ${clients.size} clients`, changedFile ? `(project=${changedFile.projectDir}, session=${changedFile.sessionId})` : '(no match)');
+    log.debug({ eventType, relative, clients: clients.size, changedFile }, 'File change broadcast');
 
     const msg = JSON.stringify({
       type: 'sessions_updated',
@@ -144,7 +146,7 @@ export function setupSessionsWs(server: Server) {
     }, 500));
   });
 
-  console.log(`[sessions-ws] Watching ${CLAUDE_DIR} for JSONL changes`);
+  log.info({ dir: CLAUDE_DIR }, 'Watching for JSONL changes');
 
   return {
     wss,

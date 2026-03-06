@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('diagrams');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -43,12 +47,8 @@ function rowToSummary(row: DiagramRow) {
 }
 
 // GET / — list diagrams for a project
-router.get('/', (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { project } = req.query;
-  if (!project || typeof project !== 'string') {
-    res.status(400).json({ error: 'project query param required' });
-    return;
-  }
 
   const db = getDb();
   const rows = db.prepare(
@@ -73,12 +73,15 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create diagram
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', validate({
+  body: z.object({
+    project: z.string().min(1),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    diagramData: z.record(z.unknown()).optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { name, project, diagramData, description } = req.body;
-  if (!project) {
-    res.status(400).json({ error: 'project is required' });
-    return;
-  }
 
   const db = getDb();
   const id = randomUUID();

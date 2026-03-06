@@ -7,6 +7,11 @@ import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 import { safeJsonParse } from '../lib/safeJson.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { z } from 'zod';
+
+const log = createLogger('graphs');
 import { exportGraphToClaude } from '../services/graph-exporter.js';
 import { generateMetadataForNodes } from '../services/metadata-generator.js';
 import type { MetadataGenerationInput } from '../services/metadata-generator.js';
@@ -50,12 +55,8 @@ function rowToSummary(row: GraphRow) {
 }
 
 // GET / — list graphs for a project
-router.get('/', (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { project } = req.query;
-  if (!project || typeof project !== 'string') {
-    res.status(400).json({ error: 'project query param required' });
-    return;
-  }
 
   const db = getDb();
   const rows = db.prepare(
@@ -148,12 +149,8 @@ function slugToLabel(slug: string): string {
 }
 
 // GET /project-assets — scan a project's .claude/ directory for importable assets
-router.get('/project-assets', (req: AuthRequest, res) => {
+router.get('/project-assets', validate({ query: z.object({ cwd: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { cwd } = req.query;
-  if (!cwd || typeof cwd !== 'string') {
-    res.status(400).json({ error: 'cwd query param required' });
-    return;
-  }
 
   try {
     const result: {
@@ -325,12 +322,8 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create graph
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
   const { name, project, description, graphData } = req.body;
-  if (!project) {
-    res.status(400).json({ error: 'project is required' });
-    return;
-  }
 
   const db = getDb();
   const id = randomUUID();
@@ -385,13 +378,11 @@ router.delete('/:id', (req: AuthRequest, res) => {
 
 // ─── Export as .claude/ directory (zip) ─────────────────────────────────
 
-router.post('/export-claude', (req: AuthRequest, res) => {
+router.post('/export-claude', validate({
+  body: z.object({ graphData: z.object({ nodes: z.array(z.unknown()), edges: z.array(z.unknown()) }).passthrough() }).passthrough(),
+}), (req: AuthRequest, res) => {
   try {
     const { graphData, name } = req.body;
-    if (!graphData?.nodes || !graphData?.edges) {
-      res.status(400).json({ error: 'graphData with nodes and edges is required' });
-      return;
-    }
 
     const files = exportGraphToClaude(graphData, name || 'Untitled Graph');
 
@@ -423,17 +414,14 @@ router.post('/export-claude', (req: AuthRequest, res) => {
 
 // ─── Save to project directory ──────────────────────────────────────────
 
-router.post('/save-to-project', (req: AuthRequest, res) => {
+router.post('/save-to-project', validate({
+  body: z.object({
+    graphData: z.object({ nodes: z.array(z.unknown()), edges: z.array(z.unknown()) }).passthrough(),
+    projectPath: z.string().min(1),
+  }).passthrough(),
+}), (req: AuthRequest, res) => {
   try {
     const { graphData, name, projectPath, preview } = req.body;
-    if (!graphData?.nodes || !graphData?.edges) {
-      res.status(400).json({ error: 'graphData with nodes and edges is required' });
-      return;
-    }
-    if (!projectPath || typeof projectPath !== 'string') {
-      res.status(400).json({ error: 'projectPath is required' });
-      return;
-    }
 
     const files = exportGraphToClaude(graphData, name || 'Untitled Graph');
 
@@ -584,15 +572,11 @@ Rules:
 - Keep the prompt focused and professional`;
 }
 
-router.post('/generate-prompt', async (req: AuthRequest, res) => {
+router.post('/generate-prompt', validate({
+  body: z.object({ nodeType: z.string().min(1) }).passthrough(),
+}), async (req: AuthRequest, res) => {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const { nodeType } = req.body;
-    if (!nodeType) {
-      res.status(400).json({ error: 'nodeType is required' });
-      return;
-    }
-
     const prompt = buildPromptGenerationQuery(req.body);
 
     res.writeHead(200, {
@@ -640,13 +624,11 @@ router.post('/generate-prompt', async (req: AuthRequest, res) => {
 
 // ── POST /generate-metadata — auto-generate metadata for agent nodes ──
 
-router.post('/generate-metadata', async (req: AuthRequest, res) => {
+router.post('/generate-metadata', validate({
+  body: z.object({ graphData: z.object({ nodes: z.array(z.unknown()) }).passthrough() }).passthrough(),
+}), async (req: AuthRequest, res) => {
   try {
     const { graphData, projectPath } = req.body;
-    if (!graphData?.nodes) {
-      res.status(400).json({ error: 'graphData with nodes is required' });
-      return;
-    }
 
     const cwd = projectPath || process.cwd();
 
@@ -675,7 +657,7 @@ router.post('/generate-metadata', async (req: AuthRequest, res) => {
     const results = await generateMetadataForNodes(inputs, cwd);
     res.json({ results });
   } catch (err) {
-    console.error('[graphs] generate-metadata error:', err);
+    log.error({ err }, 'Failed to generate metadata');
     res.status(500).json({ error: 'Failed to generate metadata' });
   }
 });

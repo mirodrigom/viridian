@@ -3,6 +3,9 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('database');
 
 const DEFAULT_SERVICES: { name: string; command: string; cwd: string }[] = [
   {
@@ -19,6 +22,7 @@ export function getDb(): Database.Database {
     mkdirSync(dirname(config.dbPath), { recursive: true });
     db = new Database(config.dbPath);
     db.pragma('journal_mode = WAL');
+    log.info({ path: config.dbPath }, 'Database initialized');
     runMigrations(db);
   }
   return db;

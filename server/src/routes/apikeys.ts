@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import { randomBytes, createHash } from 'crypto';
+import { z } from 'zod';
 import { getDb } from '../db/database.js';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('apikeys');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware as any);
 
@@ -23,13 +27,9 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/keys — create a new API key
-router.post('/', (req, res) => {
+router.post('/', validate({ body: z.object({ name: z.string().min(1) }) }), (req, res) => {
   const authReq = req as AuthRequest;
   const { name } = req.body;
-  if (!name || typeof name !== 'string') {
-    res.status(400).json({ error: 'Key name is required' });
-    return;
-  }
 
   const rawKey = KEY_PREFIX + randomBytes(32).toString('hex');
   const prefix = rawKey.slice(0, 12) + '...';

@@ -9,6 +9,9 @@
 import { claudeQuery } from './claude-sdk.js';
 import type { AgentMetadata, AgentDomain, AgentCapability } from '../types/agent-metadata.js';
 import { AGENT_DOMAINS } from '../types/agent-metadata.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('metadata-generator');
 
 export interface MetadataGenerationInput {
   nodeId: string;
@@ -140,7 +143,7 @@ function parseMetadataResponse(
   try {
     parsed = JSON.parse(jsonStr.trim());
   } catch {
-    console.error('[MetadataGenerator] Failed to parse LLM response as JSON');
+    log.error('Failed to parse LLM response as JSON');
     return [];
   }
 

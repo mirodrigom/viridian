@@ -3,6 +3,9 @@ import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { runGraph, previewGraph, type RunContext } from '../services/graph-runner.js';
 import { getDb } from '../db/database.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('graph-runner-ws');
 
 export function setupGraphRunnerWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });

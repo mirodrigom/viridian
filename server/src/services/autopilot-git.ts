@@ -5,6 +5,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { getStatus, stageFiles, commit, getBranches, createBranch } from './git.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('autopilot-git');
 
 const execFileAsync = promisify(execFile);
 
@@ -130,7 +133,7 @@ export async function pushAndCreatePR(
     ], { cwd });
 
     const prUrl = stdout.trim();
-    console.log(`[Autopilot] PR created: ${prUrl}`);
+    log.info({ prUrl }, 'PR created');
 
     // Enable auto-merge (squash)
     try {
@@ -138,15 +141,15 @@ export async function pushAndCreatePR(
         'pr', 'merge', prUrl,
         '--auto', '--squash',
       ], { cwd });
-      console.log(`[Autopilot] Auto-merge enabled for ${prUrl}`);
+      log.info({ prUrl }, 'Auto-merge enabled');
     } catch (mergeErr) {
       // Auto-merge may not be available (repo settings, no branch protection, etc.)
-      console.warn(`[Autopilot] Could not enable auto-merge: ${mergeErr}`);
+      log.warn({ err: mergeErr }, 'Could not enable auto-merge');
     }
 
     return { prUrl };
   } catch (err) {
-    console.error(`[Autopilot] Failed to push/create PR: ${err}`);
+    log.error({ err }, 'Failed to push/create PR');
     return null;
   }
 }

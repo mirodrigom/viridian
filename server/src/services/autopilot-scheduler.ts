@@ -5,6 +5,9 @@
 
 import { getDb } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('autopilot-scheduler');
 import {
   startAutopilotRun,
   getActiveRun,
@@ -24,7 +27,7 @@ export function startScheduler() {
 
   if (checkTimer) return;
   checkTimer = setInterval(tick, CHECK_INTERVAL);
-  console.log('[Autopilot Scheduler] Started — checking every 60s');
+  log.info('Started — checking every 60s');
   // Initial check
   tick();
 }
@@ -34,7 +37,7 @@ export function stopScheduler() {
     clearInterval(checkTimer);
     checkTimer = null;
   }
-  console.log('[Autopilot Scheduler] Stopped');
+  log.info('Stopped');
 }
 
 function tick() {
@@ -57,7 +60,7 @@ function tick() {
         if (ctx) {
           // Run is active — check if we should stop it (outside window)
           if (!isWithinWindow(cfg, now)) {
-            console.log(`[Autopilot Scheduler] Outside window for ${configId}, pausing run ${existingRunId}`);
+            log.info({ configId, runId: existingRunId }, 'Outside window, pausing run');
             pauseRun(existingRunId);
             scheduledRuns.delete(configId);
           }
@@ -77,7 +80,7 @@ function tick() {
 
       // Check if within schedule window
       if (isWithinWindow(cfg, now)) {
-        console.log(`[Autopilot Scheduler] Within window for ${configId}, starting run`);
+        log.info({ configId }, 'Within window, starting run');
         try {
           const runConfig: AutopilotRunConfig = {
             configId,
@@ -98,12 +101,12 @@ function tick() {
           const ctx = startAutopilotRun(runConfig);
           scheduledRuns.set(configId, ctx.runId);
         } catch (err) {
-          console.error(`[Autopilot Scheduler] Failed to start run for ${configId}:`, err);
+          log.error({ err, configId }, 'Failed to start run');
         }
       }
     }
   } catch (err) {
-    console.error('[Autopilot Scheduler] Error in tick:', err);
+    log.error({ err }, 'Error in tick');
   }
 }
 

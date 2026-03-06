@@ -10,6 +10,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { config } from './config.js';
+import { createLogger } from './logger.js';
 import authRoutes from './routes/auth.js';
 import filesRoutes from './routes/files.js';
 import gitRoutes from './routes/git.js';
@@ -128,25 +129,23 @@ setupAutopilotWs(server);
 setupManagementWs(server);
 setupTracesWs(server);
 
+const log = createLogger('server');
+
 server.listen(config.port, config.host, () => {
-  console.log(`Server running on http://${config.host}:${config.port}`);
-  // Clean up any runs left in active states from a previous server instance
+  log.info({ host: config.host, port: config.port }, 'Server started');
   cleanupZombieRuns();
-  // Start the autopilot scheduler after server is ready
   startScheduler();
 });
 
-// Graceful shutdown
 function shutdown() {
-  console.log('Shutting down...');
+  log.info('Shutting down...');
   stopScheduler();
   sessionsWs.close();
   destroyAllTerminals();
   server.close(() => {
-    console.log('Server closed');
+    log.info('Server closed');
     process.exit(0);
   });
-  // Force exit after 5s if graceful shutdown stalls
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
@@ -154,11 +153,11 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[server] Unhandled promise rejection:', reason);
+  log.error({ err: reason }, 'Unhandled promise rejection');
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[server] Uncaught exception:', err);
+  log.fatal({ err }, 'Uncaught exception');
   shutdown();
 });
 

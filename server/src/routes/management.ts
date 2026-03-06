@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import {
@@ -15,7 +16,10 @@ import {
   getRunningEntry,
 } from '../services/project-manager.js';
 import { bootstrapProject, discoverEnvFiles } from '../services/project-bootstrap.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('management');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -87,9 +91,15 @@ router.get('/services', (req: AuthRequest, res) => {
   res.json({ services: rows.map(rowToService) });
 });
 
-router.post('/services', (req: AuthRequest, res) => {
-  const { name, command, cwd, projectPath } = req.body as { name?: string; command?: string; cwd?: string; projectPath?: string };
-  if (!name || !command) { res.status(400).json({ error: 'name and command are required' }); return; }
+router.post('/services', validate({
+  body: z.object({
+    name: z.string().min(1),
+    command: z.string().min(1),
+    cwd: z.string().optional(),
+    projectPath: z.string().optional(),
+  }),
+}), (req: AuthRequest, res) => {
+  const { name, command, cwd, projectPath } = req.body as { name: string; command: string; cwd?: string; projectPath?: string };
 
   const db = getDb();
   const maxOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_services WHERE user_id = ?').get(req.user!.id) as { next: number }).next;
@@ -145,9 +155,10 @@ router.post('/services/:id/stop', (req: AuthRequest, res) => {
   res.json({ ok: true });
 });
 
-router.post('/services/reorder', (req: AuthRequest, res) => {
-  const { ids } = req.body as { ids?: string[] };
-  if (!Array.isArray(ids)) { res.status(400).json({ error: 'ids array required' }); return; }
+router.post('/services/reorder', validate({
+  body: z.object({ ids: z.array(z.string()) }),
+}), (req: AuthRequest, res) => {
+  const { ids } = req.body as { ids: string[] };
   const db = getDb();
   const stmt = db.prepare('UPDATE management_services SET sort_order = ? WHERE id = ? AND user_id = ?');
   const tx = db.transaction(() => { ids.forEach((id, i) => stmt.run(i, id, req.user!.id)); });
@@ -171,9 +182,15 @@ router.get('/scripts', (req: AuthRequest, res) => {
   res.json({ scripts: rows.map(rowToScript) });
 });
 
-router.post('/scripts', (req: AuthRequest, res) => {
-  const { name, command, cwd, projectPath } = req.body as { name?: string; command?: string; cwd?: string; projectPath?: string };
-  if (!name || !command) { res.status(400).json({ error: 'name and command are required' }); return; }
+router.post('/scripts', validate({
+  body: z.object({
+    name: z.string().min(1),
+    command: z.string().min(1),
+    cwd: z.string().optional(),
+    projectPath: z.string().optional(),
+  }),
+}), (req: AuthRequest, res) => {
+  const { name, command, cwd, projectPath } = req.body as { name: string; command: string; cwd?: string; projectPath?: string };
   const db = getDb();
   const maxOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_scripts WHERE user_id = ?').get(req.user!.id) as { next: number }).next;
   const id = randomUUID();
@@ -211,49 +228,53 @@ router.post('/scripts/:id/run', (req: AuthRequest, res) => {
 // ─── Env file ─────────────────────────────────────────────────────────────────
 
 // Discover .env files recursively in the project directory
-router.get('/env/discover', (req: AuthRequest, res) => {
+router.get('/env/discover', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const projectPath = req.query.project as string;
-  if (!projectPath) { res.status(400).json({ error: 'project query param required' }); return; }
   try {
     const files = discoverEnvFiles(projectPath);
     res.json({ files });
   } catch (err) {
+    log.warn({ err, projectPath }, 'Failed to discover env files');
     res.status(500).json({ error: 'Failed to discover env files' });
   }
 });
 
-router.get('/env', (req: AuthRequest, res) => {
+router.get('/env', validate({ query: z.object({ path: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const filePath = req.query.path as string;
-  if (!filePath) { res.status(400).json({ error: 'path query param required' }); return; }
   if (!existsSync(filePath)) { res.json({ content: '' }); return; }
   try {
     const content = readFileSync(filePath, 'utf8');
     res.json({ content });
   } catch (err) {
+    log.warn({ err, filePath }, 'Failed to read env file');
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
 
-router.put('/env', (req: AuthRequest, res) => {
-  const { path: filePath, content } = req.body as { path?: string; content?: string };
-  if (!filePath || content === undefined) { res.status(400).json({ error: 'path and content are required' }); return; }
+router.put('/env', validate({
+  body: z.object({ path: z.string().min(1), content: z.string() }),
+}), (req: AuthRequest, res) => {
+  const { path: filePath, content } = req.body as { path: string; content: string };
   try {
     writeFileSync(filePath, content, 'utf8');
     res.json({ ok: true });
   } catch (err) {
+    log.warn({ err, filePath }, 'Failed to write env file');
     res.status(500).json({ error: 'Failed to write file' });
   }
 });
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
-router.post('/bootstrap', (req: AuthRequest, res) => {
-  const { projectPath } = req.body as { projectPath?: string };
-  if (!projectPath) { res.status(400).json({ error: 'projectPath is required' }); return; }
+router.post('/bootstrap', validate({
+  body: z.object({ projectPath: z.string().min(1) }),
+}), (req: AuthRequest, res) => {
+  const { projectPath } = req.body as { projectPath: string };
   try {
     const result = bootstrapProject(req.user!.id, projectPath);
     res.json(result);
   } catch (err) {
+    log.error({ err, projectPath }, 'Bootstrap failed');
     res.status(500).json({ error: 'Bootstrap failed' });
   }
 });

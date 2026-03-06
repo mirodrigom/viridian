@@ -2,13 +2,17 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { unlinkSync } from 'fs';
 import { join } from 'path';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { getDb } from '../db/database.js';
 import { getProvider, getDefaultProvider } from '../providers/registry.js';
 import type { ProviderId } from '../providers/types.js';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('tasks');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -68,12 +72,8 @@ function rowToTask(row: TaskRow) {
 }
 
 // GET / — list tasks for a project
-router.get('/', (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
   const { project, status, priority, parentId } = req.query;
-  if (!project || typeof project !== 'string') {
-    res.status(400).json({ error: 'project query param required' });
-    return;
-  }
 
   const db = getDb();
   let sql = 'SELECT * FROM tasks WHERE user_id = ? AND project_path = ?';
@@ -112,12 +112,18 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create task
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', validate({
+  body: z.object({
+    title: z.string().min(1),
+    project: z.string().min(1),
+    description: z.string().optional(),
+    details: z.string().optional(),
+    priority: z.string().optional(),
+    parentId: z.string().nullable().optional(),
+    dependencyIds: z.array(z.string()).optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { title, description, details, project, priority, parentId, dependencyIds } = req.body;
-  if (!title || !project) {
-    res.status(400).json({ error: 'title and project are required' });
-    return;
-  }
 
   const db = getDb();
   const id = randomUUID();
@@ -204,12 +210,10 @@ router.delete('/:id', (req: AuthRequest, res) => {
 });
 
 // POST /reorder — reorder tasks
-router.post('/reorder', (req: AuthRequest, res) => {
+router.post('/reorder', validate({
+  body: z.object({ taskIds: z.array(z.string()) }),
+}), (req: AuthRequest, res) => {
   const { taskIds } = req.body;
-  if (!Array.isArray(taskIds) || !taskIds.every((id: unknown) => typeof id === 'string')) {
-    res.status(400).json({ error: 'taskIds must be an array of strings' });
-    return;
-  }
   const db = getDb();
   const stmt = db.prepare('UPDATE tasks SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?');
   const tx = db.transaction(() => {
@@ -299,12 +303,14 @@ const JSON_OUTPUT_PROMPT = `Now output the complete task list as JSON. For each 
 Each parent task MUST have subtasks. Output ONLY JSON objects, one per line. No markdown, no explanations, no code fences.`;
 
 // POST /parse-prd — use AI to break a PRD into tasks (SSE stream)
-router.post('/parse-prd', (req: AuthRequest, res) => {
+router.post('/parse-prd', validate({
+  body: z.object({
+    prd: z.string().min(1),
+    project: z.string().min(1),
+    providerId: z.string().optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { prd, project, providerId } = req.body;
-  if (!prd || !project) {
-    res.status(400).json({ error: 'prd and project are required' });
-    return;
-  }
   const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
@@ -368,12 +374,16 @@ ${prd}`;
 });
 
 // POST /prd-chat — one turn of a conversational PRD analysis (SSE stream)
-router.post('/prd-chat', (req: AuthRequest, res) => {
+router.post('/prd-chat', validate({
+  body: z.object({
+    message: z.string().min(1),
+    project: z.string().min(1),
+    sessionId: z.string().optional(),
+    prd: z.string().optional(),
+    providerId: z.string().optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { message, project, sessionId, prd, providerId } = req.body;
-  if (!message || !project) {
-    res.status(400).json({ error: 'message and project are required' });
-    return;
-  }
   const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {
@@ -432,12 +442,15 @@ router.post('/prd-chat', (req: AuthRequest, res) => {
 });
 
 // POST /prd-finalize — generate JSON tasks from conversation, save to DB (SSE stream)
-router.post('/prd-finalize', (req: AuthRequest, res) => {
+router.post('/prd-finalize', validate({
+  body: z.object({
+    project: z.string().min(1),
+    sessionId: z.string().min(1),
+    prd: z.string().optional(),
+    providerId: z.string().optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { project, sessionId, prd, providerId } = req.body;
-  if (!project || !sessionId) {
-    res.status(400).json({ error: 'project and sessionId are required' });
-    return;
-  }
   const provider = providerId ? getProvider(providerId as ProviderId) : getDefaultProvider();
 
   res.writeHead(200, {

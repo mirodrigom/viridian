@@ -7,6 +7,9 @@ import { v4 as uuid } from 'uuid';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { ProfileLoader } from './profile-loader.js';
 import type { AgentDomain, AgentCapability } from '../types/agent-metadata.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('autopilot-profiles');
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -103,7 +106,7 @@ export function seedBuiltinProfiles(): void {
     );
   }
 
-  console.log(`Seeded ${builtinProfiles.length} built-in profiles to database`);
+  log.info({ count: builtinProfiles.length }, 'Seeded built-in profiles to database');
 }
 
 /** Get all profiles (built-in + user's custom) */

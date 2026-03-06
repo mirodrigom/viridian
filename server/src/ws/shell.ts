@@ -3,6 +3,9 @@ import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { createTerminal, resizeTerminal, writeTerminal, destroyTerminal } from '../services/terminal.js';
 import { getHomeDir } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('shell-ws');
 
 export function setupShellWs(server: Server) {
   const wss = new WebSocketServer({ noServer: true });

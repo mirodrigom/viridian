@@ -1,5 +1,8 @@
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from './logger.js';
+
+const log = createLogger('config');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -19,10 +22,7 @@ function getJwtSecret(): string {
 
   // In development, allow fallback but warn
   if (isDevelopment && !secret) {
-    console.warn(
-      '⚠️  WARNING: Using default JWT secret for development. ' +
-      'Set JWT_SECRET environment variable for security.'
-    );
+    log.warn('Using default JWT secret for development. Set JWT_SECRET environment variable for security.');
     return 'viridian-dev-secret-change-in-production';
   }
 
@@ -34,10 +34,7 @@ function getJwtSecret(): string {
         'Current length: ' + secret.length
       );
     }
-    console.warn(
-      '⚠️  WARNING: JWT_SECRET is too short (< 32 chars). ' +
-      'Using dev fallback secret instead.'
-    );
+    log.warn({ length: secret!.length }, 'JWT_SECRET is too short (< 32 chars). Using dev fallback secret instead.');
     return 'viridian-dev-secret-change-in-production';
   }
 
@@ -47,7 +44,7 @@ function getJwtSecret(): string {
 function getPort(): number {
   const parsed = parseInt(process.env.PORT || '3010', 10);
   if (Number.isNaN(parsed) || parsed < 1 || parsed > 65535) {
-    console.warn(`Invalid PORT "${process.env.PORT}", falling back to 3010`);
+    log.warn({ port: process.env.PORT }, 'Invalid PORT, falling back to 3010');
     return 3010;
   }
   return parsed;

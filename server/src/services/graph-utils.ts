@@ -9,9 +9,11 @@ import { appendFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { isSessionInternal } from '../db/database.js';
+import { createLogger } from '../logger.js';
 
 // ─── Debug Logging ──────────────────────────────────────────────────────
 
+const log = createLogger('graph-runner');
 const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
 
 /** Debug log to file for tracing delegation flow. Used by all graph sub-modules. */
@@ -19,7 +21,7 @@ export function debugLog(msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   const line = `[${ts}] ${msg}\n`;
   try { appendFileSync(DEBUG_LOG, line); } catch { /* ignore */ }
-  console.log(msg);
+  log.debug(msg);
 }
 
 // ─── Session ID Tracking ────────────────────────────────────────────────

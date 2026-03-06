@@ -5,16 +5,18 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { createLogger } from '../logger.js';
 
 // ─── Debug logging ───────────────────────────────────────────────────────────
 
+const log = createLogger('claude-utils');
 const DEBUG_LOG = join(tmpdir(), 'graph-runner-debug.log');
 
 export function debugLog(msg: string) {
   const ts = new Date().toISOString().slice(11, 23);
   const line = `[${ts}] ${msg}\n`;
   try { appendFileSync(DEBUG_LOG, line); } catch { /* ignore */ }
-  console.log(msg);
+  log.debug(msg);
 }
 
 // ─── ANSI escape code stripping ─────────────────────────────────────────────

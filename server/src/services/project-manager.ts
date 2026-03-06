@@ -7,6 +7,9 @@
 import { EventEmitter } from 'events';
 import { spawn, type ChildProcess } from 'child_process';
 import { isWindows } from '../utils/platform.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('project-manager');
 
 export const projectEmitter = new EventEmitter();
 projectEmitter.setMaxListeners(100);
@@ -26,7 +29,10 @@ const activeAgents = new Map<string, string>(); // projectId → sessionId
 // ─── Service lifecycle ────────────────────────────────────────────────────────
 
 export function startService(serviceId: string, projectId: string, command: string, cwd: string): void {
-  if (runningProcesses.has(serviceId)) return; // already running
+  if (runningProcesses.has(serviceId)) {
+    log.debug({ serviceId }, 'Service already running');
+    return;
+  }
 
   let proc: ChildProcess;
   try {
@@ -38,6 +44,7 @@ export function startService(serviceId: string, projectId: string, command: stri
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Failed to spawn process';
+    log.error({ err, serviceId, command, cwd }, 'Failed to spawn service process');
     projectEmitter.emit('service:status', { serviceId, projectId, status: 'error', error: msg });
     return;
   }

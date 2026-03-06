@@ -6,6 +6,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('autopilot-ws');
 import {
   startAutopilotRun,
   getActiveRun,
@@ -99,7 +102,7 @@ export function setupAutopilotWs(server: Server) {
             return;
           }
 
-          console.log(`[Autopilot] start_adhoc: cwd="${cwd}", goal="${(goalPrompt as string).slice(0, 60)}..."`);
+          log.info({ cwd, goal: (goalPrompt as string).slice(0, 60) }, 'Starting adhoc run');
 
           const config: AutopilotRunConfig = {
             userId: user.id,

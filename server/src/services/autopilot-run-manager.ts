@@ -19,6 +19,9 @@ import {
   parseRateLimitReset
 } from './autopilot-validators.js';
 import type { ProviderId } from '../providers/types.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('autopilot-run-manager');
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +108,7 @@ export function cleanupZombieRuns(): void {
     WHERE status IN ('running', 'paused', 'rate_limited')
   `).run();
   if (result.changes > 0) {
-    console.log(`[Autopilot] Cleaned up ${result.changes} zombie run(s) from previous session`);
+    log.info({ count: result.changes }, 'Cleaned up zombie run(s) from previous session');
   }
 }
 
@@ -355,7 +358,7 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
   // Create git branch on first run (not on resume)
   if (!ctx.branchName) {
     try {
-      console.log(`[Autopilot] Creating branch in: ${ctx.cwd}`);
+      log.info({ cwd: ctx.cwd }, 'Creating branch');
       ctx.branchName = await createAutopilotBranch(ctx.cwd);
       const db = getDb();
       db.prepare('UPDATE autopilot_runs SET branch_name = ? WHERE id = ?').run(ctx.branchName, runId);
@@ -445,7 +448,7 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
       ctx.cycleCount++;
     } catch (err) {
       // Test verification failure should not fail the entire run
-      console.warn('[Autopilot] Test verification failed:', err);
+      log.warn({ err }, 'Test verification failed');
     }
   }
 
@@ -492,7 +495,7 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
             emitter.emit('pr_created', { runId, prUrl: result.prUrl });
           }
         })
-        .catch((err) => { console.warn('[Autopilot] PR creation failed:', err); });
+        .catch((err) => { log.warn({ err }, 'PR creation failed'); });
     }
   }
 

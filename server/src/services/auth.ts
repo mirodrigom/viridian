@@ -2,6 +2,9 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { getDb, seedDefaultServicesForNewUser } from '../db/database.js';
 import { config } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('auth');
 
 const SALT_ROUNDS = 10;
 
@@ -21,6 +24,7 @@ export async function createUser(username: string, password: string): Promise<{ 
   const result = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, hash);
   const userId = result.lastInsertRowid as number;
   seedDefaultServicesForNewUser(userId);
+  log.info({ userId, username }, 'User created');
   return { id: userId, username };
 }
 

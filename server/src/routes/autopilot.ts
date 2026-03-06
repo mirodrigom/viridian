@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
@@ -12,7 +13,10 @@ import {
 } from '../services/autopilot-profiles.js';
 import { getCommitDiff } from '../services/autopilot-git.js';
 import { randomUUID } from 'crypto';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('autopilot');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -33,17 +37,32 @@ router.get('/profiles', (req: AuthRequest, res) => {
   res.json({ profiles });
 });
 
-router.post('/profiles', (req: AuthRequest, res) => {
+router.post('/profiles', validate({
+  body: z.object({
+    name: z.string().min(1),
+    systemPrompt: z.string().min(1),
+    role: z.string().optional(),
+    description: z.string().optional(),
+    allowedTools: z.array(z.string()).optional(),
+    disallowedTools: z.array(z.string()).optional(),
+    model: z.string().nullable().optional(),
+    category: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    subagents: z.array(z.unknown()).optional(),
+    mcpServers: z.array(z.unknown()).optional(),
+    appendSystemPrompt: z.string().nullable().optional(),
+    maxTurns: z.number().nullable().optional(),
+    permissionMode: z.string().nullable().optional(),
+    icon: z.string().nullable().optional(),
+    difficulty: z.string().nullable().optional(),
+  }),
+}), (req: AuthRequest, res) => {
   ensureSeeded();
   const {
     name, role, description, systemPrompt, allowedTools, disallowedTools, model,
     category, tags, subagents, mcpServers, appendSystemPrompt, maxTurns,
     permissionMode, icon, difficulty,
   } = req.body;
-  if (!name || !systemPrompt) {
-    res.status(400).json({ error: 'name and systemPrompt are required' });
-    return;
-  }
   const profile = createProfile(req.user!.id, {
     name,
     role: role || 'custom',
@@ -132,12 +151,8 @@ function rowToConfig(row: ConfigRow) {
   };
 }
 
-router.get('/configs', (req: AuthRequest, res) => {
+router.get('/configs', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { project } = req.query;
-  if (!project || typeof project !== 'string') {
-    res.status(400).json({ error: 'project query param required' });
-    return;
-  }
   const db = getDb();
   const rows = db.prepare(
     'SELECT * FROM autopilot_configs WHERE user_id = ? AND project_path = ? ORDER BY updated_at DESC',
@@ -145,18 +160,32 @@ router.get('/configs', (req: AuthRequest, res) => {
   res.json({ configs: rows.map(rowToConfig) });
 });
 
-router.post('/configs', (req: AuthRequest, res) => {
+router.post('/configs', validate({
+  body: z.object({
+    project: z.string().min(1),
+    agentAProfile: z.string().min(1),
+    agentBProfile: z.string().min(1),
+    name: z.string().optional(),
+    allowedPaths: z.array(z.string()).optional(),
+    agentAModel: z.string().optional(),
+    agentBModel: z.string().optional(),
+    maxIterations: z.number().optional(),
+    maxTokensPerSession: z.number().optional(),
+    scheduleEnabled: z.boolean().optional(),
+    scheduleStartTime: z.string().nullable().optional(),
+    scheduleEndTime: z.string().nullable().optional(),
+    scheduleDays: z.array(z.number()).optional(),
+    scheduleTimezone: z.string().optional(),
+    goalPrompt: z.string().optional(),
+    runTestVerification: z.boolean().optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const {
     project, name, agentAProfile, agentBProfile, allowedPaths,
     agentAModel, agentBModel, maxIterations, maxTokensPerSession,
     scheduleEnabled, scheduleStartTime, scheduleEndTime, scheduleDays,
     scheduleTimezone, goalPrompt, runTestVerification,
   } = req.body;
-
-  if (!project || !agentAProfile || !agentBProfile) {
-    res.status(400).json({ error: 'project, agentAProfile, and agentBProfile are required' });
-    return;
-  }
 
   const db = getDb();
   const id = randomUUID();
@@ -424,6 +453,7 @@ router.get('/runs/:id/diff/:cycleNumber', async (req: AuthRequest, res) => {
     const diff = await getCommitDiff(run.project_path, cycle.commit_hash);
     res.json({ diff });
   } catch (err) {
+    log.warn({ err }, 'Failed to get commit diff');
     res.status(500).json({ error: String(err) });
   }
 });

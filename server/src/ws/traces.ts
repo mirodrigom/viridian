@@ -7,6 +7,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { traceEmitter } from '../services/langfuse.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('traces-ws');
 
 function safeSend(ws: WebSocket, data: unknown) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));

@@ -7,6 +7,11 @@ import { getHomeDir, getDefaultShell, isWindows, isWSLAvailable } from '../utils
 import { getProviderDTOs, getProvider } from '../providers/registry.js';
 import { saveProviderConfig, getProviderConfig, deleteProviderEnvVar } from '../db/database.js';
 import type { ProviderId } from '../providers/types.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
+import { z } from 'zod';
+
+const log = createLogger('providers');
 
 // Ensure all providers are registered (side-effect imports)
 import '../providers/claude.js';
@@ -246,7 +251,7 @@ router.post('/:id/login', (req, res) => {
       ? { ...process.env }  // WSL ignores Windows HOME and uses its own
       : { ...process.env, HOME: getHomeDir() };
 
-    console.log(`[kiro-login] Spawning: ${spawnCmd} ${spawnArgs.join(' ')}`);
+    log.info({ cmd: spawnCmd, args: spawnArgs }, 'Spawning kiro login');
 
     const proc = spawn(spawnCmd, spawnArgs, {
       env: spawnEnv,
@@ -274,7 +279,7 @@ router.post('/:id/login', (req, res) => {
       // Strip ANSI escape codes (from `script` pseudo-TTY wrapper)
       const text = rawText.replace(/\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07]*\x07|\x1B\[[\?]?[0-9;]*[a-zA-Z]/g, '');
       output += text;
-      console.log(`[kiro-login] Output: ${text.trim()}`);
+      log.debug({ output: text.trim() }, 'Kiro login output');
       // Look for the device code URL (e.g., https://view.awsapps.com/start/#/device?user_code=XXXX-XXXX)
       const urlMatch = text.match(/(https:\/\/[^\s]+user_code=[^\s]+)/);
       if (urlMatch) loginUrl = urlMatch[1];
@@ -331,15 +336,15 @@ router.post('/:id/login', (req, res) => {
  * Body: { apiKey: string, envVarName?: string }
  * `envVarName` is used by multi-backend providers (Aider) to specify which key to set.
  */
-router.post('/:id/configure', (req, res) => {
+router.post('/:id/configure', validate({
+  body: z.object({
+    apiKey: z.string().min(1),
+    envVarName: z.string().optional(),
+  }),
+}), (req, res) => {
   try {
     const provider = getProvider(req.params.id as ProviderId);
-    const { apiKey, envVarName } = req.body as { apiKey?: string; envVarName?: string };
-
-    if (!apiKey?.trim()) {
-      res.status(400).json({ error: 'apiKey is required' });
-      return;
-    }
+    const { apiKey, envVarName } = req.body as { apiKey: string; envVarName?: string };
 
     const id = provider.info.id;
     const home = getHomeDir();

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import {
@@ -12,7 +13,10 @@ import {
   deactivateAgent,
   getAgentSessionId,
 } from '../services/project-manager.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('projects');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -93,18 +97,20 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create project
-router.post('/', (req: AuthRequest, res) => {
+router.post('/', validate({
+  body: z.object({
+    name: z.string().min(1),
+    path: z.string().min(1),
+    description: z.string().optional(),
+    services: z.array(z.object({ name: z.string(), command: z.string() })).optional(),
+  }),
+}), (req: AuthRequest, res) => {
   const { name, path, description, services } = req.body as {
-    name?: string;
-    path?: string;
+    name: string;
+    path: string;
     description?: string;
     services?: { name: string; command: string }[];
   };
-
-  if (!name || !path) {
-    res.status(400).json({ error: 'name and path are required' });
-    return;
-  }
   if (!existsSync(path)) {
     res.status(400).json({ error: 'Path does not exist on the server filesystem' });
     return;
@@ -181,7 +187,7 @@ router.post('/:id/services', (req: AuthRequest, res) => {
     .get(req.params.id, req.user!.id);
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  const { name, command } = req.body as { name?: string; command?: string };
+  const { name, command } = req.body as { name: string; command: string };
   if (!name || !command) { res.status(400).json({ error: 'name and command are required' }); return; }
 
   const maxOrder = (

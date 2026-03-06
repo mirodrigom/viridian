@@ -1,8 +1,12 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getDb } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
+import { createLogger } from '../logger.js';
+import { validate } from '../middleware/validate.js';
 
+const log = createLogger('graph-runs');
 const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
@@ -56,12 +60,8 @@ function rowToFull(row: GraphRunRow) {
 }
 
 // GET /api/graph-runs?graphId=xxx — list runs for a graph
-router.get('/', (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ graphId: z.string().min(1) }) }), (req: AuthRequest, res) => {
   const { graphId } = req.query;
-  if (!graphId || typeof graphId !== 'string') {
-    res.status(400).json({ error: 'graphId query param required' });
-    return;
-  }
   const db = getDb();
   const rows = db.prepare(
     'SELECT * FROM graph_runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC LIMIT 50',

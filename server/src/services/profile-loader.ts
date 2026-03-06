@@ -7,6 +7,9 @@ import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import type { AgentDomain, AgentCapability } from '../types/agent-metadata.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('profile-loader');
 
 // Get current module directory
 const __filename = fileURLToPath(import.meta.url);
@@ -99,7 +102,7 @@ export class ProfileLoader {
     const profilesDir = join(__dirname, '..', 'data', 'profiles');
 
     if (!existsSync(profilesDir)) {
-      console.warn(`Profile directory not found: ${profilesDir}`);
+      log.warn({ profilesDir }, 'Profile directory not found');
       return [];
     }
 
@@ -110,7 +113,7 @@ export class ProfileLoader {
       const categoryDir = join(profilesDir, category);
 
       if (!existsSync(categoryDir)) {
-        console.warn(`Category directory not found: ${categoryDir}`);
+        log.warn({ categoryDir }, 'Category directory not found');
         continue;
       }
 
@@ -126,14 +129,14 @@ export class ProfileLoader {
           }
         }
       } catch (error) {
-        console.error(`Error reading category directory ${category}:`, error);
+        log.error({ err: error, category }, 'Error reading category directory');
       }
     }
 
     this.profiles = loadedProfiles;
     this.loaded = true;
 
-    console.log(`Loaded ${loadedProfiles.length} built-in profiles`);
+    log.info({ count: loadedProfiles.length }, 'Loaded built-in profiles');
     return this.profiles;
   }
 
@@ -147,14 +150,14 @@ export class ProfileLoader {
 
       // Validate required fields
       if (!profileData.id || !profileData.name || !profileData.role) {
-        console.error(`Invalid profile data in ${filePath}: missing required fields`);
+        log.error({ filePath }, 'Invalid profile data: missing required fields');
         return null;
       }
 
       // Validate category matches directory structure
       const expectedCategory = filePath.split(/[\\/]/).slice(-2, -1)[0]; // Get parent directory name
       if (profileData.category !== expectedCategory) {
-        console.warn(`Category mismatch in ${filePath}: expected '${expectedCategory}', got '${profileData.category}'`);
+        log.warn({ filePath, expected: expectedCategory, actual: profileData.category }, 'Category mismatch in profile');
       }
 
       // Convert ProfileData to AutopilotProfile with database-specific fields
@@ -172,7 +175,7 @@ export class ProfileLoader {
 
       return profile;
     } catch (error) {
-      console.error(`Error loading profile from ${filePath}:`, error);
+      log.error({ err: error, filePath }, 'Error loading profile');
       return null;
     }
   }

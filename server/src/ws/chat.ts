@@ -6,6 +6,9 @@ import { getHomeDir } from '../utils/platform.js';
 import { createSession, getSession, sendMessage, abortSession, respondToPermission, isSessionStreaming, getSessionAccumulatedText, type SendMessageOptions } from '../services/claude.js';
 import type { ProviderId } from '../providers/types.js';
 import { getProvider, getAllProviders } from '../providers/registry.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('chat-ws');
 
 /** Validate and normalize a cwd path — must be absolute with no traversal. */
 function validateCwd(cwd: unknown): string | null {
@@ -261,7 +264,7 @@ export function setupChatWs(server: Server) {
           const targetSessionId = currentSessionId
             || (data.sessionId ? getSession(data.sessionId)?.id : null);
           if (!targetSessionId) {
-            console.warn('[Chat WS] Received tool_response but no valid session found (currentSessionId=null, client sessionId=%s)', data.sessionId);
+            log.warn({ clientSessionId: data.sessionId }, 'Received tool_response but no valid session found');
             safeSend(ws, { type: 'error', error: 'Session disconnected. Please try answering again or reload the page.' });
           } else {
             const { requestId, approved, answers, questions } = data;
@@ -294,6 +297,6 @@ function safeSend(ws: WebSocket, data: unknown) {
   } else {
     const d = data as { type?: string; sessionId?: string };
     // Log ALL dropped messages (not just stream_end) to help diagnose missing content
-    console.warn(`[Chat WS] Dropped ${d.type || 'unknown'} event — WebSocket state=${ws.readyState} (session=${d.sessionId || '?'})`);
+    log.warn({ type: d.type, wsState: ws.readyState, sessionId: d.sessionId }, 'Dropped event — WebSocket not open');
   }
 }
