@@ -23,7 +23,7 @@ import { useRateLimitParser } from '@/composables/chat/useRateLimitParser';
 
 const MAX_IMAGES = 5;
 const MAX_FILES = 5;
-const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html'];
+const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html', 'text/csv'];
 
 const chat = useChatStore();
 const input = ref('');
@@ -163,7 +163,7 @@ function removeImage(idx: number) {
 function addDocumentFiles(files: FileList | File[]) {
   const remaining = MAX_FILES - attachedFiles.value.length;
   const toProcess = Array.from(files)
-    .filter(f => ACCEPTED_FILE_TYPES.includes(f.type) || f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.pdf'))
+    .filter(f => ACCEPTED_FILE_TYPES.includes(f.type) || f.name.endsWith('.html') || f.name.endsWith('.htm') || f.name.endsWith('.pdf') || f.name.endsWith('.csv'))
     .slice(0, remaining);
 
   for (const file of toProcess) {
@@ -179,6 +179,18 @@ function addDocumentFiles(files: FileList | File[]) {
         });
       };
       reader.readAsDataURL(file);
+    } else if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
+      // Read CSV as text
+      const reader = new FileReader();
+      reader.onload = () => {
+        attachedFiles.value.push({
+          name: file.name,
+          content: reader.result as string,
+          type: 'csv',
+          size: file.size,
+        });
+      };
+      reader.readAsText(file);
     } else {
       // Read HTML as text
       const reader = new FileReader();
@@ -219,7 +231,7 @@ function handleDrop(e: DragEvent) {
     for (const file of Array.from(files)) {
       if (file.type.startsWith('image/')) {
         imageFiles.push(file);
-      } else if (ACCEPTED_FILE_TYPES.includes(file.type) || file.name.endsWith('.html') || file.name.endsWith('.htm') || file.name.endsWith('.pdf')) {
+      } else if (ACCEPTED_FILE_TYPES.includes(file.type) || file.name.endsWith('.html') || file.name.endsWith('.htm') || file.name.endsWith('.pdf') || file.name.endsWith('.csv')) {
         docFiles.push(file);
       }
     }
@@ -237,7 +249,7 @@ function handlePaste(e: ClipboardEvent) {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile();
       if (file) imageFiles.push(file);
-    } else if (ACCEPTED_FILE_TYPES.includes(item.type)) {
+    } else if (ACCEPTED_FILE_TYPES.includes(item.type) || item.type === 'text/csv') {
       const file = item.getAsFile();
       if (file) docFiles.push(file);
     }
@@ -312,7 +324,9 @@ function handleSubmit() {
     const fileContextParts: string[] = [];
     const pdfDataUrls: { name: string; dataUrl: string }[] = [];
     for (const file of attachedFiles.value) {
-      if (file.type === 'html') {
+      if (file.type === 'csv') {
+        fileContextParts.push(`--- Attached CSV file: ${file.name} ---\n\`\`\`csv\n${file.content}\n\`\`\`\n--- End of ${file.name} ---`);
+      } else if (file.type === 'html') {
         fileContextParts.push(`--- Attached HTML file: ${file.name} ---\n${file.content}\n--- End of ${file.name} ---`);
       } else if (file.type === 'pdf') {
         // PDF files: send as image-like attachments (base64 data URLs) so the server can save them as temp files
@@ -616,6 +630,7 @@ function handleKeydown(e: KeyboardEvent) {
         class="group relative inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5"
       >
         <FileText v-if="file.type === 'pdf'" class="h-4 w-4 shrink-0 text-red-500" />
+        <FileText v-else-if="file.type === 'csv'" class="h-4 w-4 shrink-0 text-green-500" />
         <FileCode v-else class="h-4 w-4 shrink-0 text-orange-500" />
         <span class="max-w-32 truncate text-xs font-medium text-foreground">{{ file.name }}</span>
         <span class="text-[10px] text-muted-foreground">({{ (file.size / 1024).toFixed(0) }}KB)</span>
@@ -641,7 +656,7 @@ function handleKeydown(e: KeyboardEvent) {
       @drop="handleDrop"
     >
       <div v-if="isDragging" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-primary/5">
-        <span class="text-xs font-medium text-primary">Drop images, PDFs, or HTML files here</span>
+        <span class="text-xs font-medium text-primary">Drop images, PDFs, HTML, or CSV files here</span>
       </div>
       <textarea
         ref="textarea"
@@ -669,7 +684,7 @@ function handleKeydown(e: KeyboardEvent) {
         @paste="handlePaste"
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
-      <input ref="fileInput" type="file" accept=".pdf,.html,.htm,application/pdf,text/html" multiple class="hidden" @change="(e: Event) => addDocumentFiles((e.target as HTMLInputElement).files!)" />
+      <input ref="fileInput" type="file" accept=".pdf,.html,.htm,.csv,application/pdf,text/html,text/csv" multiple class="hidden" @change="(e: Event) => addDocumentFiles((e.target as HTMLInputElement).files!)" />
       <div class="absolute bottom-2 right-3 flex items-center gap-1">
         <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" class="hidden sm:block" @transcript="handleVoiceTranscript" />
         <Button
@@ -688,7 +703,7 @@ function handleKeydown(e: KeyboardEvent) {
           variant="ghost"
           size="sm"
           class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
-          title="Attach PDF or HTML file"
+          title="Attach PDF, HTML, or CSV file"
           @click="fileInput?.click()"
         >
           <Paperclip class="h-4 w-4" />

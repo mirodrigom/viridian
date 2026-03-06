@@ -27,7 +27,7 @@ const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 // AbortController for cancelling in-flight session loads on navigation
 let loadAbort: AbortController | null = null;
 
-async function handleRoute(to: RouteLocationNormalized) {
+async function handleRoute(to: RouteLocationNormalized, isRouteUpdate = false) {
   // Show bootstrap loader when first entering the project workspace
   const isFirstLoad = !chat.isLoadingProject && to.name === 'project' && !to.params.sessionId;
   if (isFirstLoad) {
@@ -45,7 +45,7 @@ async function handleRoute(to: RouteLocationNormalized) {
   loadAbort?.abort();
   loadAbort = new AbortController();
 
-  if (sessionId && (sessionId !== chat.sessionId || chat.messages.length === 0)) {
+  if (sessionId && (sessionId !== chat.sessionId || (!isRouteUpdate && chat.messages.length === 0))) {
     await loadSessionFromUrl(sessionId, loadAbort.signal);
   } else if (!sessionId && (to.name === 'project') && chat.sessionId) {
     // Landing on /project with no sessionId in URL but a stale sessionId in store
@@ -122,7 +122,7 @@ onMounted(() => handleRoute(route));
 
 // Handle browser back/forward navigation when Vue reuses this component
 // (all /project, /chat/:sessionId, /editor, /git, etc. routes use ProjectPage)
-onBeforeRouteUpdate((to) => handleRoute(to));
+onBeforeRouteUpdate((to) => handleRoute(to, true));
 
 async function loadSessionFromUrl(sessionId: string, signal?: AbortSignal) {
   try {
