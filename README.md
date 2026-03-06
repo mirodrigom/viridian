@@ -24,6 +24,45 @@ It works by spawning the AI CLI as a child process on your server and streaming 
 
 ---
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><b>Dashboard</b></td>
+    <td align="center"><b>Chat</b></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/public/screenshots/dashboard.png" alt="Dashboard" /></td>
+    <td><img src="./docs/public/screenshots/chat.png" alt="Chat" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Code Editor</b></td>
+    <td align="center"><b>Git Integration</b></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/public/screenshots/editor.png" alt="Code Editor" /></td>
+    <td><img src="./docs/public/screenshots/git.png" alt="Git Integration" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Graph Runner</b></td>
+    <td align="center"><b>Autopilot</b></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/public/screenshots/graph.png" alt="Graph Runner" /></td>
+    <td><img src="./docs/public/screenshots/autopilot.png" alt="Autopilot" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Task Board</b></td>
+    <td align="center"><b>Management</b></td>
+  </tr>
+  <tr>
+    <td><img src="./docs/public/screenshots/tasks.png" alt="Task Board" /></td>
+    <td><img src="./docs/public/screenshots/management.png" alt="Management" /></td>
+  </tr>
+</table>
+
+---
+
 ## Supported Providers
 
 Viridian has a provider abstraction layer that supports multiple AI coding CLIs. Each provider is detected automatically if its binary is available in `PATH`.
