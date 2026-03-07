@@ -276,6 +276,165 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * Scan a single JSONL file for messages containing `query`.
+ * Returns the first matching excerpt, or null if no match.
+ */
+async function searchSessionFile(jsonlPath: string, query: string): Promise<{ excerpt: string } | null> {
+  return new Promise((resolve) => {
+    let found: { excerpt: string } | null = null;
+
+    const fileStream = createReadStream(jsonlPath, { encoding: 'utf8' });
+    const rl = createInterface({ input: fileStream, crlfDelay: Infinity });
+
+    rl.on('line', (line) => {
+      if (found) return;
+      if (!line.trim()) return;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type !== 'user' && entry.type !== 'assistant') return;
+
+        let text = '';
+        const content = entry.message?.content;
+        if (typeof content === 'string') {
+          text = content;
+        } else if (Array.isArray(content)) {
+          text = content
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { text: string }) => b.text)
+            .join(' ');
+        }
+
+        if (!text) return;
+        const lowerText = text.toLowerCase();
+        const idx = lowerText.indexOf(query);
+        if (idx === -1) return;
+
+        const start = Math.max(0, idx - 60);
+        const end = Math.min(text.length, idx + query.length + 60);
+        let excerpt = text.slice(start, end).trim();
+        if (start > 0) excerpt = '...' + excerpt;
+        if (end < text.length) excerpt += '...';
+
+        found = { excerpt };
+        rl.close();
+        fileStream.destroy();
+      } catch {
+        // skip malformed lines
+      }
+    });
+
+    rl.on('close', () => resolve(found));
+    rl.on('error', () => resolve(null));
+    fileStream.on('error', () => resolve(null));
+  });
+}
+
+interface SearchResult {
+  sessionId: string;
+  sessionTitle: string;
+  projectPath: string;
+  projectDir: string;
+  messageExcerpt: string;
+  timestamp: number;
+}
+
+/**
+ * GET /api/sessions/search?q=<query>&project=<path>
+ *
+ * Full-text search across all session JSONL files.
+ * Returns up to 50 results sorted by recency.
+ */
+router.get('/search', async (req, res) => {
+  try {
+    const query = ((req.query.q as string) || '').trim().toLowerCase();
+    const projectFilter = req.query.project as string | undefined;
+
+    if (!query) {
+      res.json({ results: [] });
+      return;
+    }
+
+    if (!existsSync(CLAUDE_DIR)) {
+      res.json({ results: [] });
+      return;
+    }
+
+    let projectDirs: string[];
+    try {
+      projectDirs = readdirSync(CLAUDE_DIR).filter(name => {
+        try { return statSync(join(CLAUDE_DIR, name)).isDirectory(); } catch { return false; }
+      });
+    } catch {
+      res.json({ results: [] });
+      return;
+    }
+
+    if (projectFilter) {
+      const encoded = cwdToHash(projectFilter);
+      projectDirs = projectDirs.filter(d => d === encoded);
+    }
+
+    const db = getDb();
+    const results: SearchResult[] = [];
+
+    for (const dir of projectDirs) {
+      if (results.length >= 50) break;
+
+      const dirPath = join(CLAUDE_DIR, dir);
+      let files: string[];
+      try {
+        files = readdirSync(dirPath).filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'));
+      } catch {
+        continue;
+      }
+
+      // Sort files by mtime descending so we surface recent sessions first
+      const filesWithMtime = files.map(f => {
+        try { return { f, mtime: statSync(join(dirPath, f)).mtimeMs }; } catch { return null; }
+      }).filter(Boolean) as { f: string; mtime: number }[];
+      filesWithMtime.sort((a, b) => b.mtime - a.mtime);
+
+      for (const { f: file, mtime: mtimeMs } of filesWithMtime) {
+        if (results.length >= 50) break;
+
+        const sessionId = file.replace('.jsonl', '');
+        if (isGraphRunnerSession(sessionId)) continue;
+        if (isInternalSession(sessionId)) continue;
+
+        const filePath = join(dirPath, file);
+
+        const cached = db.prepare(
+          'SELECT title, project_path, is_internal FROM session_cache WHERE project_dir = ? AND id = ?',
+        ).get(dir, sessionId) as { title?: string; project_path?: string; is_internal?: number } | undefined;
+
+        if (cached?.is_internal) continue;
+
+        const match = await searchSessionFile(filePath, query);
+        if (!match) continue;
+
+        const title = cached?.title || 'Untitled session';
+        const projectPath = cached?.project_path || ('/' + dir.replace(/^-/, '').replace(/-/g, '/'));
+
+        results.push({
+          sessionId,
+          sessionTitle: title,
+          projectPath,
+          projectDir: dir,
+          messageExcerpt: match.excerpt,
+          timestamp: mtimeMs,
+        });
+      }
+    }
+
+    results.sort((a, b) => b.timestamp - a.timestamp);
+    res.json({ results: results.slice(0, 50) });
+  } catch (err) {
+    log.error({ err }, 'Failed to search sessions');
+    res.status(500).json({ error: 'Failed to search sessions' });
+  }
+});
+
+/**
  * GET /api/sessions/:id/messages?projectDir=<encoded-dir>
  *
  * Reads a session JSONL file and returns user/assistant messages.

@@ -210,6 +210,9 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
     const onAbort = () => { proc.kill('SIGTERM'); };
     options.abortSignal.addEventListener('abort', onAbort, { once: true });
     proc.on('close', () => options.abortSignal!.removeEventListener('abort', onAbort));
+    // If the signal was already aborted before we registered the listener,
+    // the 'abort' event won't re-fire — kill the process explicitly.
+    if (options.abortSignal.aborted) { proc.kill('SIGTERM'); }
   }
 
   // Create a message queue + promise-based async iteration

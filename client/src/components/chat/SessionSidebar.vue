@@ -317,12 +317,23 @@ onUnmounted(() => {
         <slot name="header-action" />
         <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Sessions</span>
       </div>
-      <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="refreshSessions">
-        <RefreshCw
-          class="h-3.5 w-3.5 transition-transform duration-300"
-          :class="{ 'animate-spin': isRefreshing }"
-        />
-      </Button>
+      <div class="flex items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="h-6 w-6 shrink-0 p-0"
+          title="Search all sessions (Ctrl+Shift+F)"
+          @click="chat.isSearchOpen = true"
+        >
+          <Search class="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="sm" class="h-6 w-6 shrink-0 p-0" @click="refreshSessions">
+          <RefreshCw
+            class="h-3.5 w-3.5 transition-transform duration-300"
+            :class="{ 'animate-spin': isRefreshing }"
+          />
+        </Button>
+      </div>
     </div>
 
     <!-- Search + Sort -->

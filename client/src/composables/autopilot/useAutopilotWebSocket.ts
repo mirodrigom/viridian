@@ -10,7 +10,7 @@ import type {
  * Composable for managing autopilot WebSocket connection and event handling
  */
 export function useAutopilotWebSocket() {
-  const { connected, connect: connectBase, disconnect, send, on } = createStoreWebSocket('/ws/autopilot');
+  const { connected, connect: connectBase, disconnect, send, on, offAll } = createStoreWebSocket('/ws/autopilot');
 
   function connect(currentRun?: AutopilotRun | null) {
     connectBase();
@@ -102,6 +102,9 @@ export function useAutopilotWebSocket() {
     onRunAborted: () => void;
     onError: (data: { error: string }) => void;
   }) {
+    // Clear any previously registered handlers to prevent accumulation on remount
+    offAll();
+
     // Run lifecycle events
     on('run_started', (data: unknown) => callbacks.onRunStarted(data as any));
     on('cycle_started', (data: unknown) => callbacks.onCycleStarted(data as any));

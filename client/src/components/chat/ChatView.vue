@@ -14,6 +14,7 @@ import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import TracesPanel from './TracesPanel.vue';
 import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
+import GlobalSearch from './GlobalSearch.vue';
 import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
@@ -315,5 +316,6 @@ defineExpose({ showToolsSettings });
     </template>
 
     <ToolsSettingsDialog v-model:open="showToolsSettings" />
+    <GlobalSearch />
   </div>
 </template>

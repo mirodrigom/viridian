@@ -13,6 +13,7 @@ export interface StoreWebSocket {
   disconnect: () => void;
   send: (data: Record<string, unknown>) => boolean;
   on: (type: string, handler: (data: unknown) => void) => void;
+  offAll: () => void;
 }
 
 export function createStoreWebSocket(wsPath: string): StoreWebSocket {
@@ -95,6 +96,10 @@ export function createStoreWebSocket(wsPath: string): StoreWebSocket {
     handlers.get(type)!.add(handler);
   }
 
+  function offAll() {
+    handlers.clear();
+  }
+
   function disconnect() {
     intentionalClose = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -103,5 +108,5 @@ export function createStoreWebSocket(wsPath: string): StoreWebSocket {
     connected.value = false;
   }
 
-  return { connected, connect, disconnect, send, on };
+  return { connected, connect, disconnect, send, on, offAll };
 }

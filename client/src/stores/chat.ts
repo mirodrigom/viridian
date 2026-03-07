@@ -1,9 +1,19 @@
 import { defineStore } from 'pinia';
+import { ref } from 'vue';
 import { useChatMessages, type ChatMessage } from '../composables/useChatMessages';
 import { useChatSession } from '../composables/useChatSession';
 import { useChatPagination } from '../composables/useChatPagination';
 import { useChatUI } from '../composables/useChatUI';
 import { apiFetch } from '../lib/apiFetch';
+
+export interface GlobalSearchResult {
+  sessionId: string;
+  sessionTitle: string;
+  projectPath: string;
+  projectDir: string;
+  messageExcerpt: string;
+  timestamp: number;
+}
 
 // Re-export types for external consumers
 export type { ToolUseInfo, ChatMessage } from '../composables/useChatMessages';
@@ -15,6 +25,31 @@ export const useChatStore = defineStore('chat', () => {
   const session = useChatSession();
   const pagination = useChatPagination();
   const ui = useChatUI();
+
+  // Global search state
+  const isSearchOpen = ref(false);
+  const searchQuery = ref('');
+  const searchResults = ref<GlobalSearchResult[]>([]);
+  const isSearching = ref(false);
+
+  async function searchSessions(query: string) {
+    if (!query.trim()) {
+      searchResults.value = [];
+      return;
+    }
+    isSearching.value = true;
+    try {
+      const params = new URLSearchParams({ q: query });
+      const res = await apiFetch(`/api/sessions/search?${params}`);
+      if (!res.ok) return;
+      const data = await res.json() as { results: GlobalSearchResult[] };
+      searchResults.value = data.results || [];
+    } catch (err) {
+      console.error('[searchSessions] error:', err);
+    } finally {
+      isSearching.value = false;
+    }
+  }
 
   // Enhanced functions that coordinate between composables
   function startStreaming() {
@@ -128,5 +163,12 @@ export const useChatStore = defineStore('chat', () => {
     prependMessages,
     appendMessages,
     forkSession,
+
+    // Global search
+    isSearchOpen,
+    searchQuery,
+    searchResults,
+    isSearching,
+    searchSessions,
   };
 });

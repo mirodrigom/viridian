@@ -24,6 +24,12 @@ export async function runAgent(
   prompt: string,
   cycleNumber: number,
 ): Promise<AgentResult> {
+  // Bail out immediately if already aborted — prevents a new process from being
+  // spawned (e.g. Agent B being started after Agent A was killed mid-cycle).
+  if (ctx.abortController.signal.aborted) {
+    throw new Error('Aborted');
+  }
+
   const profile = agent === 'a' ? ctx.agentAProfile : ctx.agentBProfile;
   const model = agent === 'a' ? ctx.agentAModel : ctx.agentBModel;
   const sessionId = agent === 'a' ? ctx.agentASessionId : ctx.agentBSessionId;
