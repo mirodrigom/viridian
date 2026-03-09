@@ -195,19 +195,6 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
               />
             </div>
 
-            <!-- Z-Index Layer -->
-            <div class="space-y-1">
-              <Label class="text-[11px]">Layer (Z-Index)</Label>
-              <div class="flex items-center gap-2 rounded-md border border-border p-2">
-                <Button variant="ghost" size="sm" class="h-6 w-6 p-0" @click="diagrams.sendBackward(diagrams.selectedNodeId!)">
-                  <Minus class="h-3 w-3" />
-                </Button>
-                <span class="flex-1 text-center text-xs font-medium tabular-nums">{{ currentZIndex }}</span>
-                <Button variant="ghost" size="sm" class="h-6 w-6 p-0" @click="diagrams.bringForward(diagrams.selectedNodeId!)">
-                  <Plus class="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
           </div>
         </template>
 
@@ -262,19 +249,6 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
               />
             </div>
 
-            <!-- Z-Index Layer -->
-            <div class="space-y-1">
-              <Label class="text-[11px]">Layer (Z-Index)</Label>
-              <div class="flex items-center gap-2 rounded-md border border-border p-2">
-                <Button variant="ghost" size="sm" class="h-6 w-6 p-0" @click="diagrams.sendBackward(diagrams.selectedNodeId!)">
-                  <Minus class="h-3 w-3" />
-                </Button>
-                <span class="flex-1 text-center text-xs font-medium tabular-nums">{{ currentZIndex }}</span>
-                <Button variant="ghost" size="sm" class="h-6 w-6 p-0" @click="diagrams.bringForward(diagrams.selectedNodeId!)">
-                  <Plus class="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
           </div>
         </template>
       </div>

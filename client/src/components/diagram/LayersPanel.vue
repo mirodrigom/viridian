@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Layers } from 'lucide-vue-next';
@@ -74,6 +74,61 @@ const flatLayers = computed((): LayerItem[] => {
   walk(layerTree.value);
   return result;
 });
+
+// ─── Drag and drop ─────────────────────────────────────────────
+const draggedId = ref<string | null>(null);
+const dropTargetId = ref<string | null>(null); // null = root, string = group id
+const dropOnRoot = ref(false);
+
+function onDragStart(event: DragEvent, id: string) {
+  draggedId.value = id;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+  }
+}
+
+function onDragOver(event: DragEvent, layer: LayerItem | null) {
+  event.preventDefault();
+  if (!event.dataTransfer) return;
+  event.dataTransfer.dropEffect = 'move';
+  if (layer === null) {
+    dropOnRoot.value = true;
+    dropTargetId.value = null;
+  } else {
+    dropOnRoot.value = false;
+    // Can drop onto a group (to become its child) or onto another node (to share same parent)
+    dropTargetId.value = layer.type === 'aws-group' ? layer.id : (layer.parentId ?? null);
+  }
+}
+
+function onDragLeave() {
+  dropTargetId.value = null;
+  dropOnRoot.value = false;
+}
+
+function onDrop(event: DragEvent, layer: LayerItem | null) {
+  event.preventDefault();
+  if (!draggedId.value) return;
+  const targetParent = layer === null
+    ? null
+    : layer.type === 'aws-group'
+      ? layer.id
+      : (layer.parentId ?? null);
+
+  // Avoid dropping on itself or into its own subtree
+  if (draggedId.value !== (layer?.id ?? null)) {
+    diagrams.setNodeParent(draggedId.value, targetParent);
+  }
+  draggedId.value = null;
+  dropTargetId.value = null;
+  dropOnRoot.value = false;
+}
+
+function onDragEnd() {
+  draggedId.value = null;
+  dropTargetId.value = null;
+  dropOnRoot.value = false;
+}
 </script>
 
 <template>
@@ -88,26 +143,44 @@ const flatLayers = computed((): LayerItem[] => {
 
     <!-- Layer list -->
     <ScrollArea class="flex-1" style="min-height: 0;">
-      <div class="p-1">
+      <div
+        class="p-1"
+        @dragover="onDragOver($event, null)"
+        @dragleave="onDragLeave"
+        @drop="onDrop($event, null)"
+      >
         <!-- Empty state -->
         <div v-if="diagrams.nodeCount === 0" class="flex items-center justify-center py-8 text-xs text-muted-foreground">
           No layers yet
         </div>
 
+        <!-- Root drop indicator -->
+        <div
+          v-if="dropOnRoot && draggedId"
+          class="mb-1 h-0.5 rounded bg-primary"
+        />
+
         <!-- Layer rows -->
-        <template v-else>
-          <div
-            v-for="layer in flatLayers"
-            :key="layer.id"
+        <div
+          v-for="layer in flatLayers"
+          :key="layer.id"
             :data-testid="`layer-${layer.id}`"
-            class="group flex items-center gap-1.5 rounded py-1 pr-1 transition-colors"
+            draggable="true"
+            class="group flex cursor-grab items-center gap-1.5 rounded py-1 pr-1 transition-colors active:cursor-grabbing"
             :class="[
+              draggedId === layer.id ? 'opacity-40' : '',
+              dropTargetId === layer.id ? 'ring-1 ring-primary' : '',
               diagrams.selectedNodeId === layer.id
                 ? 'bg-primary/10 text-primary'
                 : 'hover:bg-muted/50 text-foreground',
             ]"
             :style="{ paddingLeft: `${8 + layer.depth * 14}px` }"
             @click="diagrams.selectNode(layer.id)"
+            @dragstart="onDragStart($event, layer.id)"
+            @dragover="onDragOver($event, layer)"
+            @dragleave.self="onDragLeave"
+            @drop.stop="onDrop($event, layer)"
+            @dragend="onDragEnd"
           >
             <!-- Type indicator -->
             <template v-if="layer.type === 'aws-group'">
@@ -186,7 +259,6 @@ const flatLayers = computed((): LayerItem[] => {
               </div>
             </TooltipProvider>
           </div>
-        </template>
       </div>
     </ScrollArea>
   </div>
