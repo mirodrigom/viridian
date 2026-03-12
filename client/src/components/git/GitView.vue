@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   GitBranch, RefreshCw, ChevronRight, ArrowDownToLine,
-  ArrowUpFromLine, Download, Sparkles, History, Loader2, Plus, Trash2,
+  ArrowUpFromLine, Download, Sparkles, History, Loader2, Plus, Trash2, OctagonX,
 } from 'lucide-vue-next';
 import GitStatus from './GitStatus.vue';
 import DiffViewer from './DiffViewer.vue';
@@ -185,6 +185,15 @@ function formatDate(dateStr: string) {
             <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
             <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
           </Button>
+        </div>
+        <!-- Inline commit error -->
+        <div
+          v-if="git.commitError"
+          class="mt-2 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+        >
+          <OctagonX class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span class="flex-1 break-words">{{ git.commitError }}</span>
+          <button class="shrink-0 text-destructive/60 hover:text-destructive" @click="git.commitError = ''">×</button>
         </div>
       </div>
 
@@ -380,6 +389,15 @@ function formatDate(dateStr: string) {
               <Sparkles v-if="!git.generatingMessage" class="h-3.5 w-3.5" />
               <Loader2 v-else class="h-3.5 w-3.5 animate-spin" />
             </Button>
+          </div>
+          <!-- Inline commit error (mobile) -->
+          <div
+            v-if="git.commitError"
+            class="mt-2 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+          >
+            <OctagonX class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span class="flex-1 break-words">{{ git.commitError }}</span>
+            <button class="shrink-0 text-destructive/60 hover:text-destructive" @click="git.commitError = ''">×</button>
           </div>
         </div>
 

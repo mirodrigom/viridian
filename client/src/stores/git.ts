@@ -40,6 +40,7 @@ export const useGitStore = defineStore('git', () => {
   const generatingMessage = ref(false);
   const operationLoading = ref(false);
   const selectedFiles = ref<Set<string>>(new Set());
+  const commitError = ref('');
   function cwd() {
     return useChatStore().projectPath || '';
   }
@@ -139,6 +140,7 @@ export const useGitStore = defineStore('git', () => {
   async function doCommit() {
     if (!cwd() || !commitMessage.value.trim()) return;
     operationLoading.value = true;
+    commitError.value = '';
     try {
       const res = await apiFetch('/api/git/commit', {
         method: 'POST',
@@ -153,7 +155,9 @@ export const useGitStore = defineStore('git', () => {
       await fetchStatus();
       diff.value = '';
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to commit');
+      const message = err instanceof Error ? err.message : 'Failed to commit';
+      commitError.value = message;
+      toast.error(message);
     } finally {
       operationLoading.value = false;
     }
@@ -463,7 +467,7 @@ export const useGitStore = defineStore('git', () => {
   return {
     branch, staged, modified, untracked, diff, loading, commitMessage,
     log, branches, selectedFile, showStagedDiff, remoteLoading, generatingMessage,
-    operationLoading, selectedFiles,
+    operationLoading, selectedFiles, commitError,
     fetchStatus, fetchDiff, fetchFileDiff, stageFiles, unstageFiles, doCommit,
     discardFile, fetchLog, fetchBranches, checkoutBranch, createBranch,
     deleteBranch, doPull, doPush, doFetch, generateCommitMessage, showCommit,
