@@ -118,6 +118,60 @@ describe('renderMarkdown', () => {
     })
   })
 
+  describe('LaTeX / KaTeX rendering', () => {
+    it('renders inline math $E = mc^2$ with KaTeX', () => {
+      const result = renderMarkdown('The equation $E=mc^2$ is famous.')
+      // KaTeX wraps output in a span with class "katex"
+      expect(result).toContain('katex')
+      // The original LaTeX source should not appear as raw text
+      expect(result).not.toContain('$E=mc^2$')
+    })
+
+    it('renders display math $$...$$ with KaTeX', () => {
+      const result = renderMarkdown('$$\\int_0^1 x^2 dx$$')
+      expect(result).toContain('katex-display-wrapper')
+      expect(result).toContain('katex')
+    })
+
+    it('does not process math inside code blocks', () => {
+      const result = renderMarkdown('```\n$E=mc^2$\n```')
+      // Should be rendered as code, not as KaTeX
+      expect(result).toContain('code-block-wrapper')
+      expect(result).not.toContain('katex-display-wrapper')
+    })
+
+    it('does not process math inside inline code', () => {
+      const result = renderMarkdown('Use `$x^2$` for math.')
+      // The inline code should preserve the dollar signs literally
+      expect(result).toContain('<code>')
+      expect(result).toContain('$x^2$')
+      // Should not contain KaTeX-rendered output for the inline code portion
+      // (the raw text inside <code> is fine, but there should be no katex span wrapping it)
+    })
+
+    it('handles invalid LaTeX gracefully without crashing', () => {
+      // throwOnError is false, so this should not throw
+      const result = renderMarkdown('$$\\invalid{command$$')
+      expect(result).toBeDefined()
+      // Should still produce some output (either fallback <code> or katex error rendering)
+      expect(result.length).toBeGreaterThan(0)
+    })
+
+    it('renders multiple math expressions in one string', () => {
+      const result = renderMarkdown('Inline $a^2$ and $b^2$ in one line.')
+      // Both expressions should be rendered via KaTeX
+      const katexMatches = result.match(/class="katex"/g)
+      expect(katexMatches).toBeTruthy()
+      expect(katexMatches!.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('does not treat escaped dollar signs as math', () => {
+      const result = renderMarkdown('The price is \\$5 and \\$10.')
+      // Escaped dollar signs should not trigger KaTeX rendering
+      expect(result).not.toContain('katex-display-wrapper')
+    })
+  })
+
   describe('edge cases', () => {
     it('handles empty string', () => {
       const result = renderMarkdown('')

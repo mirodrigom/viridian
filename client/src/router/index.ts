@@ -101,6 +101,12 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'manuals' },
     },
+    {
+      path: '/scheduler',
+      name: 'scheduler',
+      component: ProjectPage,
+      meta: { tab: 'scheduler' },
+    },
   ],
 });
 

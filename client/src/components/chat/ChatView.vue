@@ -17,9 +17,11 @@ import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
+import { usePersonasStore } from '@/stores/personas';
 import { useRouter } from 'vue-router';
 
 const chat = useChatStore();
+const personaStore = usePersonasStore();
 const router = useRouter();
 const { modeClass } = useModeTheme();
 const { init, sendMessage, sendSilentMessage, respondToTool, abort } = useClaudeStream();
@@ -294,6 +296,13 @@ defineExpose({ showToolsSettings });
             <PanelLeft class="h-4 w-4" />
           </Button>
           <span class="flex-1 truncate text-xs text-muted-foreground">{{ mobileSessionTitle }}</span>
+          <span
+            v-if="personaStore.activePersona"
+            class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0"
+            :style="{ backgroundColor: personaStore.activePersona.color + '18', color: personaStore.activePersona.color }"
+          >
+            {{ personaStore.activePersona.name }}
+          </span>
           <Loader2 v-if="chat.isStreaming" class="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         </div>
         <MessageList

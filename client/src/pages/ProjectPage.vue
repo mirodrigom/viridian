@@ -2,6 +2,7 @@
 import { onMounted } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useManagementStore } from '@/stores/management';
+import { useSettingsStore } from '@/stores/settings';
 import { apiFetch } from '@/lib/apiFetch';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
@@ -14,6 +15,7 @@ import ProjectBootstrapLoader from '@/components/layout/ProjectBootstrapLoader.v
 
 
 const chat = useChatStore();
+const settings = useSettingsStore();
 const management = useManagementStore();
 const graph = useGraphStore();
 const autopilot = useAutopilotStore();
@@ -182,6 +184,10 @@ async function loadSessionFromUrl(sessionId: string, signal?: AbortSignal) {
         inputTokens: msgData.usage.inputTokens || 0,
         outputTokens: msgData.usage.outputTokens || 0,
       });
+    }
+    // Restore per-session preferences (thinking mode, model, etc.)
+    if (msgData.sessionPreferences && Object.keys(msgData.sessionPreferences).length > 0) {
+      settings.applySessionPreferences(msgData.sessionPreferences);
     }
     // If this session is currently streaming on the server, activate streaming UI
     // so the spinner shows immediately. The WebSocket check_session mechanism

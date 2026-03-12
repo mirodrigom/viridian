@@ -44,11 +44,11 @@ export default defineConfig({
   },
   server: {
     host: process.env.VITE_HOST || 'localhost',
-    port: 5174,
+    port: 12001,
     proxy: {
-      '/api': 'http://localhost:3010',
+      '/api': 'http://localhost:12000',
       '/ws': {
-        target: 'ws://localhost:3010',
+        target: 'ws://localhost:12000',
         ws: true,
       },
     },

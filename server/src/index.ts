@@ -27,6 +27,9 @@ import managementRoutes from './routes/management.js';
 import diagramsRoutes from './routes/diagrams.js';
 import manualsRoutes from './routes/manuals.js';
 import langfuseRoutes from './routes/langfuse.js';
+import personasRoutes from './routes/personas.js';
+import scheduledTasksRoutes from './routes/scheduled-tasks.js';
+import fileAutomationRoutes from './routes/file-automation.js';
 import { authMiddleware } from './middleware/auth.js';
 import { setupChatWs } from './ws/chat.js';
 import { setupShellWs } from './ws/shell.js';
@@ -36,6 +39,7 @@ import { setupAutopilotWs } from './ws/autopilot.js';
 import { setupManagementWs } from './ws/management.js';
 import { setupTracesWs } from './ws/traces.js';
 import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js';
+import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
 import { destroyAllTerminals } from './services/terminal.js';
 import { loadProviderConfigs } from './db/database.js';
@@ -68,6 +72,9 @@ app.use('/api/management', managementRoutes);
 app.use('/api/diagrams', diagramsRoutes);
 app.use('/api/manuals', manualsRoutes);
 app.use('/api/langfuse', authMiddleware, langfuseRoutes);
+app.use('/api/personas', personasRoutes);
+app.use('/api/scheduled-tasks', scheduledTasksRoutes);
+app.use('/api/file-automation', fileAutomationRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -135,11 +142,13 @@ server.listen(config.port, config.host, () => {
   log.info({ host: config.host, port: config.port }, 'Server started');
   cleanupZombieRuns();
   startScheduler();
+  startTaskScheduler();
 });
 
 function shutdown() {
   log.info('Shutting down...');
   stopScheduler();
+  stopTaskScheduler();
   sessionsWs.close();
   destroyAllTerminals();
   server.close(() => {

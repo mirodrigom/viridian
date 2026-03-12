@@ -143,7 +143,7 @@ export function setupChatWs(server: Server) {
         const data = JSON.parse(raw.toString());
 
         if (data.type === 'chat') {
-          const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools, provider: requestedProvider } = data;
+          const { prompt, sessionId, claudeSessionId, cwd, model, permissionMode, images, maxOutputTokens, allowedTools, disallowedTools, provider: requestedProvider, personaPrompt } = data;
 
           if (typeof prompt !== 'string' || !prompt.trim()) {
             safeSend(ws, { type: 'error', error: 'Missing or invalid prompt' });
@@ -223,7 +223,12 @@ export function setupChatWs(server: Server) {
           if (disallowedTools && Array.isArray(disallowedTools)) {
             msgOptions.disallowedTools = disallowedTools.filter((t: unknown): t is string => typeof t === 'string');
           }
-          sendMessage(session.id, prompt, msgOptions);
+          // Prepend persona system prompt if provided
+          let effectivePrompt = prompt;
+          if (typeof personaPrompt === 'string' && personaPrompt.trim()) {
+            effectivePrompt = `[System Persona Instructions]\n${personaPrompt.trim()}\n[End Persona Instructions]\n\n${prompt}`;
+          }
+          sendMessage(session.id, effectivePrompt, msgOptions);
         }
 
         if (data.type === 'check_session') {

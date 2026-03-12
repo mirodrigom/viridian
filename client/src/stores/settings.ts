@@ -1,10 +1,25 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { apiFetch } from '../lib/apiFetch';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
 /** @deprecated Use provider store's activeModels instead. Kept for backward compatibility. */
 export type ClaudeModel = string;
 export type ThinkingMode = 'standard' | 'think' | 'think_hard' | 'think_harder' | 'ultrathink';
+
+/**
+ * Shape of per-session preferences that get persisted to the server.
+ * Extensible — add new fields here as needed.
+ */
+export interface SessionPreferences {
+  thinkingMode?: ThinkingMode;
+  model?: string;
+  permissionMode?: PermissionMode;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  maxOutputTokens?: number;
+  personaId?: string | null;
+}
 /** @deprecated Use provider store's activeModels instead. Static fallback for Claude. */
 export const MODEL_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Fast and capable — best balance of speed and quality' },
@@ -154,6 +169,52 @@ export const useSettingsStore = defineStore('settings', () => {
     save();
   }
 
+  // ── Per-session preference persistence ──────────────────────────────────
+
+  /** Build a snapshot of current session-relevant preferences. */
+  function getSessionPreferences(): SessionPreferences {
+    return {
+      thinkingMode: thinkingMode.value,
+      model: model.value,
+      permissionMode: permissionMode.value,
+      allowedTools: allowedTools.value.length ? [...allowedTools.value] : undefined,
+      disallowedTools: disallowedTools.value.length ? [...disallowedTools.value] : undefined,
+      maxOutputTokens: maxOutputTokens.value,
+    };
+  }
+
+  /** Apply saved preferences (from the server) to the current settings state. */
+  function applySessionPreferences(prefs: SessionPreferences) {
+    if (prefs.thinkingMode) thinkingMode.value = prefs.thinkingMode;
+    if (prefs.model) model.value = prefs.model;
+    if (prefs.permissionMode) permissionMode.value = prefs.permissionMode;
+    if (prefs.allowedTools) allowedTools.value = prefs.allowedTools;
+    if (prefs.disallowedTools) disallowedTools.value = prefs.disallowedTools;
+    if (prefs.maxOutputTokens) maxOutputTokens.value = prefs.maxOutputTokens;
+  }
+
+  /**
+   * Persist current session-relevant preferences to the server.
+   * Call this whenever a preference changes during an active conversation.
+   */
+  let _savePrefsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function saveSessionPreferences(sessionId: string, projectDir: string) {
+    // Debounce to avoid hammering the server on rapid changes
+    if (_savePrefsTimer) clearTimeout(_savePrefsTimer);
+    _savePrefsTimer = setTimeout(() => {
+      _savePrefsTimer = null;
+      const prefs = getSessionPreferences();
+      apiFetch(`/api/sessions/${sessionId}/preferences`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectDir, preferences: prefs }),
+      }).catch((err) => {
+        console.warn('[settings] Failed to save session preferences:', err);
+      });
+    }, 500);
+  }
+
   return {
     darkMode, fontSize, permissionMode, model, thinkingMode, maxTokens, maxOutputTokens,
     allowedTools, disallowedTools, projectsDir,
@@ -162,5 +223,6 @@ export const useSettingsStore = defineStore('settings', () => {
     init, save, toggleDarkMode,
     addAllowedTool, removeAllowedTool,
     addDisallowedTool, removeDisallowedTool,
+    getSessionPreferences, applySessionPreferences, saveSessionPreferences,
   };
 });

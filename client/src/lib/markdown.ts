@@ -1,5 +1,6 @@
-import { marked, type Tokens } from 'marked';
+import { marked, type Tokens, type TokenizerExtension, type RendererExtension } from 'marked';
 import DOMPurify from 'dompurify';
+import katex from 'katex';
 import hljs from 'highlight.js/lib/core';
 
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -71,6 +72,65 @@ renderer.code = function ({ text, lang }: Tokens.Code) {
   </div>`;
 };
 
+// ─── KaTeX math extensions for marked ──────────────────────────────
+// Display math: $$...$$ (block-level)
+const blockMath: TokenizerExtension & RendererExtension = {
+  name: 'blockMath',
+  level: 'block',
+  start(src: string) {
+    return src.indexOf('$$');
+  },
+  tokenizer(src: string) {
+    const match = src.match(/^\$\$([\s\S]+?)\$\$/);
+    if (match?.[1]) {
+      return {
+        type: 'blockMath',
+        raw: match[0],
+        text: match[1].trim(),
+      };
+    }
+  },
+  renderer(token) {
+    try {
+      return `<div class="katex-display-wrapper">${katex.renderToString(token.text, { displayMode: true, throwOnError: false, output: 'html' })}</div>`;
+    } catch {
+      return `<div class="katex-display-wrapper"><code>${token.text}</code></div>`;
+    }
+  },
+};
+
+// Inline math: $...$ (inline-level, avoids false positives on lone $ or $$ )
+const inlineMath: TokenizerExtension & RendererExtension = {
+  name: 'inlineMath',
+  level: 'inline',
+  start(src: string) {
+    // Find a $ that is NOT preceded by \ and NOT followed by another $
+    const idx = src.search(/(?<![\\$])\$(?!\$)/);
+    return idx >= 0 ? idx : -1;
+  },
+  tokenizer(src: string) {
+    // Match $...$ where content is non-empty and doesn't start/end with space
+    // (avoids triggering on currency like "$5 and $10")
+    const match = src.match(/^\$([^\s$](?:[^$]*?[^\s$])?)\$/);
+    if (match) {
+      return {
+        type: 'inlineMath',
+        raw: match[0],
+        text: match[1],
+      };
+    }
+  },
+  renderer(token) {
+    try {
+      return katex.renderToString(token.text, { displayMode: false, throwOnError: false, output: 'html' });
+    } catch {
+      return `<code>${token.text}</code>`;
+    }
+  },
+};
+
+marked.use({ extensions: [blockMath, inlineMath] });
+
 marked.setOptions({ breaks: true, gfm: true, renderer });
 
 DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
@@ -82,8 +142,12 @@ DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
 export function renderMarkdown(content: string): string {
   const html = marked.parse(content, { async: false }) as string;
   return DOMPurify.sanitize(html, {
-    ADD_ATTR: ['data-code'],
-    ADD_TAGS: ['svg', 'path', 'rect'],
+    ADD_ATTR: ['data-code', 'aria-hidden', 'style'],
+    ADD_TAGS: ['svg', 'path', 'rect', 'math', 'semantics', 'mrow', 'mi', 'mo',
+      'mn', 'msup', 'msub', 'mfrac', 'mover', 'munder', 'msqrt', 'mroot',
+      'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'annotation', 'msubsup',
+      'munderover', 'mpadded', 'mstyle', 'menclose', 'mglyph', 'mmultiscripts',
+      'mprescripts', 'none'],
   });
 }
 

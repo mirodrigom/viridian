@@ -29,21 +29,21 @@ LAN_IP="${LAN_IP:-127.0.0.1}"
 
 # Server config
 export HOST="0.0.0.0"
-export PORT="${PORT:-3010}"
-export DOCS_PORT="${DOCS_PORT:-5173}"
-export CORS_ORIGIN="http://${LAN_IP}:5174"
+export PORT="${PORT:-12000}"
+export DOCS_PORT="${DOCS_PORT:-12002}"
+export CORS_ORIGIN="http://${LAN_IP}:12001"
 
 # Client config
 export VITE_HOST="0.0.0.0"
 
-LANGFUSE_PORT="${LANGFUSE_PORT:-3002}"
+LANGFUSE_PORT="${LANGFUSE_PORT:-12003}"
 export LANGFUSE_BASE_URL="http://${LAN_IP}:${LANGFUSE_PORT}"
 
 echo "============================================"
 echo "  viridian — LAN Mode"
 echo "============================================"
 echo "  LAN IP:   ${LAN_IP}"
-echo "  Client:   http://${LAN_IP}:5174"
+echo "  Client:   http://${LAN_IP}:12001"
 echo "  Server:   http://${LAN_IP}:${PORT}"
 echo "  Docs:     http://${LAN_IP}:${DOCS_PORT}"
 echo "  Langfuse: http://${LAN_IP}:${LANGFUSE_PORT}  (${LANGFUSE_INIT_USER_EMAIL:-admin@viridian.local} / ${LANGFUSE_INIT_USER_PASSWORD:-viridian-dev})"
@@ -84,7 +84,7 @@ fi
 # Run pnpm (via flatpak-spawn if inside Flatpak sandbox)
 # Starts server, client, AND docs dev server
 if [ -f /.flatpak-info ]; then
-  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='http://${LAN_IP}:5174' LANGFUSE_BASE_URL='http://${LAN_IP}:${LANGFUSE_PORT}' LANGFUSE_SECRET_KEY='${LANGFUSE_SECRET_KEY:-}' LANGFUSE_PUBLIC_KEY='${LANGFUSE_PUBLIC_KEY:-}' VITE_HOST=0.0.0.0 pnpm dev:all"
+  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='http://${LAN_IP}:12001' LANGFUSE_BASE_URL='http://${LAN_IP}:${LANGFUSE_PORT}' LANGFUSE_SECRET_KEY='${LANGFUSE_SECRET_KEY:-}' LANGFUSE_PUBLIC_KEY='${LANGFUSE_PUBLIC_KEY:-}' VITE_HOST=0.0.0.0 pnpm dev:all"
 else
   pnpm dev:all
 fi

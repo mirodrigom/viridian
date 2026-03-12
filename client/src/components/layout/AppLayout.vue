@@ -36,10 +36,9 @@ const showTerminal = ref(false);
 const showSettings = ref(false);
 const showToolsSettings = ref(false);
 const showCommandPalette = ref(false);
-const splitView = ref(false);
 const isMobile = ref(false);
 
-useKeyboardShortcuts(showCommandPalette, splitView);
+useKeyboardShortcuts(showCommandPalette);
 
 // Route → tab: when route changes, sync the active tab
 watch(() => route.meta.tab, (tab) => {
@@ -107,7 +106,6 @@ function checkMobile() {
   isMobile.value = window.innerWidth < 768;
   if (isMobile.value) {
     showTerminal.value = false;
-    splitView.value = false;
   }
 }
 
@@ -131,7 +129,6 @@ function toggleTerminal() {
   <div class="flex h-full flex-col overflow-hidden bg-background">
     <h1 class="sr-only">Viridian</h1>
     <TopBar
-      v-model:split-view="splitView"
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"
       @open-tools-settings="showToolsSettings = true"
@@ -139,7 +136,7 @@ function toggleTerminal() {
     <main class="flex-1 overflow-hidden">
     <ResizablePanelGroup direction="vertical" class="h-full">
       <ResizablePanel :default-size="showTerminal ? 70 : 100" :min-size="30">
-        <MainTabs v-model:active-tab="activeTab" :split-view="splitView" />
+        <MainTabs v-model:active-tab="activeTab" />
       </ResizablePanel>
       <template v-if="showTerminal">
         <ResizableHandle />
@@ -152,6 +149,6 @@ function toggleTerminal() {
 
     <SettingsDialog v-model:open="showSettings" />
     <ToolsSettingsDialog v-model:open="showToolsSettings" />
-    <CommandPalette v-model:open="showCommandPalette" v-model:split-view="splitView" @toggle-terminal="toggleTerminal" />
+    <CommandPalette v-model:open="showCommandPalette" @toggle-terminal="toggleTerminal" />
   </div>
 </template>

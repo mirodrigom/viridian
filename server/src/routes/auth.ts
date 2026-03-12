@@ -30,6 +30,11 @@ router.post('/login', validate({ body: credentialsBody }), async (req, res) => {
 
 router.post('/register', validate({ body: registerBody }), async (req, res) => {
   try {
+    const count = getUserCount();
+    if (count > 0) {
+      res.status(403).json({ error: 'Registration is disabled. A user already exists.' });
+      return;
+    }
     const { username, password } = req.body;
     const user = await createUser(username, password);
     const token = await authenticateUser(username, password);

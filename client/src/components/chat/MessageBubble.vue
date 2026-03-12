@@ -118,6 +118,68 @@ const toolIcon = computed(() => {
   return TOOL_ICONS[props.message.toolUse.tool] || Wrench;
 });
 
+// Collapsible tool call state
+const toolOpen = ref(true);
+
+// Compute a brief summary for the collapsed tool header
+const toolSummary = computed(() => {
+  const tu = props.message.toolUse;
+  if (!tu) return '';
+  const input = tu.input;
+  switch (tu.tool) {
+    case 'Read': {
+      const fp = typeof input.file_path === 'string' ? input.file_path : '';
+      const parts = fp.split('/');
+      return parts.length > 2 ? parts.slice(-2).join('/') : fp;
+    }
+    case 'Write': {
+      const fp = typeof input.file_path === 'string' ? input.file_path : '';
+      const parts = fp.split('/');
+      return parts.length > 2 ? parts.slice(-2).join('/') : fp;
+    }
+    case 'Edit':
+    case 'MultiEdit': {
+      const fp = typeof input.file_path === 'string' ? input.file_path : '';
+      const parts = fp.split('/');
+      return parts.length > 2 ? parts.slice(-2).join('/') : fp;
+    }
+    case 'Bash': {
+      const desc = typeof input.description === 'string' ? input.description : '';
+      if (desc) return desc;
+      const cmd = typeof input.command === 'string' ? input.command : '';
+      return cmd.length > 60 ? cmd.slice(0, 60) + '...' : cmd;
+    }
+    case 'Grep': {
+      const pattern = typeof input.pattern === 'string' ? input.pattern : '';
+      return pattern ? `/${pattern}/` : '';
+    }
+    case 'Glob': {
+      const pattern = typeof input.pattern === 'string' ? input.pattern : '';
+      return pattern || '';
+    }
+    case 'TodoWrite':
+      return 'Update tasks';
+    case 'AskUserQuestion':
+      return 'Waiting for input';
+    default:
+      return '';
+  }
+});
+
+// Default state: collapsed for completed tools, expanded for pending/streaming
+const toolDefaultOpen = computed(() => {
+  const tu = props.message.toolUse;
+  if (!tu) return true;
+  if (tu.status === 'pending' || tu.isInputStreaming) return true;
+  return false;
+});
+
+// Sync default open state when status changes (e.g. streaming -> completed)
+watch(toolDefaultOpen, (val) => {
+  // Only auto-collapse, never force-open (user may have manually toggled)
+  if (!val) toolOpen.value = false;
+}, { immediate: true });
+
 const renderedContent = computed(() => {
   if (!props.message.content) return '';
   return renderMarkdown(props.message.content);
@@ -272,11 +334,18 @@ function formatTime(ts: number) {
     </div>
   </div>
 
-  <!-- Tool use -->
+  <!-- Tool use (collapsible) -->
   <div v-else-if="message.toolUse" class="py-0.5 px-2 sm:pl-[3.25rem] sm:pr-4">
-    <div class="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <!-- Tool header -->
-      <div class="flex items-center gap-2 sm:gap-2.5 border-b border-border bg-muted/30 px-2.5 sm:px-3.5 py-2.5">
+    <Collapsible v-model:open="toolOpen" class="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+      <!-- Tool header (click to toggle) -->
+      <CollapsibleTrigger
+        class="flex w-full items-center gap-2 sm:gap-2.5 bg-muted/30 px-2.5 sm:px-3.5 py-2 transition-colors hover:bg-muted/50"
+        :class="{ 'border-b border-border': toolOpen }"
+      >
+        <ChevronRight
+          class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200"
+          :class="{ 'rotate-90': toolOpen }"
+        />
         <div
           class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
           :class="message.toolUse.status === 'rejected'
@@ -286,51 +355,55 @@ function formatTime(ts: number) {
           <component :is="toolIcon" class="h-3 w-3" />
         </div>
         <span class="text-sm font-medium text-foreground">{{ message.toolUse.tool === 'AskUserQuestion' ? 'Question' : message.toolUse.tool }}</span>
+        <span v-if="toolSummary && !toolOpen" class="min-w-0 truncate text-xs text-muted-foreground">{{ toolSummary }}</span>
         <Badge
           v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion' && message.toolUse.tool !== 'ExitPlanMode'"
           variant="outline"
-          class="ml-auto text-[10px]"
+          class="ml-auto shrink-0 text-[10px]"
         >
           Awaiting approval ({{ approvalTimeLeft }}s)
         </Badge>
         <Badge
           v-else-if="message.toolUse.status === 'pending' && message.toolUse.tool === 'AskUserQuestion'"
           variant="outline"
-          class="ml-auto text-[10px]"
+          class="ml-auto shrink-0 text-[10px]"
         >
           Awaiting answer
         </Badge>
         <Badge
           v-else-if="message.toolUse.status === 'pending' && message.toolUse.tool === 'ExitPlanMode'"
           variant="outline"
-          class="ml-auto text-[10px]"
+          class="ml-auto shrink-0 text-[10px]"
         >
           Plan review
         </Badge>
         <Badge
           v-else-if="message.toolUse.status === 'rejected'"
           variant="destructive"
-          class="ml-auto text-[10px]"
+          class="ml-auto shrink-0 text-[10px]"
         >
           Denied
         </Badge>
-      </div>
+      </CollapsibleTrigger>
 
-      <!-- Tool-specific visualization -->
-      <ToolView :tool-use="message.toolUse" />
+      <!-- Collapsible body: tool visualization + approval buttons -->
+      <CollapsibleContent class="tool-collapsible-content">
+        <!-- Tool-specific visualization -->
+        <ToolView :tool-use="message.toolUse" />
 
-      <!-- Approval buttons (when pending, not for AskUserQuestion/ExitPlanMode which have their own UI) -->
-      <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion' && message.toolUse.tool !== 'ExitPlanMode'" class="flex gap-2 border-t border-border bg-muted/10 px-2.5 sm:px-3.5 py-2.5">
-        <Button size="sm" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
-          <Check class="h-3.5 w-3.5" />
-          Allow
-        </Button>
-        <Button size="sm" variant="outline" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('rejectTool', message.toolUse!.requestId)">
-          <X class="h-3.5 w-3.5" />
-          Deny
-        </Button>
-      </div>
-    </div>
+        <!-- Approval buttons (when pending, not for AskUserQuestion/ExitPlanMode which have their own UI) -->
+        <div v-if="message.toolUse.status === 'pending' && message.toolUse.tool !== 'AskUserQuestion' && message.toolUse.tool !== 'ExitPlanMode'" class="flex gap-2 border-t border-border bg-muted/10 px-2.5 sm:px-3.5 py-2.5">
+          <Button size="sm" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('approveTool', message.toolUse!.requestId)">
+            <Check class="h-3.5 w-3.5" />
+            Allow
+          </Button>
+          <Button size="sm" variant="outline" class="h-9 sm:h-7 flex-1 sm:flex-initial gap-1.5 text-xs" @click="emit('rejectTool', message.toolUse!.requestId)">
+            <X class="h-3.5 w-3.5" />
+            Deny
+          </Button>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   </div>
 
   <!-- Context window resize summary -->

@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import {
   TerminalSquare, Settings, LogOut, FolderOpen,
-  Loader2, Moon, Sun, Wrench, Columns2,
+  Loader2, Moon, Sun, Wrench,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -18,7 +18,6 @@ const chat = useChatStore();
 const settings = useSettingsStore();
 const router = useRouter();
 
-const splitView = defineModel<boolean>('splitView', { default: false });
 
 const emit = defineEmits<{
   toggleTerminal: [];
@@ -62,23 +61,6 @@ function logout() {
 
       <!-- Right: Actions -->
       <div class="flex shrink-0 items-center gap-1 md:gap-1">
-        <!-- Split view toggle: hidden on mobile -->
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              variant="ghost"
-              size="sm"
-              class="hidden sm:inline-flex h-7 w-7 p-0"
-              :class="splitView ? 'bg-primary/15 text-primary' : ''"
-              aria-label="Toggle Split View"
-              @click="splitView = !splitView"
-            >
-              <Columns2 class="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Split View (Chat + Editor)</TooltipContent>
-        </Tooltip>
-
         <!-- Terminal toggle: hidden on mobile (terminal is force-disabled on mobile) -->
         <Tooltip>
           <TooltipTrigger as-child>

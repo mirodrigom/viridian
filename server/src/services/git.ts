@@ -90,6 +90,37 @@ export async function setUserConfig(cwd: string, name: string, email: string): P
   await git.addConfig('user.email', email);
 }
 
+export interface FileHistoryEntry {
+  hash: string;
+  date: string;
+  message: string;
+  author_name: string;
+}
+
+export async function getFileHistory(cwd: string, filePath: string, maxCount = 50): Promise<FileHistoryEntry[]> {
+  const git = getGit(cwd);
+  const result = await git.log({ file: filePath, maxCount, '--follow': null } as any);
+  return (result.all || []).map((entry: any) => ({
+    hash: entry.hash,
+    date: entry.date,
+    message: entry.message,
+    author_name: entry.author_name,
+  }));
+}
+
+export async function getFileAtCommit(cwd: string, filePath: string, commitHash: string): Promise<string> {
+  const git = getGit(cwd);
+  return git.show([`${commitHash}:${filePath}`]);
+}
+
+export async function restoreFileFromCommit(cwd: string, filePath: string, commitHash: string): Promise<void> {
+  const git = getGit(cwd);
+  const content = await git.show([`${commitHash}:${filePath}`]);
+  const { writeFile } = await import('fs/promises');
+  const { join } = await import('path');
+  await writeFile(join(cwd, filePath), content, 'utf-8');
+}
+
 export async function getFileVersions(cwd: string, filePath: string, staged = false): Promise<{ original: string; modified: string }> {
   const git = getGit(cwd);
   const { readFile } = await import('fs/promises');

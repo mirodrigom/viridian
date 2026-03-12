@@ -6,7 +6,7 @@ import { createReadStream } from 'fs';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
 import { createInterface } from 'readline';
 import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
-import { getDb } from '../db/database.js';
+import { getDb, getSessionPreferences, upsertSessionPreferences } from '../db/database.js';
 import { getStreamingClaudeSessionIds } from '../services/claude.js';
 import { isGraphRunnerSession } from '../services/graph-runner.js';
 import { isInternalSession } from './git.js';
@@ -522,14 +522,18 @@ router.get('/:id/messages', validate({
     const streamingIds = getStreamingClaudeSessionIds();
     const isStreaming = streamingIds.has(sessionId);
 
-    // Look up provider from cache so clients can display per-session provider logo
+    // Look up provider and preferences from cache
     const db2 = getDb();
-    const cachedProvider = db2.prepare(
-      'SELECT provider FROM session_cache WHERE id = ?',
-    ).get(sessionId) as { provider?: string } | undefined;
-    const sessionProvider = cachedProvider?.provider || 'claude';
+    const cachedRow = db2.prepare(
+      'SELECT provider, preferences FROM session_cache WHERE id = ?',
+    ).get(sessionId) as { provider?: string; preferences?: string } | undefined;
+    const sessionProvider = cachedRow?.provider || 'claude';
+    let sessionPreferences: Record<string, unknown> = {};
+    try {
+      if (cachedRow?.preferences) sessionPreferences = JSON.parse(cachedRow.preferences);
+    } catch { /* ignore */ }
 
-    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming, sessionProvider });
+    res.json({ messages, total, hasMore, oldestIndex: startIndex, usage: usageData, isStreaming, sessionProvider, sessionPreferences });
   } catch (err) {
     log.error({ err }, 'Failed to load messages');
     res.status(500).json({ error: 'Failed to load session messages' });
@@ -660,11 +664,11 @@ router.post('/:id/fork', validate({
     // Seed cache entry with "Fork: " prefix
     const db = getDb();
     const srcCache = db.prepare('SELECT * FROM session_cache WHERE project_dir = ? AND id = ?')
-      .get(projectDir, sessionId) as { title?: string; project_path?: string; provider?: string } | undefined;
+      .get(projectDir, sessionId) as { title?: string; project_path?: string; provider?: string; preferences?: string } | undefined;
 
     db.prepare(`
-      INSERT OR REPLACE INTO session_cache (project_dir, id, title, project_path, message_count, last_active, file_mtime, provider)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO session_cache (project_dir, id, title, project_path, message_count, last_active, file_mtime, provider, preferences)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       projectDir,
       newSessionId,
@@ -674,6 +678,7 @@ router.post('/:id/fork', validate({
       Date.now(),
       statSync(destPath).mtimeMs,
       srcCache?.provider || 'claude',
+      srcCache?.preferences || '{}',
     );
 
     log.info({ from: sessionId, to: newSessionId, lines: linesToCopy.length, cutoff: forkBeforeUuid || 'end' }, 'Forked session');
@@ -681,6 +686,49 @@ router.post('/:id/fork', validate({
   } catch (err) {
     log.error({ err }, 'Fork failed');
     res.status(500).json({ error: 'Failed to fork session' });
+  }
+});
+
+/**
+ * GET /api/sessions/:id/preferences?projectDir=<encoded-dir>
+ *
+ * Returns the saved preferences for a session.
+ */
+router.get('/:id/preferences', validate({
+  query: z.object({ projectDir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }).passthrough(),
+  params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
+}), async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const preferences = getSessionPreferences(sessionId);
+    res.json({ preferences });
+  } catch (err) {
+    log.error({ err }, 'Failed to get session preferences');
+    res.status(500).json({ error: 'Failed to get session preferences' });
+  }
+});
+
+/**
+ * PATCH /api/sessions/:id/preferences
+ *
+ * Merge-update preferences for a session.
+ * Body: { projectDir: string, preferences: Record<string, unknown> }
+ */
+router.patch('/:id/preferences', validate({
+  body: z.object({
+    projectDir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir'),
+    preferences: z.record(z.unknown()),
+  }),
+  params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
+}), async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+    const { projectDir, preferences } = req.body as { projectDir: string; preferences: Record<string, unknown> };
+    upsertSessionPreferences(projectDir, sessionId, preferences);
+    res.json({ success: true });
+  } catch (err) {
+    log.error({ err }, 'Failed to update session preferences');
+    res.status(500).json({ error: 'Failed to update session preferences' });
   }
 });
 

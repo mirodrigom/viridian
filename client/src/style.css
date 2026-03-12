@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "katex/dist/katex.min.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(html.dark *));
@@ -279,6 +280,21 @@ html.dark .chat-mode-default {
   opacity: 1 !important;
 }
 
+/* ─── KaTeX math rendering ─── */
+.prose .katex-display-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(from var(--muted-foreground) l c h / 0.2) transparent;
+}
+.prose .katex-display-wrapper > .katex-display {
+  margin: 0;
+}
+.prose .katex {
+  font-size: 1.05em;
+}
+
 /* ─── AI Thinking Energy Beam ─── */
 .ai-thinking-beam {
   position: relative;
@@ -412,15 +428,15 @@ html.dark .chat-mode-default {
 }
 
 /* ─── Smooth collapsible animation (grid-rows technique) ─── */
-[data-collapsible-content] {
+[data-slot="collapsible-content"] {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 200ms ease-out;
 }
-[data-collapsible-content][data-state="open"] {
+[data-slot="collapsible-content"][data-state="open"] {
   grid-template-rows: 1fr;
 }
-[data-collapsible-content] > * {
+[data-slot="collapsible-content"] > * {
   overflow: hidden;
 }
 
@@ -456,7 +472,7 @@ html.dark .chat-mode-default {
   .slide-up-leave-active {
     transition-duration: 0.01ms !important;
   }
-  [data-collapsible-content] {
+  [data-slot="collapsible-content"] {
     transition-duration: 0.01ms !important;
   }
   .dirty-pulse {

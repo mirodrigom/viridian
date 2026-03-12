@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import McpSettingsDialog from './McpSettingsDialog.vue';
 import ProviderSelector from './ProviderSelector.vue';
+import PersonaSettings from './PersonaSettings.vue';
 import { Server } from 'lucide-vue-next';
 
 const chat = useChatStore();
@@ -81,6 +82,11 @@ async function saveGitConfig() {
             </Button>
           </div>
         </div>
+
+        <Separator />
+
+        <!-- Personas -->
+        <PersonaSettings />
 
         <Separator />
 

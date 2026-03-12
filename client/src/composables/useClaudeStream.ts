@@ -1,6 +1,7 @@
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore } from '@/stores/settings';
 import { useProviderStore } from '@/stores/provider';
+import { usePersonasStore } from '@/stores/personas';
 import { useWebSocket } from './useWebSocket';
 import { useRouter } from 'vue-router';
 import { uuid } from '@/lib/utils';
@@ -18,6 +19,7 @@ export function useClaudeStream() {
   const chat = useChatStore();
   const settings = useSettingsStore();
   const providerStore = useProviderStore();
+  const personaStore = usePersonasStore();
   const router = useRouter();
   const { connected, connect, send, on, disconnect } = useWebSocket('/ws/chat');
 
@@ -32,7 +34,7 @@ export function useClaudeStream() {
 
   // Wire up sub-composables
   const rateLimitDetector = useRateLimitDetector(chat);
-  const sessionRecovery = useSessionRecovery(chat, providerStore);
+  const sessionRecovery = useSessionRecovery(chat, providerStore, settings);
   const { registerHandlers, cleanup: handlersCleanup } = useStreamHandlers({
     ctx,
     rateLimitDetector,
@@ -79,6 +81,10 @@ export function useClaudeStream() {
       disallowedTools: settings.disallowedTools,
       maxOutputTokens: settings.maxOutputTokens || undefined,
     };
+    // Attach active persona system prompt if one is selected
+    if (personaStore.activePersona?.systemPrompt) {
+      payload.personaPrompt = personaStore.activePersona.systemPrompt;
+    }
     if (images?.length) {
       payload.images = images.map(img => ({ name: img.name, dataUrl: img.dataUrl }));
     }
@@ -90,6 +96,12 @@ export function useClaudeStream() {
         content: 'Error: Not connected to server. Reconnecting…',
         timestamp: Date.now(),
       });
+    }
+
+    // Persist current preferences to the session (ensures new conversations
+    // and preference changes made before sending are captured)
+    if (chat.claudeSessionId && chat.activeProjectDir) {
+      settings.saveSessionPreferences(chat.claudeSessionId, chat.activeProjectDir);
     }
   }
 
@@ -111,6 +123,9 @@ export function useClaudeStream() {
       disallowedTools: settings.disallowedTools,
       maxOutputTokens: settings.maxOutputTokens || undefined,
     };
+    if (personaStore.activePersona?.systemPrompt) {
+      payload.personaPrompt = personaStore.activePersona.systemPrompt;
+    }
     send(payload);
   }
 

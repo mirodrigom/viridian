@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
-import { Loader2, User, Lock, UserPlus, LogIn } from 'lucide-vue-next';
+import { Loader2, User, Lock, UserPlus, LogIn, ShieldAlert } from 'lucide-vue-next';
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -19,11 +19,13 @@ const loading = ref(false);
 const isRegister = ref(false);
 const needsSetup = ref(false);
 const checking = ref(true);
+const registrationDisabled = ref(false);
 
 async function checkSetup() {
   try {
     const status = await auth.checkStatus();
     needsSetup.value = !status.hasUsers;
+    registrationDisabled.value = status.hasUsers;
     if (needsSetup.value) {
       isRegister.value = true;
     }
@@ -71,7 +73,7 @@ async function handleSubmit() {
         <CardHeader class="pb-4">
           <CardTitle as="h2" class="flex items-center justify-center gap-2 text-lg">
             <component :is="isRegister ? UserPlus : LogIn" class="h-5 w-5" />
-            {{ needsSetup ? 'Initial Setup' : (isRegister ? 'Create Account' : 'Welcome Back') }}
+            {{ needsSetup ? 'Initial Setup' : 'Welcome Back' }}
           </CardTitle>
           <CardDescription v-if="needsSetup" class="text-center">
             No users found. Create an admin account to begin.
@@ -92,10 +94,13 @@ async function handleSubmit() {
               <Input
                 id="username"
                 v-model="username"
-                placeholder="Enter username"
+                :placeholder="needsSetup ? 'e.g. adminUser' : 'Enter username'"
                 required
                 autocomplete="username"
               />
+              <p v-if="needsSetup" class="text-xs text-muted-foreground">
+                Use camelCase format (e.g. johnDoe, adminUser)
+              </p>
             </div>
             <div class="space-y-2">
               <Label for="password" class="flex items-center gap-1.5">
@@ -112,6 +117,11 @@ async function handleSubmit() {
               />
             </div>
 
+            <div v-if="needsSetup" class="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+              <ShieldAlert class="h-4 w-4 mt-0.5 shrink-0" />
+              <span>This account will have full control over the system. New user registration will be disabled after setup for security.</span>
+            </div>
+
             <p v-if="error" class="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {{ error }}
             </p>
@@ -121,23 +131,11 @@ async function handleSubmit() {
               <component v-else :is="isRegister ? UserPlus : LogIn" class="h-4 w-4" />
               {{ loading ? 'Please wait...' : (isRegister ? 'Create Account' : 'Sign In') }}
             </Button>
-
-            <p v-if="!needsSetup" class="text-center text-sm text-muted-foreground">
-              <button
-                type="button"
-                class="underline underline-offset-4 hover:text-foreground transition-colors"
-                @click="isRegister = !isRegister"
-              >
-                {{ isRegister ? 'Already have an account? Sign in' : 'Need an account? Register' }}
-              </button>
-            </p>
           </form>
         </CardContent>
       </Card>
 
-      <p class="text-center text-xs text-muted-foreground">
-        Powered by Claude &middot; Anthropic
-      </p>
+
     </div>
   </main>
 </template>

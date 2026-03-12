@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { toast } from 'vue-sonner';
-import { apiFetch } from '@/lib/apiFetch';
+import { ref, watch, computed } from 'vue';
+import { useMcpStore, type McpServerType, type McpServerWithStatus, type CreateMcpServerPayload } from '@/stores/mcp';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -9,27 +8,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Server, Terminal, Globe, Loader2, ChevronDown, ChevronRight } from 'lucide-vue-next';
+import {
+  Plus, Trash2, Server, Terminal, Globe, Loader2,
+  ChevronDown, ChevronRight, Pencil, Zap, X, Wrench,
+} from 'lucide-vue-next';
 
 const open = defineModel<boolean>('open', { default: false });
+const mcp = useMcpStore();
 
-type ServerType = 'stdio' | 'sse' | 'http';
+// ─── UI State ────────────────────────────────────────────────────────────────
 
-interface McpServerConfig {
-  type?: ServerType;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-}
+const showAddForm = ref(false);
+const editingId = ref<string | null>(null);
+const expandedServer = ref<string | null>(null);
+const deletingId = ref<string | null>(null);
 
-interface EditingServer {
+// ─── Add/Edit form ───────────────────────────────────────────────────────────
+
+interface ServerForm {
   name: string;
-  type: ServerType;
+  serverType: McpServerType;
   command: string;
   args: string;
   envPairs: { key: string; value: string }[];
@@ -37,20 +40,10 @@ interface EditingServer {
   headerPairs: { key: string; value: string }[];
 }
 
-const servers = ref<Record<string, McpServerConfig>>({});
-const loading = ref(false);
-const error = ref('');
-const showAddForm = ref(false);
-const expandedServer = ref<string | null>(null);
-const addingServer = ref(false);
-const removingServer = ref<string | null>(null);
-
-const newServer = ref<EditingServer>(emptyServer());
-
-function emptyServer(): EditingServer {
+function emptyForm(): ServerForm {
   return {
     name: '',
-    type: 'stdio',
+    serverType: 'stdio',
     command: '',
     args: '',
     envPairs: [{ key: '', value: '' }],
@@ -59,173 +52,266 @@ function emptyServer(): EditingServer {
   };
 }
 
-async function fetchServers() {
-  loading.value = true;
-  error.value = '';
-  try {
-    const res = await apiFetch('/api/mcp/servers');
-    if (!res.ok) throw new Error('Failed to load');
-    const data = await res.json();
-    servers.value = data.servers || {};
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to load MCP servers';
+const form = ref<ServerForm>(emptyForm());
+const submitting = ref(false);
+
+function formIsValid(): boolean {
+  if (!form.value.name.trim()) return false;
+  if (form.value.serverType === 'stdio') {
+    return !!form.value.command.trim();
   }
-  loading.value = false;
+  return !!form.value.url.trim();
 }
 
-async function addServer() {
-  const s = newServer.value;
-  if (!s.name.trim()) return;
+function startEdit(server: McpServerWithStatus) {
+  editingId.value = server.id;
+  showAddForm.value = true;
+  form.value = {
+    name: server.name,
+    serverType: server.serverType as McpServerType,
+    command: server.command,
+    args: server.args.join(' '),
+    envPairs: Object.keys(server.env).length > 0
+      ? Object.entries(server.env).map(([key, value]) => ({ key, value }))
+      : [{ key: '', value: '' }],
+    url: server.url,
+    headerPairs: Object.keys(server.headers).length > 0
+      ? Object.entries(server.headers).map(([key, value]) => ({ key, value }))
+      : [{ key: '', value: '' }],
+  };
+}
 
-  const config: McpServerConfig = {};
+function cancelForm() {
+  showAddForm.value = false;
+  editingId.value = null;
+  form.value = emptyForm();
+}
 
-  if (s.type === 'stdio') {
-    if (!s.command.trim()) return;
-    config.command = s.command.trim();
-    if (s.args.trim()) config.args = s.args.split(/\s+/).filter(Boolean);
-    const env: Record<string, string> = {};
-    for (const p of s.envPairs) {
-      if (p.key.trim()) env[p.key.trim()] = p.value;
-    }
-    if (Object.keys(env).length > 0) config.env = env;
-  } else {
-    if (!s.url.trim()) return;
-    config.type = s.type;
-    config.url = s.url.trim();
-    const headers: Record<string, string> = {};
-    for (const p of s.headerPairs) {
-      if (p.key.trim()) headers[p.key.trim()] = p.value;
-    }
-    if (Object.keys(headers).length > 0) config.headers = headers;
+function buildPayload(): CreateMcpServerPayload {
+  const f = form.value;
+  const env: Record<string, string> = {};
+  for (const p of f.envPairs) {
+    if (p.key.trim()) env[p.key.trim()] = p.value;
+  }
+  const headers: Record<string, string> = {};
+  for (const p of f.headerPairs) {
+    if (p.key.trim()) headers[p.key.trim()] = p.value;
   }
 
-  addingServer.value = true;
+  return {
+    name: f.name.trim(),
+    serverType: f.serverType,
+    command: f.command.trim(),
+    args: f.args.trim() ? f.args.trim().split(/\s+/).filter(Boolean) : [],
+    env,
+    url: f.url.trim(),
+    headers,
+    enabled: true,
+  };
+}
+
+async function submitForm() {
+  if (!formIsValid() || submitting.value) return;
+  submitting.value = true;
   try {
-    const res = await apiFetch('/api/mcp/servers', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name: s.name.trim(), config }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      toast.error(data.error || 'Failed to add server');
-      return;
+    if (editingId.value) {
+      const ok = await mcp.updateServer(editingId.value, buildPayload());
+      if (ok) cancelForm();
+    } else {
+      const server = await mcp.createServer(buildPayload());
+      if (server) cancelForm();
     }
-    const data = await res.json();
-    servers.value = data.servers;
-    newServer.value = emptyServer();
-    showAddForm.value = false;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to add server');
   } finally {
-    addingServer.value = false;
+    submitting.value = false;
   }
 }
 
-async function removeServer(name: string) {
-  removingServer.value = name;
+async function handleDelete(id: string) {
+  deletingId.value = id;
   try {
-    const res = await apiFetch(`/api/mcp/servers/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      toast.error(data.error || 'Failed to remove server');
-      return;
-    }
-    const data = await res.json();
-    servers.value = data.servers;
-    if (expandedServer.value === name) expandedServer.value = null;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to remove server');
+    await mcp.deleteServer(id);
+    if (expandedServer.value === id) expandedServer.value = null;
   } finally {
-    removingServer.value = null;
+    deletingId.value = null;
   }
 }
 
-function getServerType(config: McpServerConfig): ServerType {
-  if (config.url) return config.type === 'http' ? 'http' : 'sse';
-  return 'stdio';
+function toggleExpand(id: string) {
+  expandedServer.value = expandedServer.value === id ? null : id;
 }
 
-function toggleExpand(name: string) {
-  expandedServer.value = expandedServer.value === name ? null : name;
+// ─── Status helpers ──────────────────────────────────────────────────────────
+
+function statusColor(status: string): string {
+  switch (status) {
+    case 'connected': return 'bg-green-500';
+    case 'error': return 'bg-red-500';
+    case 'testing': return 'bg-yellow-500 animate-pulse';
+    case 'disabled': return 'bg-gray-400';
+    default: return 'bg-gray-400';
+  }
 }
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'connected': return 'Connected';
+    case 'error': return 'Error';
+    case 'testing': return 'Testing...';
+    case 'disabled': return 'Disabled';
+    default: return 'Unknown';
+  }
+}
+
+function statusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (status) {
+    case 'connected': return 'default';
+    case 'error': return 'destructive';
+    default: return 'secondary';
+  }
+}
+
+// ─── Lifecycle ───────────────────────────────────────────────────────────────
 
 watch(open, (isOpen) => {
-  if (isOpen) fetchServers();
+  if (isOpen) {
+    mcp.fetchServers();
+    cancelForm();
+  }
 });
 </script>
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-h-[85vh] max-w-lg overflow-y-auto">
+    <DialogContent class="max-h-[85vh] max-w-xl overflow-y-auto">
       <DialogHeader>
         <DialogTitle class="flex items-center gap-2">
           <Server class="h-5 w-5" />
           MCP Servers
         </DialogTitle>
         <DialogDescription>
-          Manage Model Context Protocol servers for Claude Code
+          Manage Model Context Protocol servers. Enabled servers are available across all agents and sessions.
         </DialogDescription>
       </DialogHeader>
 
       <div class="space-y-4 py-2">
         <!-- Loading -->
-        <div v-if="loading" class="flex items-center justify-center py-8">
+        <div v-if="mcp.loading" class="flex items-center justify-center py-8">
           <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
 
         <!-- Error -->
-        <p v-if="error" class="text-xs text-destructive">{{ error }}</p>
+        <p v-if="mcp.error" class="text-xs text-destructive">{{ mcp.error }}</p>
 
         <!-- Server list -->
-        <template v-if="!loading">
-          <div v-if="Object.keys(servers).length === 0" class="py-4 text-center text-sm text-muted-foreground">
-            No MCP servers configured
+        <template v-if="!mcp.loading">
+          <div v-if="mcp.servers.length === 0 && !showAddForm" class="py-6 text-center">
+            <Server class="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+            <p class="text-sm text-muted-foreground">No MCP servers configured</p>
+            <p class="mt-1 text-xs text-muted-foreground/70">Add a server to provide tools to your agents</p>
           </div>
 
-          <div v-else class="space-y-2">
+          <div v-if="mcp.servers.length > 0" class="space-y-2">
             <div
-              v-for="(config, name) in servers"
-              :key="name"
-              class="rounded-lg border border-border"
+              v-for="server in mcp.servers"
+              :key="server.id"
+              class="rounded-lg border border-border transition-colors"
+              :class="{ 'opacity-50': !server.enabled }"
             >
+              <!-- Server header row -->
               <div class="flex items-center gap-2 px-3 py-2.5">
-                <button class="shrink-0 text-muted-foreground" @click="toggleExpand(String(name))">
-                  <ChevronDown v-if="expandedServer === name" class="h-4 w-4" />
+                <button class="shrink-0 text-muted-foreground" @click="toggleExpand(server.id)">
+                  <ChevronDown v-if="expandedServer === server.id" class="h-4 w-4" />
                   <ChevronRight v-else class="h-4 w-4" />
                 </button>
+
+                <!-- Status indicator -->
+                <span
+                  class="h-2 w-2 shrink-0 rounded-full"
+                  :class="statusColor(server.status)"
+                  :title="statusLabel(server.status)"
+                />
+
+                <!-- Icon by type -->
                 <component
-                  :is="getServerType(config) === 'stdio' ? Terminal : Globe"
+                  :is="server.serverType === 'stdio' ? Terminal : Globe"
                   class="h-4 w-4 shrink-0 text-muted-foreground"
                 />
+
+                <!-- Name & description -->
                 <div class="min-w-0 flex-1">
-                  <div class="text-sm font-medium text-foreground">{{ name }}</div>
+                  <div class="text-sm font-medium text-foreground">{{ server.name }}</div>
                   <div class="truncate text-xs text-muted-foreground">
-                    {{ getServerType(config) === 'stdio' ? config.command : config.url }}
+                    {{ server.serverType === 'stdio' ? server.command : server.url }}
                   </div>
                 </div>
+
+                <!-- Type badge -->
                 <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                  {{ getServerType(config) }}
+                  {{ server.serverType }}
                 </span>
-                <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-destructive hover:bg-destructive/10" :disabled="removingServer === name" @click="removeServer(String(name))">
-                  <Loader2 v-if="removingServer === name" class="h-3.5 w-3.5 animate-spin" />
+
+                <!-- Enable/disable toggle -->
+                <Switch
+                  :checked="server.enabled"
+                  @update:checked="mcp.toggleServer(server.id)"
+                  class="scale-75"
+                />
+
+                <!-- Edit -->
+                <Button
+                  variant="ghost" size="sm"
+                  class="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  @click="startEdit(server)"
+                  title="Edit"
+                >
+                  <Pencil class="h-3.5 w-3.5" />
+                </Button>
+
+                <!-- Delete -->
+                <Button
+                  variant="ghost" size="sm"
+                  class="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                  :disabled="deletingId === server.id"
+                  @click="handleDelete(server.id)"
+                  title="Delete"
+                >
+                  <Loader2 v-if="deletingId === server.id" class="h-3.5 w-3.5 animate-spin" />
                   <Trash2 v-else class="h-3.5 w-3.5" />
                 </Button>
               </div>
 
               <!-- Expanded details -->
-              <div v-if="expandedServer === name" class="border-t border-border bg-muted/30 px-3 py-2.5 text-xs">
-                <template v-if="getServerType(config) === 'stdio'">
+              <div v-if="expandedServer === server.id" class="border-t border-border bg-muted/30 px-3 py-3 text-xs">
+                <!-- Status & test -->
+                <div class="mb-3 flex items-center gap-2">
+                  <Badge :variant="statusBadgeVariant(server.status)" class="text-[10px]">
+                    {{ statusLabel(server.status) }}
+                  </Badge>
+                  <Button
+                    variant="outline" size="sm"
+                    class="h-6 gap-1 px-2 text-[11px]"
+                    :disabled="!server.enabled || server.status === 'testing'"
+                    @click="mcp.testServer(server.id)"
+                  >
+                    <Loader2 v-if="server.status === 'testing'" class="h-3 w-3 animate-spin" />
+                    <Zap v-else class="h-3 w-3" />
+                    Test Connection
+                  </Button>
+                </div>
+
+                <!-- Error message -->
+                <div v-if="server.error" class="mb-3 rounded-md bg-destructive/10 px-2 py-1.5 text-destructive">
+                  {{ server.error }}
+                </div>
+
+                <!-- Server config details -->
+                <template v-if="server.serverType === 'stdio'">
                   <div class="space-y-1">
-                    <div><span class="text-muted-foreground">Command:</span> <code class="rounded bg-muted px-1">{{ config.command }}</code></div>
-                    <div v-if="config.args?.length"><span class="text-muted-foreground">Args:</span> <code class="rounded bg-muted px-1">{{ config.args?.join(' ') }}</code></div>
-                    <div v-if="config.env && Object.keys(config.env).length > 0">
+                    <div><span class="text-muted-foreground">Command:</span> <code class="rounded bg-muted px-1">{{ server.command }}</code></div>
+                    <div v-if="server.args.length > 0"><span class="text-muted-foreground">Args:</span> <code class="rounded bg-muted px-1">{{ server.args.join(' ') }}</code></div>
+                    <div v-if="Object.keys(server.env).length > 0">
                       <span class="text-muted-foreground">Env:</span>
-                      <div v-for="(v, k) in config.env" :key="k" class="ml-3">
+                      <div v-for="(v, k) in server.env" :key="k" class="ml-3">
                         <code class="rounded bg-muted px-1">{{ k }}={{ v }}</code>
                       </div>
                     </div>
@@ -233,42 +319,74 @@ watch(open, (isOpen) => {
                 </template>
                 <template v-else>
                   <div class="space-y-1">
-                    <div><span class="text-muted-foreground">URL:</span> <code class="rounded bg-muted px-1">{{ config.url }}</code></div>
-                    <div v-if="config.headers && Object.keys(config.headers).length > 0">
+                    <div><span class="text-muted-foreground">URL:</span> <code class="rounded bg-muted px-1">{{ server.url }}</code></div>
+                    <div v-if="Object.keys(server.headers).length > 0">
                       <span class="text-muted-foreground">Headers:</span>
-                      <div v-for="(v, k) in config.headers" :key="k" class="ml-3">
+                      <div v-for="(v, k) in server.headers" :key="k" class="ml-3">
                         <code class="rounded bg-muted px-1">{{ k }}: {{ v }}</code>
                       </div>
                     </div>
                   </div>
                 </template>
+
+                <!-- Tools list -->
+                <div v-if="server.tools.length > 0" class="mt-3">
+                  <div class="mb-1.5 flex items-center gap-1 text-muted-foreground">
+                    <Wrench class="h-3 w-3" />
+                    <span class="font-medium">Available Tools ({{ server.tools.length }})</span>
+                  </div>
+                  <div class="flex flex-wrap gap-1">
+                    <Badge
+                      v-for="tool in server.tools"
+                      :key="tool.name"
+                      variant="outline"
+                      class="text-[10px]"
+                      :title="tool.description || tool.name"
+                    >
+                      {{ tool.name }}
+                    </Badge>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           <Separator />
 
-          <!-- Add server form -->
+          <!-- Add/Edit server form -->
           <div>
-            <Button v-if="!showAddForm" variant="outline" size="sm" class="w-full gap-1" @click="showAddForm = true">
+            <Button
+              v-if="!showAddForm"
+              variant="outline" size="sm"
+              class="w-full gap-1"
+              @click="showAddForm = true; editingId = null; form = emptyForm();"
+            >
               <Plus class="h-3.5 w-3.5" />
               Add Server
             </Button>
 
             <div v-else class="space-y-3 rounded-lg border border-primary/30 bg-card p-3">
               <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium">Add MCP Server</h4>
-                <Button variant="ghost" size="sm" class="h-6 text-xs" @click="showAddForm = false">Cancel</Button>
+                <h4 class="text-sm font-medium">
+                  {{ editingId ? 'Edit MCP Server' : 'Add MCP Server' }}
+                </h4>
+                <Button variant="ghost" size="sm" class="h-6 w-6 p-0" @click="cancelForm">
+                  <X class="h-3.5 w-3.5" />
+                </Button>
               </div>
 
               <div class="space-y-1.5">
                 <Label class="text-xs">Name</Label>
-                <Input v-model="newServer.name" placeholder="my-mcp-server" class="h-8 font-mono text-sm" />
+                <Input
+                  v-model="form.name"
+                  placeholder="my-mcp-server"
+                  class="h-8 font-mono text-sm"
+                />
               </div>
 
               <div class="space-y-1.5">
                 <Label class="text-xs">Type</Label>
-                <Select :model-value="newServer.type" @update:model-value="(v: any) => newServer.type = v">
+                <Select :model-value="form.serverType" @update:model-value="(v: any) => form.serverType = v">
                   <SelectTrigger class="h-8">
                     <SelectValue />
                   </SelectTrigger>
@@ -281,21 +399,25 @@ watch(open, (isOpen) => {
               </div>
 
               <!-- Stdio fields -->
-              <template v-if="newServer.type === 'stdio'">
+              <template v-if="form.serverType === 'stdio'">
                 <div class="space-y-1.5">
                   <Label class="text-xs">Command</Label>
-                  <Input v-model="newServer.command" placeholder="npx" class="h-8 font-mono text-sm" />
+                  <Input v-model="form.command" placeholder="npx" class="h-8 font-mono text-sm" />
                 </div>
                 <div class="space-y-1.5">
                   <Label class="text-xs">Arguments (space-separated)</Label>
-                  <Input v-model="newServer.args" placeholder="-y @modelcontextprotocol/server-filesystem /home" class="h-8 font-mono text-sm" />
+                  <Input v-model="form.args" placeholder="-y @modelcontextprotocol/server-filesystem /home" class="h-8 font-mono text-sm" />
                 </div>
                 <div class="space-y-1.5">
                   <Label class="text-xs">Environment variables</Label>
-                  <div v-for="(pair, idx) in newServer.envPairs" :key="idx" class="flex gap-1">
+                  <div v-for="(pair, idx) in form.envPairs" :key="idx" class="flex gap-1">
                     <Input v-model="pair.key" placeholder="KEY" class="h-7 w-1/3 font-mono text-xs" />
                     <Input v-model="pair.value" placeholder="value" class="h-7 flex-1 font-mono text-xs" />
-                    <Button v-if="idx === newServer.envPairs.length - 1" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="newServer.envPairs.push({ key: '', value: '' })">
+                    <Button
+                      v-if="idx === form.envPairs.length - 1"
+                      variant="ghost" size="sm" class="h-7 w-7 p-0"
+                      @click="form.envPairs.push({ key: '', value: '' })"
+                    >
                       <Plus class="h-3 w-3" />
                     </Button>
                   </div>
@@ -306,24 +428,35 @@ watch(open, (isOpen) => {
               <template v-else>
                 <div class="space-y-1.5">
                   <Label class="text-xs">URL</Label>
-                  <Input v-model="newServer.url" placeholder="http://localhost:3000/mcp" class="h-8 font-mono text-sm" />
+                  <Input v-model="form.url" placeholder="http://localhost:3000/mcp" class="h-8 font-mono text-sm" />
                 </div>
                 <div class="space-y-1.5">
                   <Label class="text-xs">Headers</Label>
-                  <div v-for="(pair, idx) in newServer.headerPairs" :key="idx" class="flex gap-1">
+                  <div v-for="(pair, idx) in form.headerPairs" :key="idx" class="flex gap-1">
                     <Input v-model="pair.key" placeholder="Header" class="h-7 w-1/3 font-mono text-xs" />
                     <Input v-model="pair.value" placeholder="value" class="h-7 flex-1 font-mono text-xs" />
-                    <Button v-if="idx === newServer.headerPairs.length - 1" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="newServer.headerPairs.push({ key: '', value: '' })">
+                    <Button
+                      v-if="idx === form.headerPairs.length - 1"
+                      variant="ghost" size="sm" class="h-7 w-7 p-0"
+                      @click="form.headerPairs.push({ key: '', value: '' })"
+                    >
                       <Plus class="h-3 w-3" />
                     </Button>
                   </div>
                 </div>
               </template>
 
-              <Button size="sm" class="w-full gap-1" @click="addServer" :disabled="addingServer || !newServer.name.trim() || (newServer.type === 'stdio' ? !newServer.command.trim() : !newServer.url.trim())">
-                <Loader2 v-if="addingServer" class="h-3.5 w-3.5 animate-spin" />
-                <Plus v-else class="h-3.5 w-3.5" />
-                {{ addingServer ? 'Adding...' : 'Add Server' }}
+              <Button
+                size="sm" class="w-full gap-1"
+                :disabled="submitting || !formIsValid()"
+                @click="submitForm"
+              >
+                <Loader2 v-if="submitting" class="h-3.5 w-3.5 animate-spin" />
+                <template v-else>
+                  <Pencil v-if="editingId" class="h-3.5 w-3.5" />
+                  <Plus v-else class="h-3.5 w-3.5" />
+                </template>
+                {{ submitting ? 'Saving...' : (editingId ? 'Update Server' : 'Add Server') }}
               </Button>
             </div>
           </div>

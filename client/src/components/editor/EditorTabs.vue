@@ -11,10 +11,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { FilePlus } from 'lucide-vue-next';
+import { FilePlus, History } from 'lucide-vue-next';
 import { toast } from 'vue-sonner';
 
 const files = useFilesStore();
+
+const showHistoryPanel = defineModel<boolean>('showHistoryPanel', { default: false });
 
 const showNewFileDialog = ref(false);
 const newFileName = ref('');
@@ -90,6 +92,19 @@ async function handleCreateFile() {
       @click="openNewFileDialog"
     >
       <FilePlus class="h-3.5 w-3.5" />
+    </Button>
+
+    <!-- File History button -->
+    <Button
+      v-if="files.activeFile"
+      variant="ghost"
+      size="sm"
+      class="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
+      :class="showHistoryPanel ? 'text-primary' : ''"
+      title="File History"
+      @click="showHistoryPanel = !showHistoryPanel"
+    >
+      <History class="h-3.5 w-3.5" />
     </Button>
   </div>
 

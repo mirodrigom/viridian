@@ -217,6 +217,43 @@ router.get('/show', validate({ query: z.object({ cwd: z.string().min(1), hash: z
   }
 });
 
+router.get('/file-history', validate({ query: z.object({ cwd: z.string().min(1), file: z.string().min(1) }) }), async (req, res) => {
+  try {
+    const cwd = req.query.cwd as string;
+    const file = req.query.file as string;
+    const history = await gitService.getFileHistory(cwd, file);
+    res.json({ history });
+  } catch (err) {
+    log.warn({ err }, 'Failed to get file history');
+    res.status(500).json({ error: 'Failed to get file history' });
+  }
+});
+
+router.get('/file-at-commit', validate({ query: z.object({ cwd: z.string().min(1), file: z.string().min(1), commit: z.string().min(1) }) }), async (req, res) => {
+  try {
+    const cwd = req.query.cwd as string;
+    const file = req.query.file as string;
+    const commit = req.query.commit as string;
+    const content = await gitService.getFileAtCommit(cwd, file, commit);
+    res.json({ content });
+  } catch (err) {
+    log.warn({ err }, 'Failed to get file at commit');
+    res.status(500).json({ error: 'Failed to get file at commit' });
+  }
+});
+
+router.post('/restore-file', validate({ body: z.object({ cwd: z.string().min(1), file: z.string().min(1), commit: z.string().min(1) }) }), async (req, res) => {
+  try {
+    const { cwd, file, commit } = req.body;
+    await gitService.restoreFileFromCommit(cwd, file, commit);
+    res.json({ success: true });
+  } catch (err) {
+    log.warn({ err }, 'Failed to restore file from commit');
+    const msg = err instanceof Error ? err.message : 'Failed to restore file';
+    res.status(500).json({ error: msg });
+  }
+});
+
 router.get('/file-versions', validate({ query: z.object({ cwd: z.string().min(1), file: z.string().min(1) }) }), async (req, res) => {
   try {
     const cwd = req.query.cwd as string;

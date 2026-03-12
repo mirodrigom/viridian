@@ -259,6 +259,12 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
 
       chat.finishStreaming();
 
+      // Persist per-session preferences now that we have a definitive session ID
+      // (important for new conversations where sessionId wasn't known at send time)
+      if (chat.claudeSessionId && chat.activeProjectDir) {
+        settings.saveSessionPreferences(chat.claudeSessionId, chat.activeProjectDir);
+      }
+
       const reloadId = chat.claudeSessionId || chat.sessionId;
       if (reloadId && chat.activeProjectDir) {
         if (reconnectedMidStream) {

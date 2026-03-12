@@ -1,15 +1,17 @@
 import type { useChatStore } from '@/stores/chat';
 import type { useProviderStore } from '@/stores/provider';
+import type { useSettingsStore } from '@/stores/settings';
 import { apiFetch } from '@/lib/apiFetch';
 
 type ChatStore = ReturnType<typeof useChatStore>;
 type ProviderStore = ReturnType<typeof useProviderStore>;
+type SettingsStore = ReturnType<typeof useSettingsStore>;
 
 /**
  * Session recovery: fetch missed messages after brief WS disruptions,
  * or do a full reload after a mid-stream reconnect.
  */
-export function useSessionRecovery(chat: ChatStore, providerStore: ProviderStore) {
+export function useSessionRecovery(chat: ChatStore, providerStore: ProviderStore, settingsStore?: SettingsStore) {
   /** Reload messages from disk after a reconnect where streaming already finished. */
   async function fetchMissedMessages(sessionId: string, projectDir: string) {
     try {
@@ -69,6 +71,10 @@ export function useSessionRecovery(chat: ChatStore, providerStore: ProviderStore
           inputTokens: data.usage.inputTokens || 0,
           outputTokens: data.usage.outputTokens || 0,
         });
+      }
+      // Restore per-session preferences on reload
+      if (settingsStore && data.sessionPreferences && Object.keys(data.sessionPreferences).length > 0) {
+        settingsStore.applySessionPreferences(data.sessionPreferences);
       }
     } catch (err) {
       console.error('Failed to reload session:', err);

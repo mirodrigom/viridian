@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted } from 'vue';
+import { ref, nextTick, watch, onMounted, onUnmounted, computed } from 'vue';
 import { useChatStore } from '@/stores/chat';
+import { useSettingsStore, THINKING_OPTIONS, type ThinkingMode } from '@/stores/settings';
+import { useProviderStore } from '@/stores/provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Send, Square, Zap, Shield, FileText, X, ImagePlus, Sparkles, Bug, Eye, Wrench,
-  FileCode, TestTube, Paperclip, Plus, Pencil, Trash2,
+  FileCode, TestTube, Paperclip, Plus, Pencil, Trash2, Brain,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
 import ChatStatusBar from './ChatStatusBar.vue';
+import PersonaSelector from './PersonaSelector.vue';
 
 // Composables
 import { useDraftPersistence } from '@/composables/chat/useDraftPersistence';
@@ -26,13 +30,70 @@ const MAX_FILES = 5;
 const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html', 'text/csv'];
 
 const chat = useChatStore();
+const settings = useSettingsStore();
+const providerStore = useProviderStore();
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
+const showThinkingMenu = ref(false);
 const imageInput = ref<HTMLInputElement | null>(null);
 const attachedImages = ref<{ name: string; dataUrl: string; size: number }[]>([]);
 const attachedFiles = ref<{ name: string; content: string; type: string; size: number }[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
 const isDragging = ref(false);
+
+// --- Thinking mode selector ---
+
+const thinkingColorMap: Record<ThinkingMode, string> = {
+  standard: 'text-muted-foreground',
+  think: 'text-blue-400',
+  think_hard: 'text-violet-400',
+  think_harder: 'text-orange-400',
+  ultrathink: 'text-rose-400',
+};
+
+const thinkingBgMap: Record<ThinkingMode, string> = {
+  standard: '',
+  think: 'bg-blue-500/10',
+  think_hard: 'bg-violet-500/10',
+  think_harder: 'bg-orange-500/10',
+  ultrathink: 'bg-rose-500/10',
+};
+
+const thinkingDotMap: Record<ThinkingMode, string> = {
+  standard: 'bg-muted-foreground',
+  think: 'bg-blue-400',
+  think_hard: 'bg-violet-400',
+  think_harder: 'bg-orange-400',
+  ultrathink: 'bg-rose-400',
+};
+
+const currentThinkingColor = computed(() => thinkingColorMap[settings.thinkingMode] || 'text-muted-foreground');
+const currentThinkingBg = computed(() => thinkingBgMap[settings.thinkingMode] || '');
+const isNonStandardThinking = computed(() => settings.thinkingMode !== 'standard');
+
+function savePrefsToSession() {
+  const sessionId = chat.claudeSessionId;
+  const projectDir = chat.activeProjectDir;
+  if (sessionId && projectDir) {
+    settings.saveSessionPreferences(sessionId, projectDir);
+  }
+}
+
+function selectThinkingMode(mode: ThinkingMode) {
+  settings.thinkingMode = mode;
+  settings.save();
+  savePrefsToSession();
+  showThinkingMenu.value = false;
+}
+
+function cycleThinkingMode() {
+  const modes = THINKING_OPTIONS.map(t => t.value);
+  const currentIdx = modes.indexOf(settings.thinkingMode);
+  const nextIdx = (currentIdx + 1) % modes.length;
+  settings.thinkingMode = modes[nextIdx] as ThinkingMode;
+  settings.save();
+  savePrefsToSession();
+}
 
 function autoResize() {
   const el = textarea.value;
@@ -99,6 +160,25 @@ const {
 } = useFileMentions(input, textarea, showCommandMenu, closeTemplateMenu);
 
 const { rateLimitCountdown } = useRateLimitParser();
+
+// Close thinking menu when clicking outside or when template menu opens
+watch(showTemplateMenu, (val) => {
+  if (val) showThinkingMenu.value = false;
+});
+watch(showThinkingMenu, (val) => {
+  if (val) closeTemplateMenu();
+});
+
+// Global click handler to close thinking menu
+function handleGlobalClick() {
+  showThinkingMenu.value = false;
+}
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick);
+});
+onUnmounted(() => {
+  document.removeEventListener('click', handleGlobalClick);
+});
 
 // --- Watchers ---
 
@@ -669,7 +749,7 @@ function handleKeydown(e: KeyboardEvent) {
               ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
               : 'Ask Claude to help with your code... (/ for commands)'"
         :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
-        class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-3 sm:px-4 py-3 pr-20 sm:pr-36 text-sm focus:outline-none"
+        class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-3 sm:px-4 pt-3 pb-10 pr-20 sm:pr-36 text-sm focus:outline-none"
         :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
           : (chat?.isRateLimited ?? false)
@@ -685,8 +765,69 @@ function handleKeydown(e: KeyboardEvent) {
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <input ref="fileInput" type="file" accept=".pdf,.html,.htm,.csv,application/pdf,text/html,text/csv" multiple class="hidden" @change="(e: Event) => addDocumentFiles((e.target as HTMLInputElement).files!)" />
+      <!-- Thinking mode dropdown (positioned above the input) -->
+      <Transition name="scale-fade">
+        <div
+          v-if="showThinkingMenu && providerStore.supportsThinking"
+          class="absolute bottom-full right-3 mb-1 w-52 overflow-hidden rounded-lg border border-border bg-card shadow-lg z-20"
+          @click.stop
+        >
+          <div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border">
+            Reasoning Effort
+          </div>
+          <button
+            v-for="opt in THINKING_OPTIONS"
+            :key="opt.value"
+            class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors"
+            :class="settings.thinkingMode === opt.value
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
+            @click="selectThinkingMode(opt.value as ThinkingMode)"
+          >
+            <span
+              class="h-2 w-2 rounded-full shrink-0 transition-colors"
+              :class="thinkingDotMap[opt.value as ThinkingMode]"
+            />
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-medium">{{ opt.label }}</div>
+              <div class="text-[10px] text-muted-foreground leading-tight">{{ opt.description }}</div>
+            </div>
+            <span v-if="settings.thinkingMode === opt.value" class="text-primary text-xs">&#10003;</span>
+          </button>
+        </div>
+      </Transition>
+
       <div class="absolute bottom-2 right-3 flex items-center gap-1">
         <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" class="hidden sm:block" @transcript="handleVoiceTranscript" />
+        <!-- Persona selector -->
+        <PersonaSelector
+          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
+          class="hidden sm:block"
+        />
+        <!-- Thinking mode selector -->
+        <TooltipProvider :delay-duration="400">
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && providerStore.supportsThinking"
+                variant="ghost"
+                size="sm"
+                class="h-8 rounded-lg px-1.5 transition-colors gap-1"
+                :class="isNonStandardThinking
+                  ? `${currentThinkingBg} ${currentThinkingColor} hover:opacity-80`
+                  : 'text-muted-foreground hover:text-foreground'"
+                @click.stop="showThinkingMenu = !showThinkingMenu"
+                @dblclick.stop="cycleThinkingMode"
+              >
+                <Brain class="h-4 w-4" />
+                <span v-if="isNonStandardThinking" class="text-[10px] font-medium hidden sm:inline">{{ settings.thinkingLabel }}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" class="text-xs">
+              Reasoning: {{ settings.thinkingLabel }} (click to change)
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <Button
           v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
           variant="ghost"
