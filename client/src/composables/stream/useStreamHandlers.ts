@@ -54,14 +54,25 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
    * Call this once during init().
    */
   function registerHandlers() {
-    // Track whether the next text delta needs a fresh assistant message
-    let needsNewAssistantMsg = false;
-    // Track whether we reconnected mid-stream so we can do a full refresh on stream_end
-    let reconnectedMidStream = false;
+    // --- Per-session streaming state ---
+    // Each active session tracks its own needsNewAssistantMsg and reconnectedMidStream flags.
+    const sessionStreamState = new Map<string, {
+      needsNewAssistantMsg: boolean;
+      reconnectedMidStream: boolean;
+    }>();
 
-    // --- Session isolation ---
+    function getStreamState(sid: string) {
+      let state = sessionStreamState.get(sid);
+      if (!state) {
+        state = { needsNewAssistantMsg: false, reconnectedMidStream: false };
+        sessionStreamState.set(sid, state);
+      }
+      return state;
+    }
+
+    // The "active" session is what's displayed in the UI — only this session
+    // updates the URL, triggers scroll, etc. Background sessions still accumulate state.
     let activeSessionId: string | null = chat.sessionId;
-    let awaitingNewSession = false;
 
     // Clear rate limit when the active provider changes
     watch(() => providerStore.activeProviderId, () => {
@@ -71,17 +82,16 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     watch(() => chat.sessionId, (newId, oldId) => {
       activeSessionId = newId;
       if (oldId && !newId) {
-        awaitingNewSession = true;
         if (!chat.suppressClearSession) {
-          ws.send({ type: 'clear_session' });
+          ws.send({ type: 'clear_session', sessionId: oldId });
         }
       } else if (oldId && newId && oldId !== newId) {
-        if (!chat.suppressClearSession) {
-          ws.send({ type: 'clear_session' });
-        }
-        awaitingNewSession = false;
-      } else if (newId) {
-        awaitingNewSession = false;
+        // Don't clear old session — it may still be streaming in the background.
+        // The server keeps its emitter listeners alive for concurrent sessions.
+      }
+      // Auto-reset suppressClearSession after the watcher has fired
+      if (chat.suppressClearSession) {
+        chat.suppressClearSession = false;
       }
     });
 
@@ -102,17 +112,20 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
       }
     });
 
-    /** Returns true if the incoming WS event belongs to the current session. */
-    function isForCurrentSession(data: unknown): boolean {
-      if (awaitingNewSession) return false;
+    /** Returns true if the incoming WS event belongs to the currently displayed session. */
+    function isForActiveSession(data: unknown): boolean {
       if (!data) return true;
       const d = data as { sessionId?: string };
       if (!d.sessionId) return true;
-      if (!activeSessionId) {
-        activeSessionId = d.sessionId;
-        return true;
-      }
+      if (!activeSessionId) return true;
       return d.sessionId === activeSessionId;
+    }
+
+    /** Extract sessionId from event payload. */
+    function eventSessionId(data: unknown): string | null {
+      if (!data) return activeSessionId;
+      const d = data as { sessionId?: string };
+      return d.sessionId || activeSessionId;
     }
 
     // Send check_session on reconnect / initial connect
@@ -151,22 +164,32 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     }
 
     // ─── Event handlers ───────────────────────────────────────────────
+    // Events are routed to the correct session's state. Only events for the
+    // active session update the UI (messages array, URL, etc.). Background
+    // session events are silently dropped on the client — the server persists
+    // them to disk, so they'll be loaded when the user switches to that session.
 
     ws.on('stream_start', (data: unknown) => {
       const d = (data || {}) as { sessionId?: string; provider?: string };
+      // NOTE: We intentionally do NOT filter with isForActiveSession() here.
+      // stream_start is the event that establishes the mapping between the
+      // client's session and the server's internal UUID.  A newly created
+      // server session will have a different id from activeSessionId, but it
+      // is still *our* session — filtering it out would silently discard the
+      // entire response.
       cancelWatchdogGrace();
       if (d.sessionId) {
         activeSessionId = d.sessionId;
         if (!chat.sessionId) {
           chat.sessionId = d.sessionId;
         }
+        const ss = getStreamState(d.sessionId);
+        ss.needsNewAssistantMsg = false;
+        ss.reconnectedMidStream = false;
       }
-      awaitingNewSession = false;
       wsStreamActive = true;
       chat.startStreaming();
       touchStreamActivity();
-      needsNewAssistantMsg = false;
-      reconnectedMidStream = false;
       const providerId = (d.provider as string | undefined) || providerStore.activeProviderId;
       const providerInfo = providerStore.providers.find(p => p.id === providerId) ?? providerStore.activeProvider;
       const msg: ChatMessage = {
@@ -183,13 +206,15 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('stream_delta', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       cancelWatchdogGrace();
       touchStreamActivity();
-      const d = data as { text?: string };
+      const d = data as { text?: string; sessionId?: string };
       if (!d?.text) return;
-      if (needsNewAssistantMsg) {
-        needsNewAssistantMsg = false;
+      const sid = eventSessionId(data);
+      const ss = sid ? getStreamState(sid) : null;
+      if (ss?.needsNewAssistantMsg) {
+        ss.needsNewAssistantMsg = false;
         const prev = chat.messages.findLast(m => m.role === 'assistant');
         if (prev) prev.isStreaming = false;
         const msg: ChatMessage = {
@@ -209,15 +234,25 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('stream_end', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) {
+        // Background session ended — clean up its stream state
+        const d = data as { sessionId?: string };
+        if (d?.sessionId) sessionStreamState.delete(d.sessionId);
+        return;
+      }
       cancelWatchdogGrace();
-      needsNewAssistantMsg = false;
       const d = data as {
         sessionId?: string;
         claudeSessionId?: string;
         usage?: { input_tokens?: number; output_tokens?: number };
         totalCost?: number;
       };
+
+      const sid = eventSessionId(data);
+      if (sid) {
+        const ss = getStreamState(sid);
+        ss.needsNewAssistantMsg = false;
+      }
 
       if (d.claudeSessionId) {
         chat.claudeSessionId = d.claudeSessionId;
@@ -265,22 +300,24 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
         settings.saveSessionPreferences(chat.claudeSessionId, chat.activeProjectDir);
       }
 
+      const reconnectedMidStream = sid ? getStreamState(sid).reconnectedMidStream : false;
       const reloadId = chat.claudeSessionId || chat.sessionId;
       if (reloadId && chat.activeProjectDir) {
         if (reconnectedMidStream) {
-          reconnectedMidStream = false;
           reloadSession(reloadId, chat.activeProjectDir);
         } else {
           fetchMissedMessages(reloadId, chat.activeProjectDir);
         }
       }
+      // Clean up stream state for finished session
+      if (sid) sessionStreamState.delete(sid);
     });
 
     ws.on('tool_use', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       if (!data) return;
       touchStreamActivity();
-      const d = data as { tool: string; input: Record<string, unknown>; requestId: string };
+      const d = data as { tool: string; input: Record<string, unknown>; requestId: string; sessionId?: string };
 
       if (d.tool === 'EnterPlanMode') {
         chat.inPlanMode = true;
@@ -292,7 +329,8 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
         return;
       }
 
-      needsNewAssistantMsg = true;
+      const sid = eventSessionId(data);
+      if (sid) getStreamState(sid).needsNewAssistantMsg = true;
 
       const INTERNAL_TOOLS = ['EnterPlanMode'];
       const USER_INPUT_TOOLS = ['AskUserQuestion', 'ExitPlanMode'];
@@ -351,7 +389,7 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('control_request', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       const d = data as { requestId: string; toolName: string; toolInput: Record<string, unknown>; toolUseId?: string };
 
       const msg = d.toolUseId
@@ -372,7 +410,7 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('tool_approved', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       const d = data as { toolUseId: string };
       const msg = chat.messages.find(m => m.toolUse?.requestId === d.toolUseId);
       if (msg?.toolUse) {
@@ -381,31 +419,31 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('thinking_start', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       chat.startThinking();
     });
 
     ws.on('thinking_delta', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       touchStreamActivity();
       const d = data as { text: string };
       chat.updateThinking(d.text);
     });
 
     ws.on('thinking_end', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       chat.finishThinking();
     });
 
     ws.on('tool_input_delta', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       touchStreamActivity();
       const d = data as { requestId: string; accumulatedJson: string };
       chat.appendToolInputDelta(d.requestId, d.accumulatedJson);
     });
 
     ws.on('tool_input_complete', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       const d = data as { requestId: string; input: Record<string, unknown> };
       chat.updateToolInput(d.requestId, d.input);
     });
@@ -422,7 +460,8 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
 
       if (d.isStreaming) {
         if (pendingReconnectCheck) {
-          reconnectedMidStream = true;
+          const sid = d.serverSessionId || d.sessionId;
+          getStreamState(sid).reconnectedMidStream = true;
         }
         pendingReconnectCheck = false;
         wsStreamActive = true;
@@ -498,7 +537,7 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
     });
 
     ws.on('error', (data: unknown) => {
-      if (!isForCurrentSession(data)) return;
+      if (!isForActiveSession(data)) return;
       if (!data) return;
       const d = data as { error: string };
 

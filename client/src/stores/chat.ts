@@ -4,6 +4,7 @@ import { useChatSession } from '../composables/useChatSession';
 import { useChatPagination } from '../composables/useChatPagination';
 import { useChatUI } from '../composables/useChatUI';
 import { apiFetch } from '../lib/apiFetch';
+import { useSessionRegistry } from '../composables/useSessionRegistry';
 
 // Re-export types for external consumers
 export type { ToolUseInfo, ChatMessage } from '../composables/useChatMessages';
@@ -107,6 +108,95 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  const registry = useSessionRegistry();
+
+  /**
+   * Save the current store state into the session registry so it can be
+   * restored later when the user switches back to this session.
+   */
+  function saveToRegistry() {
+    const sid = session.claudeSessionId.value || session.sessionId.value;
+    if (!sid) return;
+    const state = registry.getOrCreateSession(sid);
+    // Messages & streaming
+    state.messages = [...messages.messages.value];
+    state.isStreaming = messages.isStreaming.value;
+    state.streamStartTime = messages.streamStartTime.value;
+    state.lastResponseMs = messages.lastResponseMs.value;
+    state.contentVersion = messages.contentVersion.value;
+    // Session identity
+    state.sessionId = session.sessionId.value;
+    state.claudeSessionId = session.claudeSessionId.value;
+    state.activeProjectDir = session.activeProjectDir.value;
+    // Session lifecycle
+    state.isLoadingSession = session.isLoadingSession.value;
+    state.usage = { ...session.usage.value };
+    state.sessionStartedAt = session.sessionStartedAt.value;
+    state.sessionLoadedIdle = session.sessionLoadedIdle.value;
+    // Pagination
+    state.totalMessages = pagination.totalMessages.value;
+    state.hasMoreMessages = pagination.hasMoreMessages.value;
+    state.oldestLoadedIndex = pagination.oldestLoadedIndex.value;
+    state.isLoadingMore = pagination.isLoadingMore.value;
+    // UI
+    state.inPlanMode = ui.inPlanMode.value;
+    state.planReviewText = ui.planReviewText.value;
+    state.isPlanReviewActive = ui.isPlanReviewActive.value;
+    state.planReviewRequestId = ui.planReviewRequestId.value;
+    state.autoScroll = ui.autoScroll.value;
+  }
+
+  /**
+   * Restore store state from the session registry.
+   * Returns true if the session was found in the registry.
+   */
+  function restoreFromRegistry(sessionId: string): boolean {
+    const state = registry.sessions.get(sessionId);
+    if (!state) return false;
+    // Messages & streaming
+    messages.messages.value = [...state.messages];
+    messages.isStreaming.value = state.isStreaming;
+    messages.streamStartTime.value = state.streamStartTime;
+    messages.lastResponseMs.value = state.lastResponseMs;
+    messages.contentVersion.value = state.contentVersion;
+    // Session identity
+    session.suppressClearSession.value = true;
+    session.sessionId.value = state.sessionId;
+    session.claudeSessionId.value = state.claudeSessionId;
+    session.activeProjectDir.value = state.activeProjectDir;
+    // Session lifecycle
+    session.isLoadingSession.value = state.isLoadingSession;
+    session.usage.value = { ...state.usage };
+    session.sessionStartedAt.value = state.sessionStartedAt;
+    session.sessionLoadedIdle.value = state.sessionLoadedIdle;
+    // Pagination
+    pagination.totalMessages.value = state.totalMessages;
+    pagination.hasMoreMessages.value = state.hasMoreMessages;
+    pagination.oldestLoadedIndex.value = state.oldestLoadedIndex;
+    pagination.isLoadingMore.value = state.isLoadingMore;
+    // UI
+    ui.inPlanMode.value = state.inPlanMode;
+    ui.planReviewText.value = state.planReviewText;
+    ui.isPlanReviewActive.value = state.isPlanReviewActive;
+    ui.planReviewRequestId.value = state.planReviewRequestId;
+    ui.autoScroll.value = state.autoScroll;
+    return true;
+  }
+
+  /**
+   * Switch to a different session without aborting the current one.
+   * Saves current state to registry, then restores target or returns false
+   * if the target needs to be loaded from the API.
+   */
+  function switchSession(targetSessionId: string): boolean {
+    const currentId = session.claudeSessionId.value || session.sessionId.value;
+    if (currentId === targetSessionId) return true;
+    // Save current session state
+    saveToRegistry();
+    // Try to restore from registry
+    return restoreFromRegistry(targetSessionId);
+  }
+
   return {
     // Messages composable
     ...messages,
@@ -128,5 +218,11 @@ export const useChatStore = defineStore('chat', () => {
     prependMessages,
     appendMessages,
     forkSession,
+
+    // Multi-session support
+    saveToRegistry,
+    restoreFromRegistry,
+    switchSession,
+    registry,
   };
 });

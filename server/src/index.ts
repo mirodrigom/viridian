@@ -50,7 +50,9 @@ loadProviderConfigs();
 const app: Express = express();
 const server = createServer(app);
 
-app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({
+  origin: [config.corsOrigin, ...config.capacitorOrigins],
+}));
 app.use(express.json({ limit: '10mb' }));
 
 // Public routes

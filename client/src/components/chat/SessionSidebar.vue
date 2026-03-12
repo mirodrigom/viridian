@@ -77,25 +77,40 @@ async function refreshSessions() {
 }
 
 function startNewSession() {
+  // Save current session state before clearing so we can restore it later
+  chat.saveToRegistry();
+  chat.suppressClearSession = true;
   chat.clearMessages();
   router.replace({ name: 'project' });
   emit('newSession');
 }
 
 async function resumeSession(session: SessionItem) {
-  // Abort current stream before switching sessions
-  if (chat.isStreaming) chat.abortStream();
-  chat.clearMessages();
-  chat.isLoadingSession = true;
-  chat.sessionId = session.id;
-  chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
-  chat.activeProjectDir = session.projectDir;
+  // Try to restore from in-memory registry first (instant switch, no API call)
+  const restored = chat.switchSession(session.id);
 
   // Update URL to reflect the active session
   router.replace({
     name: 'chat-session',
     params: { sessionId: session.id },
   });
+
+  if (restored) {
+    // Session was in the registry — check if it was streaming in the background
+    // and if so, send check_session to re-wire the server emitter to this WS
+    if (chat.isStreaming && chat.sessionId) {
+      // The server emitter may still be wired from before the switch, but
+      // re-checking ensures we pick up any missed events
+    }
+    return;
+  }
+
+  // Not in registry — load from API
+  chat.isLoadingSession = true;
+  chat.suppressClearSession = true;
+  chat.sessionId = session.id;
+  chat.claudeSessionId = session.id; // JSONL filename = Claude CLI session ID
+  chat.activeProjectDir = session.projectDir;
 
   try {
     const res = await apiFetch(

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'vue-sonner';
+import { resolveApiUrl } from '@/lib/serverUrl';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
   FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package, FolderOutput,
@@ -105,7 +106,7 @@ async function onExportClaude() {
   const serialized = graph.serialize();
 
   try {
-    const res = await fetch('/api/graphs/export-claude', {
+    const res = await fetch(resolveApiUrl('/api/graphs/export-claude'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

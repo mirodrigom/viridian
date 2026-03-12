@@ -1,6 +1,7 @@
 import { useAuthStore } from '@/stores/auth';
 import router from '@/router';
 import { toast } from 'vue-sonner';
+import { resolveApiUrl } from '@/lib/serverUrl';
 
 /**
  * Decode a JWT payload without verification (client-side expiry check only).
@@ -55,7 +56,10 @@ export async function apiFetch(input: string | URL | Request, init?: RequestInit
     headers.set('Authorization', `Bearer ${auth.token}`);
   }
 
-  const res = await fetch(input, { ...init, headers });
+  // Resolve relative API paths to absolute URLs when running natively
+  const resolvedInput = typeof input === 'string' ? resolveApiUrl(input) : input;
+
+  const res = await fetch(resolvedInput, { ...init, headers });
 
   if (res.status === 401) {
     expireSession(auth, 'Session expired — please log in again');

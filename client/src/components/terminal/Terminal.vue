@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStore } from '@/stores/chat';
+import { resolveWsUrl } from '@/lib/serverUrl';
 import '@xterm/xterm/css/xterm.css';
 
 const terminalRef = ref<HTMLElement | null>(null);
@@ -46,10 +47,8 @@ function dismissAuthUrl() {
 function connect() {
   const auth = useAuthStore();
   const chat = useChatStore();
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
   const cwd = chat.projectPath || '/home';
-  const url = `${protocol}//${host}/ws/shell?token=${auth.token}&cwd=${encodeURIComponent(cwd)}`;
+  const url = resolveWsUrl('/ws/shell', auth.token ?? '') + `&cwd=${encodeURIComponent(cwd)}`;
 
   ws = new WebSocket(url);
 

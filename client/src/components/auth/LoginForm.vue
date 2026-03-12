@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
-import { Loader2, User, Lock, UserPlus, LogIn, ShieldAlert } from 'lucide-vue-next';
+import { Loader2, User, Lock, UserPlus, LogIn, ShieldAlert, Server } from 'lucide-vue-next';
+import { isNative, getServerUrl, setServerUrl } from '@/lib/serverUrl';
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -20,6 +21,8 @@ const isRegister = ref(false);
 const needsSetup = ref(false);
 const checking = ref(true);
 const registrationDisabled = ref(false);
+const showServerUrl = ref(isNative() || !!getServerUrl());
+const serverUrl = ref(getServerUrl());
 
 async function checkSetup() {
   try {
@@ -38,6 +41,8 @@ checkSetup();
 async function handleSubmit() {
   error.value = '';
   loading.value = true;
+  // Persist server URL before attempting auth
+  setServerUrl(serverUrl.value);
   try {
     if (isRegister.value) {
       await auth.register(username.value, password.value);
@@ -86,6 +91,31 @@ async function handleSubmit() {
           </div>
 
           <form v-else @submit.prevent="handleSubmit" class="space-y-4">
+            <!-- Server URL (shown for native apps or when manually toggled) -->
+            <div v-if="showServerUrl" class="space-y-2">
+              <Label for="serverUrl" class="flex items-center gap-1.5">
+                <Server class="h-3.5 w-3.5 text-muted-foreground" />
+                Server URL
+              </Label>
+              <Input
+                id="serverUrl"
+                v-model="serverUrl"
+                placeholder="http://192.168.1.50:12000"
+                autocomplete="url"
+              />
+              <p class="text-xs text-muted-foreground">
+                IP and port of your Viridian server
+              </p>
+            </div>
+            <button
+              v-else
+              type="button"
+              class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              @click="showServerUrl = true"
+            >
+              Connect to remote server...
+            </button>
+
             <div class="space-y-2">
               <Label for="username" class="flex items-center gap-1.5">
                 <User class="h-3.5 w-3.5 text-muted-foreground" />

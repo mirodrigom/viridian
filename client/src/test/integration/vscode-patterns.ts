@@ -65,7 +65,7 @@ export class VSCodeStreamSimulator {
     this.logEvent('stream_simulation_start')
 
     if (showTypingIndicator) {
-      webSocketMock.emit('stream_start', {})
+      webSocketMock.emit('stream_start', { sessionId: 'test-session' })
       this.logEvent('typing_indicator_shown')
       vi.advanceTimersByTime(VSCODE_TIMINGS.TYPING_INDICATOR_DELAY)
     }
@@ -139,7 +139,7 @@ export class VSCodeStreamSimulator {
     this.logEvent('network_interruption_start')
 
     // Start streaming
-    webSocketMock.emit('stream_start', {})
+    webSocketMock.emit('stream_start', { sessionId: 'test-session' })
     webSocketMock.emit('stream_delta', { text: partialContent })
 
     // Simulate network loss

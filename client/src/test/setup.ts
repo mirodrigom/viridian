@@ -52,6 +52,15 @@ global.fetch = vi.fn()
 
 // Mock router
 vi.mock('vue-router', () => ({
+  createRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    beforeEach: vi.fn(),
+    onError: vi.fn(),
+    install: vi.fn(),
+    currentRoute: { value: { params: {} } },
+  }),
+  createWebHistory: vi.fn(),
   useRouter: () => ({
     currentRoute: {
       value: { params: {} }

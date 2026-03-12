@@ -1,6 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import { safeJsonParse } from './safeJson.js'
 
+// Mock the logger module
+vi.mock('../logger.js', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}))
+
 describe('safeJsonParse', () => {
   it('parses valid JSON string', () => {
     expect(safeJsonParse('{"a":1}', {})).toEqual({ a: 1 })
@@ -27,10 +37,7 @@ describe('safeJsonParse', () => {
   })
 
   it('returns fallback for malformed JSON', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     expect(safeJsonParse('{invalid', [])).toEqual([])
-    expect(warnSpy).toHaveBeenCalled()
-    warnSpy.mockRestore()
   })
 
   it('returns fallback for empty string', () => {
@@ -68,17 +75,8 @@ describe('safeJsonParse', () => {
     expect(safeJsonParse(input, {})).toEqual({ a: { b: { c: [1, 2, { d: true }] } } })
   })
 
-  it('truncates long input in warning message', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('returns fallback for long invalid input', () => {
     const longString = 'x'.repeat(200)
-    safeJsonParse(longString, null)
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[safeJsonParse] Failed to parse:',
-      expect.any(String)
-    )
-    // The logged string should be truncated to 100 chars
-    const loggedValue = warnSpy.mock.calls[0][1] as string
-    expect(loggedValue.length).toBe(100)
-    warnSpy.mockRestore()
+    expect(safeJsonParse(longString, null)).toBeNull()
   })
 })

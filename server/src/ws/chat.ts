@@ -101,7 +101,7 @@ export function setupChatWs(server: Server) {
     });
 
     addHandler('stream_end', (d: unknown) => {
-      safeSend(ws, { type: 'stream_end', ...(d as Record<string, unknown>) });
+      safeSend(ws, { type: 'stream_end', ...(d as Record<string, unknown>), sessionId });
     });
 
     // Return cleanup function — removes only this WS's listeners
@@ -118,8 +118,8 @@ export function setupChatWs(server: Server) {
   const PONG_TIMEOUT = 10_000;
 
   wss.on('connection', (ws: WebSocket) => {
-    let currentSessionId: string | null = null;
-    let cleanupListeners: (() => void) | null = null;
+    // Track multiple concurrent sessions: sessionId -> cleanup function
+    const sessionCleanups = new Map<string, () => void>();
     let alive = true;
 
     const pingTimer = setInterval(() => {
@@ -135,7 +135,8 @@ export function setupChatWs(server: Server) {
 
     ws.on('close', () => {
       clearInterval(pingTimer);
-      if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }
+      for (const cleanup of sessionCleanups.values()) cleanup();
+      sessionCleanups.clear();
     });
 
     ws.on('message', (raw) => {
@@ -190,10 +191,11 @@ export function setupChatWs(server: Server) {
           if (!session) {
             session = createSession(projectDir, claudeSessionId || undefined, providerId);
           }
-          currentSessionId = session.id;
 
-          if (cleanupListeners) cleanupListeners();
-          cleanupListeners = wireEmitter(ws, session.emitter, session.id, session.providerId);
+          // Wire emitter for this session (replace if already wired, e.g. new message in same session)
+          const existingCleanup = sessionCleanups.get(session.id);
+          if (existingCleanup) existingCleanup();
+          sessionCleanups.set(session.id, wireEmitter(ws, session.emitter, session.id, session.providerId));
 
           // Validate model against the provider's available models
           const validModels = providerInstance.models.map(m => m.id);
@@ -242,10 +244,9 @@ export function setupChatWs(server: Server) {
             safeSend(ws, { type: 'session_status', sessionId, serverSessionId: session?.id, claudeSessionId: session?.claudeSessionId, isStreaming: streaming, accumulatedText });
             // If still streaming, re-wire so remaining events reach this new WS
             if (session && streaming) {
-              // Use session.id (server UUID) for internal tracking (tool_response, abort, etc.)
-              currentSessionId = session.id;
-              if (cleanupListeners) cleanupListeners();
-              cleanupListeners = wireEmitter(ws, session.emitter, session.id, session.providerId);
+              const existingCleanup = sessionCleanups.get(session.id);
+              if (existingCleanup) existingCleanup();
+              sessionCleanups.set(session.id, wireEmitter(ws, session.emitter, session.id, session.providerId));
               // Re-deliver any control_request that was pending when the WS disconnected.
               // Without this, the client won't have the controlRequestId and can't respond correctly.
               if (session.pendingControlRequest && session.pendingQuestionBuffer !== null) {
@@ -256,18 +257,21 @@ export function setupChatWs(server: Server) {
         }
 
         if (data.type === 'clear_session') {
-          // Client created a new session — detach the old emitter so stale events
-          // from a still-running CLI process don't leak into the new session.
-          if (cleanupListeners) { cleanupListeners(); cleanupListeners = null; }
-          currentSessionId = null;
+          // Client ended a specific session — detach only that session's emitter.
+          // If no sessionId specified, clear all (backward compat).
+          const targetId = data.sessionId as string | undefined;
+          if (targetId) {
+            const cleanup = sessionCleanups.get(targetId);
+            if (cleanup) { cleanup(); sessionCleanups.delete(targetId); }
+          } else {
+            for (const cleanup of sessionCleanups.values()) cleanup();
+            sessionCleanups.clear();
+          }
         }
 
         if (data.type === 'tool_response') {
-          // Prefer currentSessionId (set by 'chat' or 'check_session'); fall back to
-          // sessionId sent by the client (in case WS reconnected and currentSessionId is null,
-          // e.g. server restart during plan review or long tool approval).
-          const targetSessionId = currentSessionId
-            || (data.sessionId ? getSession(data.sessionId)?.id : null);
+          // Use sessionId sent by the client to find the correct session
+          const targetSessionId = data.sessionId ? getSession(data.sessionId)?.id : null;
           if (!targetSessionId) {
             log.warn({ clientSessionId: data.sessionId }, 'Received tool_response but no valid session found');
             safeSend(ws, { type: 'error', error: 'Session disconnected. Please try answering again or reload the page.' });
@@ -278,9 +282,8 @@ export function setupChatWs(server: Server) {
         }
 
         if (data.type === 'abort') {
-          // Use currentSessionId (set by 'chat' or 'check_session'), or fall back
-          // to a sessionId sent by the client (in case WS reconnected and currentSessionId is null)
-          const targetId = currentSessionId || (data.sessionId ? getSession(data.sessionId)?.id : null);
+          // Use sessionId sent by the client to abort the correct session
+          const targetId = data.sessionId ? getSession(data.sessionId)?.id : null;
           if (targetId) {
             abortSession(targetId);
           }

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { resolveApiUrl } from '@/lib/serverUrl';
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'));
@@ -8,7 +9,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value);
 
   async function login(user: string, password: string) {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(resolveApiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user, password }),
@@ -25,7 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function register(user: string, password: string) {
-    const res = await fetch('/api/auth/register', {
+    const res = await fetch(resolveApiUrl('/api/auth/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: user, password }),
@@ -49,7 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function checkStatus(): Promise<{ hasUsers: boolean }> {
-    const res = await fetch('/api/auth/status');
+    const res = await fetch(resolveApiUrl('/api/auth/status'));
     if (!res.ok) {
       throw new Error('Failed to check auth status');
     }

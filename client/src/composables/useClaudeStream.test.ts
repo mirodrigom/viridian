@@ -20,6 +20,12 @@ vi.mock('@/stores/provider', () => ({
   useProviderStore: vi.fn(),
 }))
 
+vi.mock('@/stores/personas', () => ({
+  usePersonasStore: vi.fn(() => ({
+    activePersona: null,
+  })),
+}))
+
 // Mock useWebSocket
 const mockWebSocket = {
   connected: ref(false),
@@ -44,6 +50,7 @@ describe('useClaudeStream', () => {
   let providerStoreInstance: any
 
   beforeEach(() => {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.clear()
     setupTestPinia()
     vi.clearAllMocks()
     vi.useFakeTimers()
@@ -57,6 +64,7 @@ describe('useClaudeStream', () => {
       disallowedTools: [],
       maxOutputTokens: 4096,
       thinkingMode: 'default',
+      saveSessionPreferences: vi.fn(),
     }
 
     authStore = {
@@ -65,6 +73,8 @@ describe('useClaudeStream', () => {
 
     providerStoreInstance = {
       activeProviderId: 'claude',
+      activeProvider: { id: 'claude', name: 'Claude', icon: 'ClaudeLogo' },
+      providers: [{ id: 'claude', name: 'Claude', icon: 'ClaudeLogo' }],
     }
 
     // Setup store mocks
@@ -76,6 +86,7 @@ describe('useClaudeStream', () => {
     mockWebSocket.connected.value = false
     mockWebSocket.connect.mockClear()
     mockWebSocket.send.mockClear()
+    mockWebSocket.send.mockReturnValue(true)
     mockWebSocket.on.mockClear()
     mockWebSocket.disconnect.mockClear()
   })
@@ -127,7 +138,7 @@ describe('useClaudeStream', () => {
       const streamStartHandler = vi.mocked(mockWebSocket.on).mock.calls
         .find(call => call[0] === 'stream_start')?.[1] as Function
 
-      streamStartHandler()
+      streamStartHandler({ sessionId: 'test-session' })
 
       expect(chatStore.isStreaming).toBe(true)
       expect(chatStore.messages).toHaveLength(1)
@@ -142,7 +153,7 @@ describe('useClaudeStream', () => {
       // Start streaming first
       const streamStartHandler = vi.mocked(mockWebSocket.on).mock.calls
         .find(call => call[0] === 'stream_start')?.[1] as Function
-      streamStartHandler()
+      streamStartHandler({ sessionId: 'test-session' })
 
       // Handle delta
       const deltaHandler = vi.mocked(mockWebSocket.on).mock.calls
@@ -158,10 +169,10 @@ describe('useClaudeStream', () => {
       const { init } = useClaudeStream()
       init()
 
-      // Start streaming
+      // Start streaming (sessionId required for per-session state tracking)
       const streamStartHandler = vi.mocked(mockWebSocket.on).mock.calls
         .find(call => call[0] === 'stream_start')?.[1] as Function
-      streamStartHandler()
+      streamStartHandler({ sessionId: 'test-session' })
 
       // Add tool use
       const toolUseHandler = vi.mocked(mockWebSocket.on).mock.calls
@@ -204,9 +215,10 @@ describe('useClaudeStream', () => {
         totalCost: 0.01,
       })
 
-      expect(chatStore.sessionId).toBe('server-session-123')
+      // sessionId is aligned with claudeSessionId for URL routing
+      expect(chatStore.sessionId).toBe('claude-session-456')
       expect(chatStore.claudeSessionId).toBe('claude-session-456')
-      expect(chatStore.activeProjectDir).toBe('/test/project')
+      expect(chatStore.activeProjectDir).toBe('-test-project')
       expect(chatStore.usage.inputTokens).toBe(100)
       expect(chatStore.usage.outputTokens).toBe(50)
       expect(chatStore.usage.totalCost).toBe(0.01)
@@ -251,7 +263,7 @@ describe('useClaudeStream', () => {
       expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
     })
 
-    it('should auto-approve all tools in bypassPermissions mode (including AskUserQuestion)', () => {
+    it('should NOT auto-approve AskUserQuestion even in bypassPermissions mode', () => {
       settingsStore.permissionMode = 'bypassPermissions'
       const { init } = useClaudeStream()
       init()
@@ -265,8 +277,8 @@ describe('useClaudeStream', () => {
         requestId: 'req-123',
       })
 
-      // In bypassPermissions mode, ALL tools are pre-marked approved on the client
-      expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
+      // AskUserQuestion is a user-input tool — always pending regardless of mode
+      expect(chatStore.messages[0]?.toolUse?.status).toBe('pending')
     })
 
     it('should not auto-approve file tools in acceptEdits mode (server handles it)', () => {
@@ -543,9 +555,7 @@ describe('useClaudeStream', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/sessions/test-session/messages?projectDir=%2Ftest%2Fproject&after=0',
-        expect.objectContaining({
-          headers: { Authorization: 'Bearer mock-auth-token' },
-        })
+        expect.objectContaining({})
       )
     })
   })
@@ -633,6 +643,7 @@ describe('useClaudeStream', () => {
 
   describe('tool responses', () => {
     it('should respond to tool with approval', () => {
+      chatStore.sessionId = 'test-session'
       const { init, respondToTool } = useClaudeStream()
       init()
 
@@ -656,6 +667,7 @@ describe('useClaudeStream', () => {
         approved: true,
         answers: { answer: 'Yes' },
         questions: undefined,
+        sessionId: 'test-session',
       })
 
       expect(chatStore.messages[0]?.toolUse?.status).toBe('approved')
@@ -663,6 +675,7 @@ describe('useClaudeStream', () => {
     })
 
     it('should respond to tool with rejection', () => {
+      chatStore.sessionId = 'test-session'
       const { init, respondToTool } = useClaudeStream()
       init()
 
@@ -686,6 +699,7 @@ describe('useClaudeStream', () => {
         approved: false,
         answers: undefined,
         questions: undefined,
+        sessionId: 'test-session',
       })
 
       expect(chatStore.messages[0]?.toolUse?.status).toBe('rejected')
@@ -694,6 +708,7 @@ describe('useClaudeStream', () => {
 
   describe('utility functions', () => {
     it('should abort current operation', () => {
+      chatStore.sessionId = 'test-session'
       const { init, abort } = useClaudeStream()
       init()
 

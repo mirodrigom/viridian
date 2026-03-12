@@ -56,4 +56,6 @@ export const config = {
   jwtSecret: getJwtSecret(),
   dbPath: resolve(__dirname, '..', 'data', 'auth.db'),
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5174',
+  // Additional origins for Capacitor native shells (iOS / Android)
+  capacitorOrigins: ['capacitor://localhost', 'http://localhost'],
 };

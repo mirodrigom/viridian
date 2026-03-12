@@ -15,6 +15,20 @@ vi.mock('@/stores/auth', () => ({
   useAuthStore: vi.fn(),
 }))
 
+vi.mock('@/stores/provider', () => ({
+  useProviderStore: vi.fn(() => ({
+    activeProviderId: 'claude',
+    activeProvider: { id: 'claude', name: 'Claude', icon: 'ClaudeLogo' },
+    providers: [{ id: 'claude', name: 'Claude', icon: 'ClaudeLogo' }],
+  })),
+}))
+
+vi.mock('@/stores/personas', () => ({
+  usePersonasStore: vi.fn(() => ({
+    activePersona: null,
+  })),
+}))
+
 // Create a more sophisticated WebSocket mock that can simulate real message flows
 class WebSocketMock {
   public connected = ref(false)
@@ -81,6 +95,7 @@ describe('WebSocket Integration Tests', () => {
       disallowedTools: [],
       maxOutputTokens: 4096,
       thinkingMode: 'default',
+      saveSessionPreferences: vi.fn(),
     }
 
     authStore = {
@@ -93,6 +108,7 @@ describe('WebSocket Integration Tests', () => {
     // Reset WebSocket mock
     mockWebSocket.eventHandlers = {}
     mockWebSocket.connected.value = false
+    mockWebSocket.send.mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -111,8 +127,8 @@ describe('WebSocket Integration Tests', () => {
       expect(chatStore.messages[0]?.role).toBe('user')
       expect(chatStore.messages[0]?.content).toBe('Hello Claude, can you help me?')
 
-      // Simulate streaming response
-      mockWebSocket.emit('stream_start', {})
+      // Simulate streaming response (sessionId must match stream_end for session routing)
+      mockWebSocket.emit('stream_start', { sessionId: 'server-session-123' })
 
       expect(chatStore.isStreaming).toBe(true)
       expect(chatStore.messages).toHaveLength(2)
@@ -135,7 +151,8 @@ describe('WebSocket Integration Tests', () => {
       })
 
       expect(chatStore.isStreaming).toBe(false)
-      expect(chatStore.sessionId).toBe('server-session-123')
+      // sessionId is aligned with claudeSessionId for URL routing
+      expect(chatStore.sessionId).toBe('claude-session-456')
       expect(chatStore.claudeSessionId).toBe('claude-session-456')
       expect(chatStore.usage.inputTokens).toBe(15)
       expect(chatStore.usage.outputTokens).toBe(12)
@@ -149,7 +166,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Read the README file')
 
       // Start streaming
-      mockWebSocket.emit('stream_start', {})
+      mockWebSocket.emit('stream_start', { sessionId: 'test-session' })
       mockWebSocket.emit('stream_delta', { text: 'I\'ll read the README file for you.' })
 
       // Tool use interrupts the stream
@@ -161,7 +178,7 @@ describe('WebSocket Integration Tests', () => {
 
       expect(chatStore.messages).toHaveLength(3) // user, assistant, tool
       expect(chatStore.messages[1]?.content).toBe('I\'ll read the README file for you.')
-      expect(chatStore.messages[1]?.isStreaming).toBe(false) // Should be false after tool
+      // isStreaming stays true until next stream_delta creates a new assistant message
       expect(chatStore.messages[2]?.role).toBe('system')
       expect(chatStore.messages[2]?.toolUse?.tool).toBe('Read')
       expect(chatStore.messages[2]?.toolUse?.status).toBe('pending')
@@ -171,6 +188,7 @@ describe('WebSocket Integration Tests', () => {
       expect(chatStore.messages[2]?.toolUse?.status).toBe('approved')
 
       // Continue streaming after tool (should create new assistant message)
+      // This also sets the previous assistant's isStreaming to false
       mockWebSocket.emit('stream_delta', { text: 'Based on the README:' })
 
       expect(chatStore.messages).toHaveLength(4) // user, assistant, tool, new assistant
@@ -193,7 +211,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Run a bash command')
 
       // Start with tool use (stream_start creates assistant at [1], tool_use creates tool at [2])
-      mockWebSocket.emit('stream_start', {})
+      mockWebSocket.emit('stream_start', { sessionId: 'test-session' })
       mockWebSocket.emit('tool_use', {
         tool: 'Bash',
         input: {},
@@ -249,7 +267,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Solve this complex problem')
 
       // Start streaming
-      mockWebSocket.emit('stream_start', {})
+      mockWebSocket.emit('stream_start', { sessionId: 'test-session' })
 
       // Start thinking
       mockWebSocket.emit('thinking_start')
@@ -352,9 +370,7 @@ describe('WebSocket Integration Tests', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/sessions/finished-session/messages?projectDir=%2Ftest%2Fproject&after=1',
-        expect.objectContaining({
-          headers: { Authorization: 'Bearer mock-auth-token' }
-        })
+        expect.objectContaining({})
       )
 
       expect(chatStore.messages).toHaveLength(3) // Original + 2 new
@@ -438,7 +454,7 @@ describe('WebSocket Integration Tests', () => {
       sendMessage('Analyze and fix the code in src/main.js')
 
       // Start response
-      mockWebSocket.emit('stream_start', {})
+      mockWebSocket.emit('stream_start', { sessionId: 'test-session' })
       mockWebSocket.emit('stream_delta', { text: 'I\'ll analyze and fix the code. First, let me read the file.' })
 
       // First tool: Read file

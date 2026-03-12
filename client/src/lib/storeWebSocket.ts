@@ -6,6 +6,7 @@
  */
 import { ref } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { resolveWsUrl } from '@/lib/serverUrl';
 
 export interface StoreWebSocket {
   connected: ReturnType<typeof ref<boolean>>;
@@ -35,9 +36,7 @@ export function createStoreWebSocket(wsPath: string): StoreWebSocket {
     intentionalClose = false;
 
     const auth = useAuthStore();
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const url = `${protocol}//${host}${wsPath}?token=${auth.token}`;
+    const url = resolveWsUrl(wsPath, auth.token ?? '');
 
     const socket = new WebSocket(url);
 
