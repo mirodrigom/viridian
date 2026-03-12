@@ -119,7 +119,7 @@ onMounted(() => {
 <template>
   <div>
     <div class="flex items-center justify-between mb-3">
-      <h4 class="text-xs font-medium uppercase text-muted-foreground">Personas</h4>
+      <h4 class="text-xs font-medium uppercase text-muted-foreground">Assistants</h4>
       <Button variant="outline" size="sm" class="h-7 gap-1 text-xs" @click="openNew">
         <Plus class="h-3 w-3" />
         New
@@ -131,7 +131,7 @@ onMounted(() => {
     </p>
 
     <!-- Persona list -->
-    <div class="space-y-1.5 max-h-64 overflow-y-auto">
+    <div class="space-y-1.5">
       <div
         v-for="persona in personaStore.personas"
         :key="persona.id"

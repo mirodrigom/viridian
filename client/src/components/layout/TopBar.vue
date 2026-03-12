@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import ViridianLogo from '@/components/icons/ViridianLogo.vue';
 import {
   TerminalSquare, Settings, LogOut, FolderOpen,
-  Loader2, Moon, Sun, Wrench,
+  Loader2, Moon, Sun,
 } from 'lucide-vue-next';
 
 const auth = useAuthStore();
@@ -22,7 +22,6 @@ const router = useRouter();
 const emit = defineEmits<{
   toggleTerminal: [];
   openSettings: [];
-  openToolsSettings: [];
 }>();
 
 function logout() {
@@ -82,15 +81,6 @@ function logout() {
         </Tooltip>
 
         <Separator orientation="vertical" class="mx-0.5 hidden h-5 sm:block md:mx-1" />
-
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button variant="ghost" size="sm" class="h-8 w-8 sm:h-7 sm:w-7 p-0" aria-label="Tools Settings" @click="emit('openToolsSettings')">
-              <Wrench class="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Tools Settings</TooltipContent>
-        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger as-child>

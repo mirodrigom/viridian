@@ -27,6 +27,7 @@ import managementRoutes from './routes/management.js';
 import diagramsRoutes from './routes/diagrams.js';
 import manualsRoutes from './routes/manuals.js';
 import langfuseRoutes from './routes/langfuse.js';
+import audioRoutes from './routes/audio.js';
 import personasRoutes from './routes/personas.js';
 import scheduledTasksRoutes from './routes/scheduled-tasks.js';
 import fileAutomationRoutes from './routes/file-automation.js';
@@ -53,6 +54,8 @@ const server = createServer(app);
 app.use(cors({
   origin: [config.corsOrigin, ...config.capacitorOrigins],
 }));
+// Raw audio body parser must come before JSON parser to avoid consuming audio requests
+app.use('/api/audio/transcribe', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }));
 app.use(express.json({ limit: '10mb' }));
 
 // Public routes
@@ -74,6 +77,7 @@ app.use('/api/management', managementRoutes);
 app.use('/api/diagrams', diagramsRoutes);
 app.use('/api/manuals', manualsRoutes);
 app.use('/api/langfuse', authMiddleware, langfuseRoutes);
+app.use('/api/audio', audioRoutes);
 app.use('/api/personas', personasRoutes);
 app.use('/api/scheduled-tasks', scheduledTasksRoutes);
 app.use('/api/file-automation', fileAutomationRoutes);

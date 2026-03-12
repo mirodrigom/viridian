@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Mic, MicOff, Loader2 } from 'lucide-vue-next';
+import { useAudioProviderStore } from '@/stores/audioProvider';
 
 type EnhanceMode = 'raw' | 'clean' | 'expand' | 'code';
 
@@ -11,16 +12,28 @@ const emit = defineEmits<{
   transcript: [text: string, mode: EnhanceMode];
 }>();
 
+const audioStore = useAudioProviderStore();
+
 const isRecording = ref(false);
 const isProcessing = ref(false);
 const enhanceMode = ref<EnhanceMode>('raw');
 const showModeMenu = ref(false);
 const errorMessage = ref('');
+
+// Browser Speech Recognition (used when provider is 'audio-browser')
 let recognition: any = null;
 let finalTranscript = '';
-
 const SpeechRecognitionApi = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const isSupported = computed(() => !!SpeechRecognitionApi);
+
+// MediaRecorder (used for server-side providers)
+let mediaRecorder: MediaRecorder | null = null;
+let audioChunks: Blob[] = [];
+let mediaStream: MediaStream | null = null;
+
+const isSupported = computed(() => {
+  // Supported if browser speech API exists OR if a server-side provider is configured
+  return !!SpeechRecognitionApi || audioStore.configuredProviders.length > 0;
+});
 
 const ENHANCE_MODES: { value: EnhanceMode; label: string; description: string }[] = [
   { value: 'raw', label: 'Raw', description: 'Unmodified transcription' },
@@ -29,7 +42,25 @@ const ENHANCE_MODES: { value: EnhanceMode; label: string; description: string }[
   { value: 'code', label: 'Code', description: 'Convert to coding instruction' },
 ];
 
-function startRecording() {
+/** Language code for browser Speech API. */
+function getBrowserLang(): string {
+  const lang = audioStore.language;
+  if (!lang || lang === 'auto') return 'en-US';
+  if (lang === 'en') return 'en-US';
+  if (lang === 'es') return 'es-ES';
+  if (lang === 'fr') return 'fr-FR';
+  if (lang === 'de') return 'de-DE';
+  if (lang === 'pt') return 'pt-BR';
+  if (lang === 'it') return 'it-IT';
+  if (lang === 'ja') return 'ja-JP';
+  if (lang === 'ko') return 'ko-KR';
+  if (lang === 'zh') return 'zh-CN';
+  return `${lang}-${lang.toUpperCase()}`;
+}
+
+// ─── Browser Speech API Recording ────────────────────────────────────────
+
+function startBrowserRecording() {
   if (!SpeechRecognitionApi) {
     toast.error('Speech recognition is not supported in this browser');
     return;
@@ -39,17 +70,14 @@ function startRecording() {
   recognition = new SpeechRecognitionApi();
   recognition.continuous = true;
   recognition.interimResults = true;
-  recognition.lang = 'en-US';
+  recognition.lang = getBrowserLang();
   finalTranscript = '';
 
   recognition.onresult = (event: any) => {
-    let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i]!;
       if (result.isFinal) {
         finalTranscript += result[0]!.transcript;
-      } else {
-        interim += result[0]!.transcript;
       }
     }
   };
@@ -83,7 +111,6 @@ function startRecording() {
     } else {
       const elapsed = Date.now() - recordingStartedAt;
       if (elapsed < 1000) {
-        // Ended too quickly — likely blocked by the browser
         const msg = 'Speech recognition stopped unexpectedly — your browser may not support it (try Chrome)';
         errorMessage.value = msg;
         toast.error(msg);
@@ -101,8 +128,110 @@ function startRecording() {
   }
 }
 
-function stopRecording() {
+function stopBrowserRecording() {
   recognition?.stop();
+}
+
+// ─── MediaRecorder Recording (for server-side providers) ─────────────────
+
+async function startMediaRecording() {
+  errorMessage.value = '';
+  audioChunks = [];
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e: any) {
+    const msg = e.name === 'NotAllowedError'
+      ? 'Microphone access denied — check browser permissions'
+      : `Could not access microphone: ${e.message}`;
+    errorMessage.value = msg;
+    toast.error(msg);
+    return;
+  }
+
+  // Prefer webm/opus, fall back to whatever the browser supports
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : 'audio/mp4';
+
+  mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      audioChunks.push(event.data);
+    }
+  };
+
+  mediaRecorder.onstop = async () => {
+    // Stop all tracks to release the microphone
+    mediaStream?.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+
+    if (audioChunks.length === 0) {
+      isRecording.value = false;
+      return;
+    }
+
+    const audioBlob = new Blob(audioChunks, { type: mimeType });
+    audioChunks = [];
+
+    if (audioBlob.size < 100) {
+      isRecording.value = false;
+      toast.error('Recording too short — try again');
+      return;
+    }
+
+    // Send to server for transcription
+    isProcessing.value = true;
+    isRecording.value = false;
+    try {
+      const result = await audioStore.transcribe(audioBlob);
+      if (result && result.text.trim()) {
+        emit('transcript', result.text.trim(), enhanceMode.value);
+      } else if (result) {
+        toast.info('No speech detected — try again');
+      }
+    } finally {
+      isProcessing.value = false;
+    }
+  };
+
+  mediaRecorder.onerror = () => {
+    isRecording.value = false;
+    isProcessing.value = false;
+    mediaStream?.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+    toast.error('Recording failed');
+  };
+
+  mediaRecorder.start(250); // Collect data every 250ms
+  isRecording.value = true;
+}
+
+function stopMediaRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+}
+
+// ─── Unified Controls ────────────────────────────────────────────────────
+
+function startRecording() {
+  if (audioStore.isBrowserProvider) {
+    startBrowserRecording();
+  } else {
+    startMediaRecording();
+  }
+}
+
+function stopRecording() {
+  if (audioStore.isBrowserProvider) {
+    stopBrowserRecording();
+  } else {
+    stopMediaRecording();
+  }
 }
 
 function toggleRecording() {
@@ -118,8 +247,22 @@ function selectMode(mode: EnhanceMode) {
   showModeMenu.value = false;
 }
 
+const providerLabel = computed(() => {
+  const p = audioStore.activeProvider;
+  if (!p) return 'Browser';
+  return p.name;
+});
+
+onMounted(() => {
+  audioStore.fetchProviders();
+});
+
 onUnmounted(() => {
   recognition?.abort();
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  mediaStream?.getTracks().forEach(t => t.stop());
 });
 </script>
 
@@ -134,8 +277,10 @@ onUnmounted(() => {
             class="h-8 w-8 rounded-lg p-0"
             :class="{
               'text-destructive hover:text-destructive': isRecording,
-              'text-muted-foreground hover:text-foreground': !isRecording,
+              'text-muted-foreground hover:text-foreground': !isRecording && !isProcessing,
+              'text-primary': isProcessing,
             }"
+            :disabled="isProcessing"
             @click="toggleRecording"
             @contextmenu.prevent="showModeMenu = !showModeMenu"
           >
@@ -146,8 +291,8 @@ onUnmounted(() => {
         </TooltipTrigger>
         <TooltipContent>
           <div class="text-xs">
-            <div>{{ isRecording ? 'Stop recording' : 'Voice input' }}</div>
-            <div class="text-muted-foreground">Mode: {{ ENHANCE_MODES.find(m => m.value === enhanceMode)?.label }} (right-click to change)</div>
+            <div>{{ isProcessing ? 'Transcribing...' : isRecording ? 'Stop recording' : 'Voice input' }}</div>
+            <div class="text-muted-foreground">{{ providerLabel }} &middot; Mode: {{ ENHANCE_MODES.find(m => m.value === enhanceMode)?.label }} (right-click to change)</div>
           </div>
         </TooltipContent>
       </Tooltip>

@@ -496,7 +496,7 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
         pendingReconnectCheck = false;
         pendingWatchdogCheck = false;
 
-        const applyFinish = () => {
+        const applyFinish = async () => {
           watchdogGraceTimer = null;
           if (chat.isStreaming) return;
 
@@ -507,7 +507,14 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
             if (!chat.activeProjectDir && projectDir) {
               chat.activeProjectDir = projectDir;
             }
-            fetchMissedMessages(fetchId, projectDir);
+            // Mark as recovering so the UI shows "Recovering session..." instead
+            // of "Response complete" while we fetch missed messages.
+            chat.isRecoveringSession = true;
+            try {
+              await fetchMissedMessages(fetchId, projectDir);
+            } finally {
+              chat.isRecoveringSession = false;
+            }
           }
           if (chat.messages.length > 0) {
             const lastMsg = chat.messages[chat.messages.length - 1];

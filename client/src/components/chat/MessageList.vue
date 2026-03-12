@@ -224,6 +224,8 @@ watch(() => chat.isStreaming, (streaming) => {
     hadStreaming = false;
     // Don't fire completion when messages were cleared (session switch/new session)
     if (chat.messages.length === 0) return;
+    // Don't fire completion while recovering missed messages after WS reconnect
+    if (chat.isRecoveringSession) return;
     if (isAwaitingUserInput.value) {
       streamEndedWithPendingInput = true;
     } else {
@@ -245,9 +247,22 @@ watch(isAwaitingUserInput, (awaiting) => {
   }
 });
 
+// When session recovery finishes (isRecoveringSession goes false), show completion
+// since we suppressed it during recovery to avoid premature "Response complete".
+watch(() => chat.isRecoveringSession, (recovering) => {
+  if (!recovering && !chat.isStreaming && chat.messages.length > 0) {
+    // Delay slightly in case a new stream starts immediately after recovery
+    setTimeout(() => {
+      if (!chat.isStreaming && !chat.isRecoveringSession) {
+        showCompletion();
+      }
+    }, 500);
+  }
+});
+
 // Historical sessions: show a static "Response complete" divider for sessions loaded from disk
 const showHistoricalComplete = computed(() =>
-  chat.sessionLoadedIdle && !chat.isStreaming && !isAwaitingUserInput.value && !showResponseComplete.value
+  chat.sessionLoadedIdle && !chat.isStreaming && !chat.isRecoveringSession && !isAwaitingUserInput.value && !showResponseComplete.value
 );
 
 const historicalCompleteTime = computed(() => {
@@ -624,7 +639,17 @@ onUnmounted(() => {
           leave-from-class="opacity-100"
           leave-to-class="opacity-0"
         >
-          <div v-if="(showResponseComplete || showHistoricalComplete) && !chat.isStreaming && !hasPendingQuestion" class="response-complete-divider mx-4 my-3">
+          <div v-if="chat.isRecoveringSession && !chat.isStreaming" class="response-complete-divider mx-4 my-3">
+            <div class="flex items-center gap-2">
+              <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+              <div class="flex items-center gap-1.5 rounded-full border border-yellow-500/20 bg-yellow-500/5 px-3 py-1">
+                <Loader2 class="h-3 w-3 text-yellow-500 animate-spin" />
+                <span class="text-[11px] font-medium text-yellow-500/80">Recovering session...</span>
+              </div>
+              <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+            </div>
+          </div>
+          <div v-else-if="(showResponseComplete || showHistoricalComplete) && !chat.isStreaming && !hasPendingQuestion" class="response-complete-divider mx-4 my-3">
             <div class="flex items-center gap-2">
               <div class="h-px flex-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
               <div class="flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1">

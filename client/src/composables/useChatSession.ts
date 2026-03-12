@@ -22,6 +22,10 @@ export function useChatSession() {
   // Set when a session loaded from disk is confirmed not streaming (via check_session)
   const sessionLoadedIdle = ref(false);
 
+  // Set while recovering missed messages after a WS reconnect. While true,
+  // the UI should NOT show "Response complete" — we're still fetching data.
+  const isRecoveringSession = ref(false);
+
   // When true, prevents useClaudeStream from sending clear_session when sessionId changes.
   // Used during session reload to avoid detaching the WS emitter that was just wired up.
   const suppressClearSession = ref(false);
@@ -77,6 +81,7 @@ export function useChatSession() {
     claudeSessionId.value = null;
     activeProjectDir.value = null;
     sessionLoadedIdle.value = false;
+    isRecoveringSession.value = false;
     usage.value = { inputTokens: 0, outputTokens: 0, totalCost: 0 };
     sessionStartedAt.value = null;
     pendingPrompt.value = null;
@@ -114,6 +119,7 @@ export function useChatSession() {
     usage,
     sessionStartedAt,
     sessionLoadedIdle,
+    isRecoveringSession,
     suppressClearSession,
     pendingPrompt,
 

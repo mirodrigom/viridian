@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
+import { ref, watch, provide, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   ResizablePanelGroup,
@@ -16,7 +16,6 @@ import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
 const TerminalPanel = defineAsyncComponent(() => import('./TerminalPanel.vue'));
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
-import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import CommandPalette from './CommandPalette.vue';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 
@@ -34,8 +33,16 @@ const initialTab = (route.meta.tab as string) || 'chat';
 const activeTab = ref(initialTab);
 const showTerminal = ref(false);
 const showSettings = ref(false);
-const showToolsSettings = ref(false);
+const settingsSection = ref('providers');
 const showCommandPalette = ref(false);
+
+function openToolsSettings() {
+  settingsSection.value = 'tools';
+  showSettings.value = true;
+}
+
+// Provide so deeply nested components (ChatView → SessionSidebar) can open settings
+provide('openToolsSettings', openToolsSettings);
 const isMobile = ref(false);
 
 useKeyboardShortcuts(showCommandPalette);
@@ -131,7 +138,6 @@ function toggleTerminal() {
     <TopBar
       @toggle-terminal="toggleTerminal"
       @open-settings="showSettings = true"
-      @open-tools-settings="showToolsSettings = true"
     />
     <main class="flex-1 overflow-hidden">
     <ResizablePanelGroup direction="vertical" class="h-full">
@@ -147,8 +153,7 @@ function toggleTerminal() {
     </ResizablePanelGroup>
     </main>
 
-    <SettingsDialog v-model:open="showSettings" />
-    <ToolsSettingsDialog v-model:open="showToolsSettings" />
+    <SettingsDialog v-model:open="showSettings" v-model:section="settingsSection" />
     <CommandPalette v-model:open="showCommandPalette" @toggle-terminal="toggleTerminal" />
   </div>
 </template>

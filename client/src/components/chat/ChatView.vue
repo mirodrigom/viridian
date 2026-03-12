@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, provide, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, provide, inject, watch, onMounted, onUnmounted } from 'vue';
 import { useClaudeStream } from '@/composables/useClaudeStream';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -13,7 +13,6 @@ import ChatInput from './ChatInput.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import TracesPanel from './TracesPanel.vue';
-import ToolsSettingsDialog from '@/components/settings/ToolsSettingsDialog.vue';
 import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
@@ -27,7 +26,7 @@ const { modeClass } = useModeTheme();
 const { init, sendMessage, sendSilentMessage, respondToTool, abort } = useClaudeStream();
 provide('respondToTool', respondToTool);
 provide('sendSilentMessage', sendSilentMessage);
-const showToolsSettings = ref(false);
+const openToolsSettings = inject<() => void>('openToolsSettings', () => {});
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
 const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') !== 'false');
@@ -124,7 +123,6 @@ function handleSidebarTouchEnd(e: TouchEvent) {
   }
 }
 
-defineExpose({ showToolsSettings });
 </script>
 
 <template>
@@ -167,7 +165,7 @@ defineExpose({ showToolsSettings });
         <div v-else class="h-full w-[280px]">
           <SessionSidebar
             @new-session="handleNewSession"
-            @open-tools-settings="showToolsSettings = true"
+            @open-tools-settings="openToolsSettings"
           >
             <template #header-action>
               <Button
@@ -283,7 +281,7 @@ defineExpose({ showToolsSettings });
         >
           <SessionSidebar
             @new-session="handleNewSession(); showMobileSidebar = false;"
-            @open-tools-settings="showToolsSettings = true; showMobileSidebar = false;"
+            @open-tools-settings="openToolsSettings(); showMobileSidebar = false;"
           />
         </div>
       </Transition>
@@ -323,6 +321,5 @@ defineExpose({ showToolsSettings });
       </div>
     </template>
 
-    <ToolsSettingsDialog v-model:open="showToolsSettings" />
   </div>
 </template>
