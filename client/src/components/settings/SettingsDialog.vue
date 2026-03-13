@@ -235,8 +235,8 @@ watch(open, async (isOpen) => {
                       <p class="text-xs text-amber-600 dark:text-amber-400">Equivalent to --dangerously-skip-permissions</p>
                     </div>
                     <Switch
-                      :checked="settingsStore.permissionMode === 'bypassPermissions'"
-                      @update:checked="toggleSkipPermissions"
+                      :model-value="settingsStore.permissionMode === 'bypassPermissions'"
+                      @update:model-value="toggleSkipPermissions"
                     />
                   </div>
                 </div>
@@ -365,7 +365,7 @@ watch(open, async (isOpen) => {
                         <div class="truncate text-xs text-muted-foreground">{{ server.serverType === 'stdio' ? server.command : server.url }}</div>
                       </div>
                       <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">{{ server.serverType }}</span>
-                      <Switch :checked="server.enabled" @update:checked="mcp.toggleServer(server.id)" class="scale-75" />
+                      <Switch :model-value="server.enabled" @update:model-value="mcp.toggleServer(server.id)" class="scale-75" />
                       <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" @click="startEdit(server)" title="Edit">
                         <Pencil class="h-3.5 w-3.5" />
                       </Button>

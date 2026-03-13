@@ -17,6 +17,7 @@ const info: AudioProviderInfo = {
   description: 'Self-hosted Whisper via Docker. Free, private — no data leaves your machine.',
   website: 'https://github.com/fedirz/faster-whisper-server',
   envVarName: 'LOCAL_WHISPER_URL',
+  configLabel: 'Server URL',
   pricing: 'Free (self-hosted)',
 };
 

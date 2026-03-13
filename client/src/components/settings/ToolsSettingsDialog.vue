@@ -73,8 +73,8 @@ function toggleSkipPermissions(checked: boolean) {
                 </p>
               </div>
               <Switch
-                :checked="settings.permissionMode === 'bypassPermissions'"
-                @update:checked="toggleSkipPermissions"
+                :model-value="settings.permissionMode === 'bypassPermissions'"
+                @update:model-value="toggleSkipPermissions"
               />
             </div>
           </div>

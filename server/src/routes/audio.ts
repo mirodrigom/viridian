@@ -15,6 +15,7 @@ import '../audio-providers/groq.js';
 import '../audio-providers/deepgram.js';
 import '../audio-providers/gladia.js';
 import '../audio-providers/assemblyai.js';
+import '../audio-providers/local-whisper.js';
 
 const router: ReturnType<typeof Router> = Router();
 

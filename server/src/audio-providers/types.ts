@@ -8,7 +8,7 @@
 
 // ─── Provider Identity ──────────────────────────────────────────────────
 
-export type AudioProviderId = 'audio-browser' | 'audio-groq' | 'audio-deepgram' | 'audio-gladia' | 'audio-assemblyai';
+export type AudioProviderId = 'audio-browser' | 'audio-groq' | 'audio-deepgram' | 'audio-gladia' | 'audio-assemblyai' | 'audio-local-whisper';
 
 export interface AudioProviderInfo {
   id: AudioProviderId;
@@ -17,6 +17,7 @@ export interface AudioProviderInfo {
   description: string;
   website: string;
   envVarName?: string;       // e.g. "GROQ_API_KEY"
+  configLabel?: string;      // UI label for the config field, e.g. "Server URL" — defaults to "API Key"
   pricing: string;           // Brief pricing info
 }
 
@@ -97,4 +98,5 @@ export interface AudioProviderInfoDTO {
   capabilities: AudioProviderCapabilities;
   configured: boolean;
   envVarName?: string;
+  configLabel?: string;
 }

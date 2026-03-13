@@ -2,7 +2,7 @@
  * Audio Provider types — mirrors server/src/audio-providers/types.ts AudioProviderInfoDTO.
  */
 
-export type AudioProviderId = 'audio-browser' | 'audio-groq' | 'audio-deepgram' | 'audio-gladia' | 'audio-assemblyai';
+export type AudioProviderId = 'audio-browser' | 'audio-groq' | 'audio-deepgram' | 'audio-gladia' | 'audio-assemblyai' | 'audio-local-whisper';
 
 export interface AudioModel {
   id: string;
@@ -31,6 +31,7 @@ export interface AudioProviderInfo {
   capabilities: AudioProviderCapabilities;
   configured: boolean;
   envVarName?: string;
+  configLabel?: string;
 }
 
 export interface TranscribeResult {

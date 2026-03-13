@@ -157,8 +157,8 @@ function statusColor(status: string): string {
           <!-- Enable toggle -->
           <div class="pt-0.5">
             <Switch
-              :checked="task.enabled"
-              @update:checked="(v: boolean) => handleToggle(task, v)"
+              :model-value="task.enabled"
+              @update:model-value="(v: boolean) => handleToggle(task, v)"
             />
           </div>
 

@@ -8,6 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Check, X, Loader2, ExternalLink } from 'lucide-vue-next';
+import { Switch } from '@/components/ui/switch';
 import type { AudioProviderId, AudioProviderInfo } from '@/types/audio-provider';
 
 const audioStore = useAudioProviderStore();
@@ -43,6 +44,10 @@ function selectProvider(id: string) {
 
 function selectLanguage(lang: string) {
   audioStore.setLanguage(lang);
+}
+
+function selectModel(modelId: string) {
+  audioStore.setModel(modelId === 'default' ? null : modelId);
 }
 
 function startConfig(provider: AudioProviderInfo) {
@@ -126,6 +131,34 @@ onMounted(() => {
         </Select>
       </div>
 
+      <!-- Model Selection (when provider has multiple models) -->
+      <div v-if="currentProvider && currentProvider.models.length > 1" class="space-y-1.5">
+        <Label class="text-xs">Model</Label>
+        <Select
+          :model-value="audioStore.selectedModelId || 'default'"
+          @update:model-value="selectModel"
+        >
+          <SelectTrigger class="h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="default">
+              {{ currentProvider.models.find(m => m.isDefault)?.label || currentProvider.models[0]?.label }} (default)
+            </SelectItem>
+            <SelectItem
+              v-for="m in currentProvider.models.filter(m => !m.isDefault)"
+              :key="m.id"
+              :value="m.id"
+            >
+              <span class="flex flex-col">
+                <span>{{ m.label }}</span>
+                <span class="text-[10px] text-muted-foreground">{{ m.description }}</span>
+              </span>
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <!-- Current provider info -->
       <div v-if="currentProvider" class="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
         <div>{{ currentProvider.description }}</div>
@@ -134,7 +167,7 @@ onMounted(() => {
 
       <!-- Provider Configuration List -->
       <div class="space-y-1.5">
-        <Label class="text-xs">API Keys</Label>
+        <Label class="text-xs">Configuration</Label>
         <div class="space-y-1">
           <div
             v-for="p in audioStore.providers.filter(p => p.id !== 'audio-browser')"
@@ -199,8 +232,8 @@ onMounted(() => {
         </div>
         <Input
           v-model="configApiKey"
-          type="password"
-          :placeholder="audioStore.providers.find(p => p.id === configProviderId)?.envVarName || 'API Key'"
+          :type="audioStore.providers.find(p => p.id === configProviderId)?.configLabel ? 'text' : 'password'"
+          :placeholder="audioStore.providers.find(p => p.id === configProviderId)?.configLabel || 'API Key'"
           class="h-8 text-sm"
           @keydown.enter="saveConfig"
         />
@@ -208,6 +241,25 @@ onMounted(() => {
           <Button size="sm" class="h-7 text-xs" :disabled="!configApiKey.trim()" @click="saveConfig">Save</Button>
           <Button size="sm" variant="ghost" class="h-7 text-xs" @click="cancelConfig">Cancel</Button>
         </div>
+      </div>
+
+      <!-- Wake Word -->
+      <div class="space-y-1.5 border-t border-border pt-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <Label class="text-xs">"Hey Viridian" Wake Word</Label>
+            <p class="mt-0.5 text-[10px] text-muted-foreground">
+              Always-on listening — opens voice input when you say "Hey Viridian"
+            </p>
+          </div>
+          <Switch
+            :model-value="audioStore.wakeWordEnabled"
+            @update:model-value="(val: boolean) => { audioStore.setWakeWordEnabled(val); }"
+          />
+        </div>
+        <p v-if="audioStore.wakeWordEnabled" class="text-[10px] text-muted-foreground/70">
+          Uses browser speech recognition. Audio may be sent to Google for processing.
+        </p>
       </div>
     </div>
   </div>

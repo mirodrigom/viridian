@@ -55,5 +55,6 @@ export function getAudioProviderDTOs(): AudioProviderInfoDTO[] {
     capabilities: p.capabilities,
     configured: (() => { try { return p.isConfigured().configured; } catch { return false; } })(),
     envVarName: p.info.envVarName,
+    configLabel: p.info.configLabel,
   }));
 }

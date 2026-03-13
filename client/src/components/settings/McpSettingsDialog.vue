@@ -252,8 +252,8 @@ watch(open, (isOpen) => {
 
                 <!-- Enable/disable toggle -->
                 <Switch
-                  :checked="server.enabled"
-                  @update:checked="mcp.toggleServer(server.id)"
+                  :model-value="server.enabled"
+                  @update:model-value="mcp.toggleServer(server.id)"
                   class="scale-75"
                 />
 

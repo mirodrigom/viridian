@@ -220,6 +220,7 @@ onMounted(() => {
 const emit = defineEmits<{
   send: [message: string, images?: { name: string; dataUrl: string }[]];
   abort: [];
+  'activate-mic': [];
 }>();
 
 // Image attachment functions
@@ -356,6 +357,8 @@ function handleVoiceTranscript(text: string, mode: string) {
     textarea.value?.focus();
   });
 }
+
+defineExpose({ handleVoiceTranscript });
 
 function executeCommand(cmd: { action: () => void }) {
   // Clear draft for the current session before the command runs,
@@ -765,100 +768,13 @@ function handleKeydown(e: KeyboardEvent) {
       />
       <input ref="imageInput" type="file" accept="image/*" multiple class="hidden" @change="(e: Event) => addImageFiles((e.target as HTMLInputElement).files!)" />
       <input ref="fileInput" type="file" accept=".pdf,.html,.htm,.csv,application/pdf,text/html,text/csv" multiple class="hidden" @change="(e: Event) => addDocumentFiles((e.target as HTMLInputElement).files!)" />
-      <!-- Thinking mode dropdown (positioned above the input) -->
-      <Transition name="scale-fade">
-        <div
-          v-if="showThinkingMenu && providerStore.supportsThinking"
-          class="absolute bottom-full right-3 mb-1 w-52 overflow-hidden rounded-lg border border-border bg-card shadow-lg z-20"
-          @click.stop
-        >
-          <div class="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border">
-            Reasoning Effort
-          </div>
-          <button
-            v-for="opt in THINKING_OPTIONS"
-            :key="opt.value"
-            class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors"
-            :class="settings.thinkingMode === opt.value
-              ? 'bg-accent text-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'"
-            @click="selectThinkingMode(opt.value as ThinkingMode)"
-          >
-            <span
-              class="h-2 w-2 rounded-full shrink-0 transition-colors"
-              :class="thinkingDotMap[opt.value as ThinkingMode]"
-            />
-            <div class="flex-1 min-w-0">
-              <div class="text-xs font-medium">{{ opt.label }}</div>
-              <div class="text-[10px] text-muted-foreground leading-tight">{{ opt.description }}</div>
-            </div>
-            <span v-if="settings.thinkingMode === opt.value" class="text-primary text-xs">&#10003;</span>
-          </button>
-        </div>
-      </Transition>
-
       <div class="absolute bottom-2 right-3 flex items-center gap-1">
-        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" class="hidden sm:block" @transcript="handleVoiceTranscript" />
+        <MicButton v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)" @activate="emit('activate-mic')" />
         <!-- Persona selector -->
         <PersonaSelector
           v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
           class="hidden sm:block"
         />
-        <!-- Thinking mode selector -->
-        <TooltipProvider :delay-duration="400">
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button
-                v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && providerStore.supportsThinking"
-                variant="ghost"
-                size="sm"
-                class="h-8 rounded-lg px-1.5 transition-colors gap-1"
-                :class="isNonStandardThinking
-                  ? `${currentThinkingBg} ${currentThinkingColor} hover:opacity-80`
-                  : 'text-muted-foreground hover:text-foreground'"
-                @click.stop="showThinkingMenu = !showThinkingMenu"
-                @dblclick.stop="cycleThinkingMode"
-              >
-                <Brain class="h-4 w-4" />
-                <span v-if="isNonStandardThinking" class="text-[10px] font-medium hidden sm:inline">{{ settings.thinkingLabel }}</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top" class="text-xs">
-              Reasoning: {{ settings.thinkingLabel }} (click to change)
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-        <Button
-          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false)"
-          variant="ghost"
-          size="sm"
-          class="hidden sm:inline-flex h-8 w-8 rounded-lg p-0 transition-colors"
-          :class="showTemplateMenu ? 'bg-primary/15 text-primary hover:bg-primary/25' : 'text-muted-foreground hover:text-foreground'"
-          title="Quick templates (Ctrl+1-5 for shortcuts)"
-          @click.stop="showTemplateMenu = !showTemplateMenu; selectedTemplateIndex = 0;"
-        >
-          <Sparkles class="h-4 w-4" />
-        </Button>
-        <Button
-          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedFiles.length < MAX_FILES"
-          variant="ghost"
-          size="sm"
-          class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
-          title="Attach PDF, HTML, or CSV file"
-          @click="fileInput?.click()"
-        >
-          <Paperclip class="h-4 w-4" />
-        </Button>
-        <Button
-          v-if="!(chat?.isStreaming ?? false) && !(chat?.isRateLimited ?? false) && !(chat?.isPlanReviewActive ?? false) && attachedImages.length < MAX_IMAGES"
-          variant="ghost"
-          size="sm"
-          class="h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
-          title="Attach image"
-          @click="imageInput?.click()"
-        >
-          <ImagePlus class="h-4 w-4" />
-        </Button>
         <Button
           v-if="!(chat?.isStreaming ?? false)"
           size="sm"
@@ -897,5 +813,6 @@ function handleKeydown(e: KeyboardEvent) {
         Enter to send <span class="hidden sm:inline">&middot; Shift+Enter for new line &middot; / for commands &middot; @ for files</span> <span class="hidden lg:inline">&middot; ↑/↓ for history &middot; ✨ for templates</span>
       </template>
     </p>
+
   </div>
 </template>

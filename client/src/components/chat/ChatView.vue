@@ -10,16 +10,20 @@ import {
 import SessionSidebar from './SessionSidebar.vue';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
+import AudioOverlay from './AudioOverlay.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import TracesPanel from './TracesPanel.vue';
 import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
+import { useWakeWord } from '@/composables/useWakeWord';
+import { useAudioProviderStore } from '@/stores/audioProvider';
 import { usePersonasStore } from '@/stores/personas';
 import { useRouter } from 'vue-router';
 
 const chat = useChatStore();
+const audioStore = useAudioProviderStore();
 const personaStore = usePersonasStore();
 const router = useRouter();
 const { modeClass } = useModeTheme();
@@ -29,6 +33,29 @@ provide('sendSilentMessage', sendSilentMessage);
 const openToolsSettings = inject<() => void>('openToolsSettings', () => {});
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
+const showAudioOverlay = ref(false);
+const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
+const chatInputMobileRef = ref<InstanceType<typeof ChatInput> | null>(null);
+
+// Wake word detection — "Hey Viridian"
+const { start: startWakeWord, stop: stopWakeWord } = useWakeWord({
+  onWakeWordDetected: () => { showAudioOverlay.value = true; },
+  paused: showAudioOverlay,
+});
+
+watch(() => audioStore.wakeWordEnabled, (enabled) => {
+  if (enabled) startWakeWord();
+  else stopWakeWord();
+}, { immediate: true });
+
+function handleVoiceTranscript(text: string, mode: string) {
+  if (mode === 'voice-send') {
+    sendMessage(text);
+    return;
+  }
+  const inputRef = isMobile.value ? chatInputMobileRef.value : chatInputRef.value;
+  inputRef?.handleVoiceTranscript(text, mode);
+}
 const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') !== 'false');
 const isMobile = ref(false);
 
@@ -190,14 +217,19 @@ function handleSidebarTouchEnd(e: TouchEvent) {
       >
         <!-- Main chat area -->
         <ResizablePanel :default-size="hasSecondPanel ? 70 : 100" :min-size="40">
-          <div class="flex h-full flex-col" :class="modeClass">
+          <div class="relative flex h-full flex-col" :class="modeClass">
             <MessageList
               class="flex-1 overflow-hidden"
               @approve-tool="(id) => respondToTool(id, true)"
               @reject-tool="(id) => respondToTool(id, false)"
               @send-prompt="(text) => sendMessage(text)"
             />
-            <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
+            <ChatInput ref="chatInputRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="showAudioOverlay = true" />
+            <AudioOverlay
+              :open="showAudioOverlay"
+              @update:open="showAudioOverlay = $event"
+              @transcript="handleVoiceTranscript"
+            />
           </div>
         </ResizablePanel>
 
@@ -287,7 +319,7 @@ function handleSidebarTouchEnd(e: TouchEvent) {
       </Transition>
 
       <!-- Chat area (full width) -->
-      <div class="flex h-full w-full flex-col" :class="modeClass">
+      <div class="relative flex h-full w-full flex-col" :class="modeClass">
         <!-- Mobile header bar -->
         <div class="flex items-center gap-2 border-b border-border bg-card/50 px-2 py-1.5">
           <Button variant="ghost" size="sm" class="h-9 w-9 shrink-0 p-0" @click="showMobileSidebar = true">
@@ -317,7 +349,12 @@ function handleSidebarTouchEnd(e: TouchEvent) {
             @change="handlePlanChange"
           />
         </div>
-        <ChatInput @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" />
+        <ChatInput ref="chatInputMobileRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="showAudioOverlay = true" />
+        <AudioOverlay
+          :open="showAudioOverlay"
+          @update:open="showAudioOverlay = $event"
+          @transcript="handleVoiceTranscript"
+        />
       </div>
     </template>
 

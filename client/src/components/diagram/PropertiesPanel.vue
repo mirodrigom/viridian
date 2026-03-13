@@ -478,16 +478,16 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
               <div class="flex items-center justify-between">
                 <Label class="text-[11px]">Flow</Label>
                 <Switch
-                  :checked="!!edgeData.animated"
-                  @update:checked="(v: boolean) => updateEdgeField('animated', v)"
+                  :model-value="!!edgeData.animated"
+                  @update:model-value="(v: boolean) => updateEdgeField('animated', v)"
                 />
               </div>
               <template v-if="edgeData.animated">
                 <div class="flex items-center justify-between">
                   <Label class="text-[11px]">Dots</Label>
                   <Switch
-                    :checked="!!edgeData.dotAnimation"
-                    @update:checked="(v: boolean) => updateEdgeField('dotAnimation', v)"
+                    :model-value="!!edgeData.dotAnimation"
+                    @update:model-value="(v: boolean) => updateEdgeField('dotAnimation', v)"
                   />
                 </div>
                 <template v-if="edgeData.dotAnimation">

@@ -6,6 +6,8 @@ import type { AudioProviderId, AudioProviderInfo, TranscribeResult } from '@/typ
 
 const STORAGE_KEY = 'viridian-audio-provider';
 const LANGUAGE_KEY = 'viridian-audio-language';
+const MODEL_KEY = 'viridian-audio-model';
+const WAKE_WORD_KEY = 'viridian-wake-word-enabled';
 
 export const useAudioProviderStore = defineStore('audioProvider', () => {
   const providers = ref<AudioProviderInfo[]>([]);
@@ -13,7 +15,9 @@ export const useAudioProviderStore = defineStore('audioProvider', () => {
     (localStorage.getItem(STORAGE_KEY) as AudioProviderId) || 'audio-browser',
   );
   const language = ref<string>(localStorage.getItem(LANGUAGE_KEY) || 'auto');
+  const selectedModelId = ref<string | null>(localStorage.getItem(MODEL_KEY));
   const isTranscribing = ref(false);
+  const wakeWordEnabled = ref(localStorage.getItem(WAKE_WORD_KEY) === 'true');
 
   const activeProvider = computed(() =>
     providers.value.find(p => p.id === activeProviderId.value)
@@ -48,6 +52,21 @@ export const useAudioProviderStore = defineStore('audioProvider', () => {
   function setLanguage(lang: string) {
     language.value = lang;
     localStorage.setItem(LANGUAGE_KEY, lang);
+  }
+
+  function setWakeWordEnabled(enabled: boolean) {
+    console.log('[AudioProvider] setWakeWordEnabled:', enabled);
+    wakeWordEnabled.value = enabled;
+    localStorage.setItem(WAKE_WORD_KEY, String(enabled));
+  }
+
+  function setModel(modelId: string | null) {
+    selectedModelId.value = modelId;
+    if (modelId) {
+      localStorage.setItem(MODEL_KEY, modelId);
+    } else {
+      localStorage.removeItem(MODEL_KEY);
+    }
   }
 
   async function configure(providerId: AudioProviderId, apiKey: string): Promise<boolean> {
@@ -113,12 +132,14 @@ export const useAudioProviderStore = defineStore('audioProvider', () => {
         headers['X-Audio-Language'] = language.value;
       }
 
-      // Select default model for active provider
+      // Use selected model or fall back to provider default
       const provider = activeProvider.value;
       if (provider) {
-        const defaultModel = provider.models.find(m => m.isDefault) || provider.models[0];
-        if (defaultModel) {
-          headers['X-Audio-Model'] = defaultModel.id;
+        const model = (selectedModelId.value && provider.models.find(m => m.id === selectedModelId.value))
+          || provider.models.find(m => m.isDefault)
+          || provider.models[0];
+        if (model) {
+          headers['X-Audio-Model'] = model.id;
         }
       }
 
@@ -151,9 +172,13 @@ export const useAudioProviderStore = defineStore('audioProvider', () => {
     isBrowserProvider,
     language,
     isTranscribing,
+    wakeWordEnabled,
     fetchProviders,
     setProvider,
     setLanguage,
+    setWakeWordEnabled,
+    selectedModelId,
+    setModel,
     configure,
     testProvider,
     removeConfig,
