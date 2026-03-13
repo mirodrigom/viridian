@@ -10,7 +10,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { ArrowLeft, Download, Printer, FileText, FileCode, Loader2, Sparkles, Save, Upload, X, Brain, PenLine, FolderOpen, History, RotateCcw, Eye } from 'lucide-vue-next';
 import LogoUploader from './LogoUploader.vue';
 import ManualPreview from './ManualPreview.vue';
-import { apiFetch } from '@/lib/apiFetch';
 
 const manualsStore = useManualsStore();
 const providerStore = useProviderStore();
@@ -141,22 +140,38 @@ function printManual() {
   printWindow.onload = () => printWindow.print();
 }
 
-async function exportPdf() {
-  if (!manual.value) return;
-  exportingPdf.value = true;
-  try {
-    const res = await apiFetch(`/api/manuals/${manual.value.id}/export-pdf`, { method: 'POST' });
-    if (!res.ok) { console.error('PDF export failed'); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${editTitle.value.replace(/[^a-zA-Z0-9]/g, '_') || 'manual'}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } finally {
-    exportingPdf.value = false;
+function exportPdf() {
+  if (!manual.value?.content) return;
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  // Override print styles: no @page margins (content has its own padding),
+  // force .page to fill the full sheet width and fit one page per sheet.
+  const printFix = `<style>@media print {
+  @page { size: A4; margin: 0 !important; }
+  html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  .page {
+    width: 100% !important;
+    min-height: 0 !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
   }
+  .page:last-child { page-break-after: auto !important; }
+}</style>`;
+  const html = manual.value.content.replace('</head>', `${printFix}</head>`);
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 }
 
 async function previewVersion(versionId: string) {

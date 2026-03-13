@@ -223,6 +223,15 @@ router.post('/:id/generate', async (req: AuthRequest, res) => {
       /* ── Cover page: clamp excessive vertical whitespace ── */
       .cover-content, .portada-content, [class*="cover"] .page-content, [class*="portada"] .page-content { justify-content: flex-start !important; padding-top: 32px !important; }
       .page-content > * + * { margin-top: revert; }
+      /* ── Print-safe: no overflow/scroll ── */
+      pre, code, .code-block { white-space: pre-wrap !important; word-wrap: break-word !important; overflow-wrap: break-word !important; overflow: hidden !important; max-width: 100% !important; }
+      table { table-layout: fixed !important; width: 100% !important; }
+      td, th { word-break: break-word !important; overflow-wrap: break-word !important; }
+      .page-content img, .page-content svg { max-width: 100% !important; height: auto !important; }
+      .page-header .logo-left img, .page-header .logo-right img { height: 44px !important; max-width: 160px !important; width: auto !important; object-fit: contain !important; }
+      /* ── Spacing between sections ── */
+      .page-content h2, .page-content h3 { margin-top: 24px !important; }
+      .page-content h2:first-child, .page-content h3:first-child { margin-top: 0 !important; }
       /* ── Page-break rules ── */
       h1, h2, h3 { page-break-after: avoid !important; break-after: avoid !important; }
       h1 + *, h2 + *, h3 + * { page-break-before: avoid !important; break-before: avoid !important; }
@@ -309,6 +318,7 @@ LOGO PLACEMENT (critical — must be exact):
 
 A4 PAGE LAYOUT (critical):
 - Format is A4 (210×297mm). Each .page div represents exactly one printed sheet
+- The .page width is 900px on screen. Usable content area inside page-content is about 800px wide (after padding)
 - Structure each .page as: page-header → page-content (main content) → page-footer
 - page-content should contain ALL the section content for that page
 - page-footer must always be the LAST element inside .page, after all content
@@ -316,6 +326,16 @@ A4 PAGE LAYOUT (critical):
 - Large diagrams or flow charts that would exceed one page must each get their own dedicated .page div
 - Cover page: do NOT use justify-content:center or large padding-top on the cover page-content — start content from the top with normal padding (24px). The cover should show the title and metadata immediately below the header without excessive whitespace
 - Table of Contents: MUST fit in a single .page div. Keep it concise (max 2 levels of indentation). Do NOT let the TOC overflow to a second page — if it's too long, reduce to top-level sections only
+
+PRINT-SAFE CONTENT (critical — this document will be exported to PDF, NO scrolling is possible):
+- ALL content must be fully visible without scrolling, both horizontally and vertically
+- Code blocks: use word-wrap:break-word; white-space:pre-wrap; overflow-wrap:break-word; overflow:hidden; — NEVER use overflow-x:auto or overflow:scroll
+- Long JSON, URLs, or inline code: MUST wrap to the next line. Never let text overflow its container
+- Tables: use table-layout:fixed; width:100%; and add word-break:break-word; on td/th so cell text wraps
+- If a code snippet or JSON payload is too wide, reformat it with line breaks (one key-value pair per line)
+- If a numbered/ordered list has many items (e.g., 1–9 steps), ALL items MUST be included — never truncate or cut off a list. If it doesn't fit in one page, continue on the next .page div
+- Images and diagrams: use max-width:100%; height:auto; to prevent horizontal overflow
+- NEVER rely on scrollbars — they do not work in PDF output. Everything must be visible as printed
 
 PAGE BREAKS (critical for PDF export):
 - Add class="page-break" or style="page-break-before:always" before each new .page div
