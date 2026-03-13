@@ -3,7 +3,16 @@
  *
  * Commands are matched against the transcript text. Each command specifies
  * trigger phrases and where they should appear (end of transcript vs anywhere).
+ *
+ * Categories:
+ * - 'recording': commands that control the recording overlay (send, cancel, redo, stop)
+ * - 'navigation': commands that navigate to different views
+ * - 'theme': commands that change the UI theme
+ * - 'chat': commands that manage chat sessions
+ * - 'git': commands that perform git operations (may require confirmation)
  */
+
+export type VoiceCommandCategory = 'recording' | 'navigation' | 'theme' | 'chat' | 'git';
 
 export interface VoiceCommand {
   id: string;
@@ -12,6 +21,10 @@ export interface VoiceCommand {
   /** 'end' = only match at end of transcript, 'anywhere' = match anywhere */
   matchPosition: 'end' | 'anywhere';
   description: string;
+  /** Command category — determines how it's handled */
+  category: VoiceCommandCategory;
+  /** Whether the command needs user confirmation before executing */
+  requiresConfirmation?: boolean;
 }
 
 export type ParseResult =
@@ -19,29 +32,164 @@ export type ParseResult =
   | { matched: false }
 
 const commands: VoiceCommand[] = [
+  // ─── Recording commands ──────────────────────────────────────────────
   {
     id: 'send',
     triggers: ['send it', 'send message', 'send please', 'send'],
     matchPosition: 'end',
     description: 'Stop recording and send the message',
+    category: 'recording',
   },
   {
     id: 'cancel',
     triggers: ['never mind', 'forget it', 'cancel recording', 'cancel'],
     matchPosition: 'end',
     description: 'Cancel recording and close overlay',
+    category: 'recording',
   },
   {
     id: 'redo',
     triggers: ['start over', 'redo', 'try again'],
     matchPosition: 'end',
     description: 'Discard and restart recording',
+    category: 'recording',
   },
   {
     id: 'stop',
     triggers: ['stop recording', 'stop'],
     matchPosition: 'end',
     description: 'Stop recording (place text in input without sending)',
+    category: 'recording',
+  },
+
+  // ─── Navigation commands ─────────────────────────────────────────────
+  {
+    id: 'nav-chat',
+    triggers: ['go to chat', 'open chat', 'show chat'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the chat view',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-editor',
+    triggers: ['go to editor', 'open editor', 'show editor'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the code editor',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-git',
+    triggers: ['go to git', 'open git', 'show git'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the git view',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-tasks',
+    triggers: ['go to tasks', 'open tasks', 'show tasks'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the task manager',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-graph',
+    triggers: ['go to graph', 'open graph', 'show graph'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the graph builder',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-autopilot',
+    triggers: ['go to autopilot', 'open autopilot', 'show autopilot'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to autopilot',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-dashboard',
+    triggers: ['go to dashboard', 'open dashboard', 'go home'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to the dashboard',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-management',
+    triggers: ['go to management', 'open management', 'show management'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to management',
+    category: 'navigation',
+  },
+  {
+    id: 'nav-diagrams',
+    triggers: ['go to diagrams', 'open diagrams', 'show diagrams'],
+    matchPosition: 'anywhere',
+    description: 'Navigate to diagrams',
+    category: 'navigation',
+  },
+
+  // ─── Theme commands ──────────────────────────────────────────────────
+  {
+    id: 'theme-dark',
+    triggers: ['dark mode', 'switch to dark', 'turn on dark mode'],
+    matchPosition: 'anywhere',
+    description: 'Switch to dark theme',
+    category: 'theme',
+  },
+  {
+    id: 'theme-light',
+    triggers: ['light mode', 'switch to light', 'turn on light mode'],
+    matchPosition: 'anywhere',
+    description: 'Switch to light theme',
+    category: 'theme',
+  },
+  {
+    id: 'theme-toggle',
+    triggers: ['toggle theme', 'switch theme', 'change theme'],
+    matchPosition: 'anywhere',
+    description: 'Toggle between dark and light theme',
+    category: 'theme',
+  },
+
+  // ─── Chat commands ───────────────────────────────────────────────────
+  {
+    id: 'chat-new-session',
+    triggers: ['new session', 'new chat', 'start new session', 'start new chat', 'new conversation'],
+    matchPosition: 'anywhere',
+    description: 'Start a new chat session',
+    category: 'chat',
+  },
+  {
+    id: 'chat-clear-context',
+    triggers: ['clear context', 'clear the context', 'reset context'],
+    matchPosition: 'anywhere',
+    description: 'Clear the current chat context',
+    category: 'chat',
+  },
+
+  // ─── Git commands ────────────────────────────────────────────────────
+  {
+    id: 'git-commit',
+    triggers: ['commit changes', 'git commit', 'make a commit'],
+    matchPosition: 'anywhere',
+    description: 'Commit staged changes',
+    category: 'git',
+    requiresConfirmation: true,
+  },
+  {
+    id: 'git-push',
+    triggers: ['push changes', 'git push', 'push to remote'],
+    matchPosition: 'anywhere',
+    description: 'Push commits to remote',
+    category: 'git',
+    requiresConfirmation: true,
+  },
+  {
+    id: 'git-pull',
+    triggers: ['pull changes', 'git pull', 'pull from remote'],
+    matchPosition: 'anywhere',
+    description: 'Pull changes from remote',
+    category: 'git',
+    requiresConfirmation: true,
   },
 ];
 
@@ -119,6 +267,32 @@ export function parseTranscript(text: string): ParseResult {
           const before = stripped.slice(0, idx).trim();
           return { matched: true, command: cmd, textBeforeCommand: before };
         }
+      }
+    }
+  }
+
+  return { matched: false };
+}
+
+/**
+ * Parse transcript for global (non-recording) commands.
+ * These are standalone commands that don't need text before them.
+ * Used by the wake word system and global voice command handler.
+ */
+export function parseGlobalCommand(text: string): ParseResult {
+  const stripped = text.replace(/[\s.,!?;:…]+$/, '').trim();
+  const normalized = stripped.toLowerCase();
+  if (!normalized) return { matched: false };
+
+  const globalCommands = commands.filter(c => c.category !== 'recording');
+
+  for (const cmd of globalCommands) {
+    const sorted = [...cmd.triggers].sort((a, b) => b.length - a.length);
+    for (const trigger of sorted) {
+      // For global commands, check if the trigger appears anywhere as a word boundary
+      const pattern = new RegExp(`\\b${trigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (pattern.test(normalized)) {
+        return { matched: true, command: cmd, textBeforeCommand: '' };
       }
     }
   }

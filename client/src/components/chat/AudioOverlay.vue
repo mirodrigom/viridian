@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
-import { X, Square, Check, RotateCcw, Send } from 'lucide-vue-next';
+import {
+  X, Square, Check, RotateCcw, Send,
+  MessageSquare, Code, GitBranch, ListTodo, Workflow,
+  Rocket, LayoutDashboard, Settings, Shapes,
+  Sun, Moon, Palette, Plus, Eraser, ArrowUpFromLine, ArrowDownToLine,
+} from 'lucide-vue-next';
 import { useAudioProviderStore } from '@/stores/audioProvider';
-import { parseTranscript } from '@/composables/useVoiceCommands';
+import { useSettingsStore } from '@/stores/settings';
+import { parseTranscript, parseGlobalCommand, getCommands, type VoiceCommandCategory } from '@/composables/useVoiceCommands';
+import { useGlobalVoiceCommands } from '@/composables/useGlobalVoiceCommands';
 
 type TranscriptMode = 'raw' | 'voice-send';
 
@@ -13,7 +20,79 @@ const emit = defineEmits<{
   transcript: [text: string, mode: TranscriptMode];
 }>();
 
+const globalVoice = useGlobalVoiceCommands();
+
 const audioStore = useAudioProviderStore();
+const settings = useSettingsStore();
+
+const bgColor = computed(() => settings.darkMode ? 'rgb(2, 6, 4)' : 'rgb(245, 247, 245)');
+
+// ─── Command chips floating around the sphere ─────────────────────────
+const ICON_MAP: Record<string, any> = {
+  'nav-chat': MessageSquare,
+  'nav-editor': Code,
+  'nav-git': GitBranch,
+  'nav-tasks': ListTodo,
+  'nav-graph': Workflow,
+  'nav-autopilot': Rocket,
+  'nav-dashboard': LayoutDashboard,
+  'nav-management': Settings,
+  'nav-diagrams': Shapes,
+  'theme-dark': Moon,
+  'theme-light': Sun,
+  'theme-toggle': Palette,
+  'chat-new-session': Plus,
+  'chat-clear-context': Eraser,
+  'git-commit': GitBranch,
+  'git-push': ArrowUpFromLine,
+  'git-pull': ArrowDownToLine,
+};
+
+const CATEGORY_COLORS: Record<VoiceCommandCategory, string> = {
+  recording: 'emerald',
+  navigation: 'sky',
+  theme: 'violet',
+  chat: 'amber',
+  git: 'orange',
+};
+
+const CHIP_HUES: Record<string, number> = {
+  emerald: 155,
+  sky: 200,
+  violet: 270,
+  amber: 38,
+  orange: 25,
+};
+
+interface CommandChip {
+  label: string;
+  icon: any;
+  color: string;
+  /** Horizontal position as % offset from center (-50 to 50) */
+  x: number;
+  /** Vertical position as % offset from center (-45 to 45) */
+  y: number;
+  delay: number;
+}
+
+const commandChips = computed<CommandChip[]>(() => {
+  const cmds = getCommands().filter(c => c.category !== 'recording');
+  const count = cmds.length;
+  // Distribute chips in an ellipse around center (50%, 42%)
+  const radiusX = 40; // % of container width
+  const radiusY = 36; // % of container height
+  return cmds.map((cmd, i) => {
+    const angle = ((2 * Math.PI) / count) * i - Math.PI / 2;
+    return {
+      label: cmd.triggers[0]!,
+      icon: ICON_MAP[cmd.id] || MessageSquare,
+      color: CATEGORY_COLORS[cmd.category] || 'emerald',
+      x: Math.cos(angle) * radiusX,
+      y: Math.sin(angle) * radiusY,
+      delay: i * 0.12,
+    };
+  });
+});
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const isRecording = ref(false);
@@ -116,10 +195,10 @@ function drawFrame() {
   const w = rect.width;
   const h = rect.height;
   const cx = w / 2;
-  const cy = h * 0.42;
+  const cy = isConfirming.value ? h * 0.25 : h * 0.42;
   const time = (Date.now() - startTime) / 1000;
 
-  ctx.fillStyle = 'rgb(2, 6, 4)';
+  ctx.fillStyle = bgColor.value;
   ctx.fillRect(0, 0, w, h);
 
   let avgVolume = 0;
@@ -137,7 +216,7 @@ function drawFrame() {
     : confirmPulse
       ? 0.15 + Math.sin(time * 1.5) * 0.08
       : avgVolume;
-  const baseRadius = Math.min(w, h) * 0.28;
+  const baseRadius = Math.min(w, h) * (confirmPulse ? 0.15 : 0.28);
 
   rotationY += 0.003 + energy * 0.015;
   rotationX = Math.sin(time * 0.2) * 0.3;
@@ -151,14 +230,15 @@ function drawFrame() {
 
   const glowR = baseRadius * (1.8 + energy * 0.8);
   const glow = ctx.createRadialGradient(cx, cy, baseRadius * 0.5, cx, cy, glowR);
+  const light = !settings.darkMode;
   if (confirmPulse) {
-    glow.addColorStop(0, `hsla(210, 80%, 50%, ${0.08 + energy * 0.12})`);
-    glow.addColorStop(0.5, `hsla(210, 70%, 35%, ${0.03 + energy * 0.05})`);
-    glow.addColorStop(1, 'hsla(210, 60%, 20%, 0)');
+    glow.addColorStop(0, `hsla(210, 80%, ${light ? 60 : 50}%, ${0.08 + energy * 0.12})`);
+    glow.addColorStop(0.5, `hsla(210, 70%, ${light ? 50 : 35}%, ${0.03 + energy * 0.05})`);
+    glow.addColorStop(1, `hsla(210, 60%, ${light ? 40 : 20}%, 0)`);
   } else {
-    glow.addColorStop(0, `hsla(155, 80%, 45%, ${0.08 + energy * 0.15})`);
-    glow.addColorStop(0.5, `hsla(150, 70%, 30%, ${0.03 + energy * 0.06})`);
-    glow.addColorStop(1, 'hsla(155, 60%, 20%, 0)');
+    glow.addColorStop(0, `hsla(155, 80%, ${light ? 40 : 45}%, ${0.08 + energy * 0.15})`);
+    glow.addColorStop(0.5, `hsla(150, 70%, ${light ? 35 : 30}%, ${0.03 + energy * 0.06})`);
+    glow.addColorStop(1, `hsla(155, 60%, ${light ? 30 : 20}%, 0)`);
   }
   ctx.beginPath();
   ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
@@ -198,9 +278,11 @@ function drawFrame() {
     const dotSize = (1.0 + freqVal * 1.5 + energy * 0.5) * scale;
     const alpha = 0.3 + depthNorm * 0.7;
     const hue = confirmPulse ? 210 + freqVal * 15 : 145 + freqVal * 20;
-    const light = 40 + depthNorm * 25 + freqVal * 15;
+    const pLight = settings.darkMode
+      ? 40 + depthNorm * 25 + freqVal * 15
+      : 20 + depthNorm * 20 + freqVal * 10;
 
-    projected.push({ sx, sy, z, size: dotSize, alpha, hue, light });
+    projected.push({ sx, sy, z, size: dotSize, alpha, hue, light: pLight });
   }
 
   projected.sort((a, b) => b.z - a.z);
@@ -321,6 +403,16 @@ function startBrowserRecording() {
     const full = (finalTranscript + interim).trim();
     liveTranscript.value = full;
 
+    // Check global commands first (navigation, theme, git, chat)
+    const globalResult = parseGlobalCommand(full);
+    if (globalResult.matched) {
+      console.log('[AudioOverlay] Global command detected:', globalResult.command.id);
+      commandHandled = true;
+      cancel();
+      globalVoice.tryExecute(full);
+      return;
+    }
+
     const result = parseTranscript(full);
     if (result.matched) {
       console.log('[AudioOverlay] Voice command detected:', result.command.id, '— text:', result.textBeforeCommand);
@@ -390,6 +482,16 @@ function startCommandDetection() {
 
     const full = (finalTranscript + interim).trim();
     liveTranscript.value = full;
+
+    // Check global commands first (navigation, theme, git, chat)
+    const globalResult = parseGlobalCommand(full);
+    if (globalResult.matched) {
+      console.log('[AudioOverlay] Global command detected (server path):', globalResult.command.id);
+      commandHandled = true;
+      cancel();
+      globalVoice.tryExecute(full);
+      return;
+    }
 
     const result = parseTranscript(full);
     if (result.matched) {
@@ -500,22 +602,24 @@ function startConfirmRecognition() {
 
   confirmRecognition = new SpeechRecognitionApi();
   confirmRecognition.continuous = true;
-  confirmRecognition.interimResults = false; // Only final results to avoid false triggers
+  confirmRecognition.interimResults = true;
   confirmRecognition.lang = getBrowserLang();
 
-  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send', 'send it'];
-  const REDO_WORDS = ['redo', 'again', 'retry', 'start over'];
-  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it', 'no'];
+  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send it'];
+  const REDO_WORDS = ['redo', 'retry', 'start over'];
+  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it'];
 
-  // Grace period: ignore results for the first 1.5s to let browser settle
-  const startedAt = Date.now();
+  // Grace period: ignore the very first result (residual audio from recording)
+  let resultsReceived = 0;
 
   confirmRecognition.onresult = (event: any) => {
-    if (Date.now() - startedAt < 1500) return;
+    resultsReceived++;
+    if (resultsReceived <= 1) return; // Skip first result (usually residual)
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const transcript: string = event.results[i]![0]!.transcript.toLowerCase().trim();
-      console.log(`[AudioOverlay] Confirm heard: "${transcript}"`);
+      if (!transcript) continue;
+      console.log(`[AudioOverlay] Confirm heard: "${transcript}" (final: ${event.results[i]!.isFinal})`);
 
       // Check cancel/redo BEFORE confirm to prioritize user abort intent
       if (CANCEL_WORDS.some(w => transcript.includes(w))) {
@@ -762,7 +866,7 @@ watch(() => props.open, async (open) => {
   } else {
     window.removeEventListener('keydown', onKeydown);
   }
-});
+}, { immediate: true });
 
 onUnmounted(() => {
   cleanup();
@@ -777,10 +881,45 @@ onUnmounted(() => {
     <div
       v-if="open"
       class="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden rounded-[inherit]"
-      style="background: rgb(2, 6, 4)"
+      :style="{ background: bgColor }"
     >
         <!-- Canvas -->
         <canvas ref="canvas" class="absolute inset-0 h-full w-full" />
+
+        <!-- Floating command chips around the sphere -->
+        <div
+          v-if="isRecording && !isConfirming && !isProcessing && !errorMsg"
+          class="absolute inset-0 z-10 pointer-events-none"
+        >
+          <div
+            v-for="chip in commandChips"
+            :key="chip.label"
+            class="command-chip absolute"
+            :style="{
+              left: `calc(50% + ${chip.x}%)`,
+              top: `calc(42% + ${chip.y}%)`,
+              animationDelay: `${chip.delay}s`,
+            }"
+          >
+            <div
+              class="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium backdrop-blur-sm whitespace-nowrap border"
+              :style="{
+                background: settings.darkMode
+                  ? `hsla(${CHIP_HUES[chip.color]}, 70%, 40%, 0.1)`
+                  : `hsla(${CHIP_HUES[chip.color]}, 70%, 50%, 0.1)`,
+                borderColor: settings.darkMode
+                  ? `hsla(${CHIP_HUES[chip.color]}, 60%, 50%, 0.2)`
+                  : `hsla(${CHIP_HUES[chip.color]}, 60%, 40%, 0.2)`,
+                color: settings.darkMode
+                  ? `hsla(${CHIP_HUES[chip.color]}, 60%, 70%, 0.6)`
+                  : `hsla(${CHIP_HUES[chip.color]}, 60%, 35%, 0.7)`,
+              }"
+            >
+              <component :is="chip.icon" class="h-3 w-3 shrink-0" />
+              <span>{{ chip.label }}</span>
+            </div>
+          </div>
+        </div>
 
         <!-- Spacer -->
         <div class="relative z-10 mt-auto" />
@@ -788,7 +927,7 @@ onUnmounted(() => {
         <!-- Error state -->
         <template v-if="errorMsg">
           <div class="relative z-10 flex flex-col items-center gap-4 px-6 text-center">
-            <div class="text-base font-medium text-red-400">{{ errorMsg }}</div>
+            <div class="text-base font-medium" :class="settings.darkMode ? 'text-red-400' : 'text-red-600'">{{ errorMsg }}</div>
             <button
               class="mt-4 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-6 py-2 text-sm text-emerald-300 transition-all hover:bg-emerald-500/20"
               @click="cancel"
@@ -800,20 +939,20 @@ onUnmounted(() => {
 
         <!-- Confirmation state -->
         <template v-else-if="isConfirming">
-          <!-- Transcript preview centered in sphere area -->
-          <div class="relative z-10 flex flex-col items-center gap-4 px-6 text-center max-w-lg">
-            <div class="rounded-xl border border-blue-500/20 bg-blue-500/5 px-5 py-4 text-sm text-blue-200/90 leading-relaxed max-h-40 overflow-y-auto">
+          <!-- Transcript preview — positioned below the shrunken sphere -->
+          <div class="relative z-10 mt-[45%] flex flex-col items-center gap-3 px-6 text-center max-w-lg w-full">
+            <div class="rounded-xl border border-blue-500/20 bg-blue-500/5 px-5 py-4 text-sm leading-relaxed max-h-[40vh] overflow-y-auto w-full" :class="settings.darkMode ? 'text-blue-200/90' : 'text-blue-800/90'">
               {{ confirmedText }}
             </div>
 
             <!-- Countdown -->
-            <div class="text-xs text-blue-400/60">
-              Sending in <span class="font-mono text-blue-300">{{ confirmCountdown }}s</span>
+            <div :class="settings.darkMode ? 'text-blue-400/60' : 'text-blue-600/70'" class="text-xs">
+              Sending in <span class="font-mono" :class="settings.darkMode ? 'text-blue-300' : 'text-blue-700'">{{ confirmCountdown }}s</span>
             </div>
           </div>
 
           <!-- Spacer to push controls to bottom -->
-          <div class="flex-1 min-h-8" />
+          <div class="flex-1 min-h-4" />
 
           <!-- Controls -->
           <div class="relative z-10 mb-4 flex items-center gap-6">
@@ -843,38 +982,39 @@ onUnmounted(() => {
           </div>
 
           <!-- Hint -->
-          <div class="relative z-10 mb-6 text-[10px] text-blue-400/30">
-            Say <span class="text-blue-400/50">"ok"</span> to send &middot;
-            <span class="text-blue-400/50">"redo"</span> to re-record &middot;
-            <span class="text-blue-400/50">"cancel"</span> to discard
+          <div class="relative z-10 mb-6 text-[10px]" :class="settings.darkMode ? 'text-blue-400/30' : 'text-blue-600/50'">
+            Say <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"ok"</span> to send &middot;
+            <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"redo"</span> to re-record &middot;
+            <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"cancel"</span> to discard
           </div>
         </template>
 
         <!-- Normal recording / processing state -->
         <template v-else>
-          <!-- Spacer to push everything below the sphere -->
-          <div class="flex-1 min-h-8" />
+          <!-- Live transcript — scrollable area between sphere and controls -->
+          <div
+            v-if="liveTranscript && isRecording"
+            class="relative z-10 mt-auto max-w-lg w-full flex-1 flex flex-col justify-end px-6 pb-2 min-h-0"
+          >
+            <div class="overflow-y-auto max-h-[30vh] rounded-lg bg-emerald-500/5 border border-emerald-500/10 px-4 py-3 text-sm leading-relaxed" :class="settings.darkMode ? 'text-emerald-300/60' : 'text-emerald-800/70'">
+              {{ liveTranscript }}
+            </div>
+          </div>
+          <div v-else class="flex-1 min-h-8" />
 
-          <!-- Status info below sphere, above controls -->
-          <div class="relative z-10 mb-6 flex flex-col items-center gap-2">
+          <!-- Status info -->
+          <div class="relative z-10 mb-4 flex flex-col items-center gap-1">
             <div
-              class="text-sm font-mono tabular-nums tracking-wider"
-              :class="isProcessing ? 'text-amber-400/80' : 'text-emerald-400/60'"
+              class="text-xs font-mono tabular-nums tracking-wider"
+              :class="isProcessing ? (settings.darkMode ? 'text-amber-400/80' : 'text-amber-600/80') : (settings.darkMode ? 'text-emerald-400/60' : 'text-emerald-700/70')"
             >
               {{ formattedTime }}
             </div>
             <div
-              class="text-base font-medium"
-              :class="isProcessing ? 'text-amber-400' : 'text-emerald-300/90'"
+              class="text-sm font-medium"
+              :class="isProcessing ? (settings.darkMode ? 'text-amber-400' : 'text-amber-600') : (settings.darkMode ? 'text-emerald-300/90' : 'text-emerald-700/90')"
             >
               {{ isProcessing ? 'Transcribing...' : 'Listening...' }}
-            </div>
-            <!-- Live transcript preview -->
-            <div
-              v-if="liveTranscript && isRecording"
-              class="mt-1 max-w-md px-4 text-center text-xs text-emerald-400/40 leading-relaxed line-clamp-2"
-            >
-              {{ liveTranscript }}
             </div>
           </div>
 
@@ -903,8 +1043,8 @@ onUnmounted(() => {
           </div>
 
           <!-- Hint -->
-          <div class="relative z-10 mb-6 text-xs text-emerald-400/25">
-            Say <span class="text-emerald-400/40">"send"</span> when done
+          <div class="relative z-10 mb-6 text-xs" :class="settings.darkMode ? 'text-emerald-400/25' : 'text-emerald-600/40'">
+            Say <span :class="settings.darkMode ? 'text-emerald-400/40' : 'text-emerald-700/50'">"send"</span> when done
             &middot;
             Press <kbd class="mx-0.5 rounded border border-emerald-500/20 px-1 py-0.5 font-mono text-[10px]">Space</kbd> to stop
             &middot;
@@ -929,5 +1069,27 @@ onUnmounted(() => {
 .audio-overlay-leave-to {
   opacity: 0;
   transform: scale(0.95);
+}
+
+/* ─── Floating command chips ────────────────────────────────────────── */
+.command-chip {
+  transform: translate(-50%, -50%);
+  animation: chip-float 4s ease-in-out infinite, chip-fade-in 0.5s ease-out backwards;
+}
+
+@keyframes chip-float {
+  0%, 100% { margin-top: 0; }
+  50% { margin-top: -5px; }
+}
+
+@keyframes chip-fade-in {
+  from {
+    opacity: 0;
+    scale: 0.7;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
 }
 </style>

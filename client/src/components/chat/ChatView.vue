@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, provide, inject, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, provide, inject, watch, onMounted, onUnmounted, type Ref } from 'vue';
 import { useClaudeStream } from '@/composables/useClaudeStream';
 import { useChatStore } from '@/stores/chat';
 import {
@@ -10,20 +10,17 @@ import {
 import SessionSidebar from './SessionSidebar.vue';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
-import AudioOverlay from './AudioOverlay.vue';
 import TodoTimeline from './TodoTimeline.vue';
 import PlanReviewPanel from './PlanReviewPanel.vue';
 import TracesPanel from './TracesPanel.vue';
 import { PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Loader2, Plus } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { useModeTheme } from '@/composables/useModeTheme';
-import { useWakeWord } from '@/composables/useWakeWord';
-import { useAudioProviderStore } from '@/stores/audioProvider';
 import { usePersonasStore } from '@/stores/personas';
 import { useRouter } from 'vue-router';
+import { toast } from 'vue-sonner';
 
 const chat = useChatStore();
-const audioStore = useAudioProviderStore();
 const personaStore = usePersonasStore();
 const router = useRouter();
 const { modeClass } = useModeTheme();
@@ -31,30 +28,25 @@ const { init, sendMessage, sendSilentMessage, respondToTool, abort } = useClaude
 provide('respondToTool', respondToTool);
 provide('sendSilentMessage', sendSilentMessage);
 const openToolsSettings = inject<() => void>('openToolsSettings', () => {});
+const activateGlobalMic = inject<() => void>('activateGlobalMic', () => {});
+const registerChatTranscriptHandler = inject<(handler: (text: string, mode: string) => void) => void>('registerChatTranscriptHandler', () => {});
 const showMobileSidebar = ref(false);
 const showSidebar = ref(false);
-const showAudioOverlay = ref(false);
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
 const chatInputMobileRef = ref<InstanceType<typeof ChatInput> | null>(null);
 
-// Wake word detection — "Hey Viridian"
-const { start: startWakeWord, stop: stopWakeWord } = useWakeWord({
-  onWakeWordDetected: () => { showAudioOverlay.value = true; },
-  paused: showAudioOverlay,
-});
-
-watch(() => audioStore.wakeWordEnabled, (enabled) => {
-  if (enabled) startWakeWord();
-  else stopWakeWord();
-}, { immediate: true });
-
-function handleVoiceTranscript(text: string, mode: string) {
+// Register handler so AppLayout can forward voice transcripts to this chat
+registerChatTranscriptHandler((text: string, mode: string) => {
   if (mode === 'voice-send') {
     sendMessage(text);
     return;
   }
   const inputRef = isMobile.value ? chatInputMobileRef.value : chatInputRef.value;
   inputRef?.handleVoiceTranscript(text, mode);
+});
+
+function activateMic() {
+  activateGlobalMic();
 }
 const showTracesSidebar = ref(localStorage.getItem('traces-panel-open') !== 'false');
 const isMobile = ref(false);
@@ -224,12 +216,7 @@ function handleSidebarTouchEnd(e: TouchEvent) {
               @reject-tool="(id) => respondToTool(id, false)"
               @send-prompt="(text) => sendMessage(text)"
             />
-            <ChatInput ref="chatInputRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="showAudioOverlay = true" />
-            <AudioOverlay
-              :open="showAudioOverlay"
-              @update:open="showAudioOverlay = $event"
-              @transcript="handleVoiceTranscript"
-            />
+            <ChatInput ref="chatInputRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="activateMic" />
           </div>
         </ResizablePanel>
 
@@ -349,12 +336,7 @@ function handleSidebarTouchEnd(e: TouchEvent) {
             @change="handlePlanChange"
           />
         </div>
-        <ChatInput ref="chatInputMobileRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="showAudioOverlay = true" />
-        <AudioOverlay
-          :open="showAudioOverlay"
-          @update:open="showAudioOverlay = $event"
-          @transcript="handleVoiceTranscript"
-        />
+        <ChatInput ref="chatInputMobileRef" @send="(msg, imgs) => sendMessage(msg, imgs)" @abort="abort" @activate-mic="activateMic" />
       </div>
     </template>
 

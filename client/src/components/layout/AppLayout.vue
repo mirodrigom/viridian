@@ -12,12 +12,17 @@ import { useChatStore } from '@/stores/chat';
 import { useGraphStore } from '@/stores/graph';
 import { useAutopilotStore } from '@/stores/autopilot';
 import { useDiagramsStore } from '@/stores/diagrams';
+import { useAudioProviderStore } from '@/stores/audioProvider';
 import TopBar from './TopBar.vue';
 import MainTabs from './MainTabs.vue';
 const TerminalPanel = defineAsyncComponent(() => import('./TerminalPanel.vue'));
+import AudioOverlay from '@/components/chat/AudioOverlay.vue';
 import SettingsDialog from '@/components/settings/SettingsDialog.vue';
 import CommandPalette from './CommandPalette.vue';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
+import { useWakeWord } from '@/composables/useWakeWord';
+import { useGlobalVoiceCommands } from '@/composables/useGlobalVoiceCommands';
+import { toast } from 'vue-sonner';
 
 const settings = useSettingsStore();
 const providerStore = useProviderStore();
@@ -35,6 +40,54 @@ const showTerminal = ref(false);
 const showSettings = ref(false);
 const settingsSection = ref('providers');
 const showCommandPalette = ref(false);
+
+// ─── Global Audio Overlay & Wake Word ──────────────────────────────────
+const audioStore = useAudioProviderStore();
+const globalVoice = useGlobalVoiceCommands();
+const showAudioOverlay = ref(false);
+
+const { start: startWakeWord, stop: stopWakeWord } = useWakeWord({
+  onWakeWordDetected: () => {
+    if (chat.isStreaming) {
+      toast.info('Wait for Claude to finish before sending another message');
+      return;
+    }
+    showAudioOverlay.value = true;
+  },
+  paused: showAudioOverlay,
+});
+
+watch(() => audioStore.wakeWordEnabled, (enabled) => {
+  if (enabled) startWakeWord();
+  else stopWakeWord();
+}, { immediate: true });
+
+function activateGlobalMic() {
+  if (chat.isStreaming) {
+    toast.info('Wait for Claude to finish before sending another message');
+    return;
+  }
+  showAudioOverlay.value = true;
+}
+
+// Callback that ChatView registers to receive voice transcripts meant for chat
+let chatTranscriptHandler: ((text: string, mode: string) => void) | null = null;
+
+provide('activateGlobalMic', activateGlobalMic);
+provide('showAudioOverlay', showAudioOverlay);
+provide('registerChatTranscriptHandler', (handler: (text: string, mode: string) => void) => {
+  chatTranscriptHandler = handler;
+});
+
+function handleVoiceTranscript(text: string, mode: string) {
+  // Try global commands first (navigation, theme, git, chat management)
+  if (globalVoice.tryExecute(text)) return;
+
+  // Forward to ChatView if registered
+  if (chatTranscriptHandler) {
+    chatTranscriptHandler(text, mode);
+  }
+}
 
 function openToolsSettings() {
   settingsSection.value = 'tools';
@@ -152,6 +205,17 @@ function toggleTerminal() {
       </template>
     </ResizablePanelGroup>
     </main>
+
+    <!-- Global Audio Overlay — works from any view via "Hey Buddy" -->
+    <Teleport to="body">
+      <div v-if="showAudioOverlay" class="fixed inset-0 z-[100]">
+        <AudioOverlay
+          :open="showAudioOverlay"
+          @update:open="showAudioOverlay = $event"
+          @transcript="handleVoiceTranscript"
+        />
+      </div>
+    </Teleport>
 
     <SettingsDialog v-model:open="showSettings" v-model:section="settingsSection" />
     <CommandPalette v-model:open="showCommandPalette" @toggle-terminal="toggleTerminal" />
