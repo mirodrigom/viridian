@@ -25,7 +25,7 @@ const elapsed = ref(0);
 const errorMsg = ref('');
 const liveTranscript = ref('');
 
-const AUTO_SEND_SECONDS = 5;
+const AUTO_SEND_SECONDS = 8;
 
 // Audio analysis
 let audioContext: AudioContext | null = null;
@@ -284,6 +284,8 @@ async function startRecording() {
     startBrowserRecording();
   } else {
     startMediaRecording();
+    // Run browser SpeechRecognition in parallel for live transcript + voice commands
+    startCommandDetection();
   }
 
   isRecording.value = true;
@@ -305,7 +307,7 @@ function startBrowserRecording() {
   finalTranscript = '';
 
   recognition.onresult = (event: any) => {
-    if (isConfirming.value || !isRecording.value) return;
+    if (isConfirming.value || !isRecording.value || commandHandled) return;
 
     let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -316,19 +318,13 @@ function startBrowserRecording() {
       }
     }
 
-    // Update live transcript for display
     const full = (finalTranscript + interim).trim();
     liveTranscript.value = full;
 
-    // Only check commands on final results to avoid false triggers from interim text
-    const hasFinal = Array.from({ length: event.results.length - event.resultIndex }, (_, k) => event.results[event.resultIndex + k])
-      .some((r: any) => r.isFinal);
-    if (hasFinal) {
-      const result = parseTranscript(finalTranscript.trim());
-      if (result.matched) {
-        console.log('[AudioOverlay] Voice command detected:', result.command.id, '— text:', result.textBeforeCommand);
-        handleVoiceCommand(result.command.id, result.textBeforeCommand);
-      }
+    const result = parseTranscript(full);
+    if (result.matched) {
+      console.log('[AudioOverlay] Voice command detected:', result.command.id, '— text:', result.textBeforeCommand);
+      handleVoiceCommand(result.command.id, result.textBeforeCommand);
     }
   };
 
@@ -367,6 +363,59 @@ function handleVoiceCommand(commandId: string, text: string) {
     restartRecording();
   } else if (commandId === 'stop') {
     stopRecordingOnly(text.trim());
+  }
+}
+
+/** Start browser SpeechRecognition alongside server provider for live transcript + voice command detection */
+function startCommandDetection() {
+  if (!SpeechRecognitionApi) return;
+
+  recognition = new SpeechRecognitionApi();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = getBrowserLang();
+  finalTranscript = '';
+
+  recognition.onresult = (event: any) => {
+    if (isConfirming.value || !isRecording.value || commandHandled) return;
+
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i]!.isFinal) {
+        finalTranscript += event.results[i]![0]!.transcript;
+      } else {
+        interim += event.results[i]![0]!.transcript;
+      }
+    }
+
+    const full = (finalTranscript + interim).trim();
+    liveTranscript.value = full;
+
+    const result = parseTranscript(full);
+    if (result.matched) {
+      console.log('[AudioOverlay] Voice command detected (server path):', result.command.id, '— text:', result.textBeforeCommand);
+      handleVoiceCommand(result.command.id, result.textBeforeCommand);
+    }
+  };
+
+  recognition.onerror = (event: any) => {
+    // Non-critical — command detection is best-effort when using server provider
+    if (event.error === 'no-speech' || event.error === 'aborted') return;
+    console.warn('[AudioOverlay] Command detection error:', event.error);
+  };
+
+  recognition.onend = () => {
+    // Restart if still recording (browser may stop recognition after silence)
+    if (isRecording.value && !commandHandled) {
+      try { recognition?.start(); } catch { /* ignore */ }
+    }
+  };
+
+  try {
+    recognition.start();
+    console.log('[AudioOverlay] Command detection started (parallel with server provider)');
+  } catch (e) {
+    console.warn('[AudioOverlay] Could not start command detection:', e);
   }
 }
 
@@ -451,28 +500,34 @@ function startConfirmRecognition() {
 
   confirmRecognition = new SpeechRecognitionApi();
   confirmRecognition.continuous = true;
-  confirmRecognition.interimResults = true;
+  confirmRecognition.interimResults = false; // Only final results to avoid false triggers
   confirmRecognition.lang = getBrowserLang();
 
-  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send', 'send it', 'go'];
-  const REDO_WORDS = ['redo', 'again', 'retry', 'no', 'start over'];
-  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it'];
+  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send', 'send it'];
+  const REDO_WORDS = ['redo', 'again', 'retry', 'start over'];
+  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it', 'no'];
+
+  // Grace period: ignore results for the first 1.5s to let browser settle
+  const startedAt = Date.now();
 
   confirmRecognition.onresult = (event: any) => {
+    if (Date.now() - startedAt < 1500) return;
+
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const transcript: string = event.results[i]![0]!.transcript.toLowerCase().trim();
-      console.log(`[AudioOverlay] Confirm heard: "${transcript}" (final: ${event.results[i]!.isFinal})`);
+      console.log(`[AudioOverlay] Confirm heard: "${transcript}"`);
 
-      if (CONFIRM_WORDS.some(w => transcript.includes(w))) {
-        confirmSend();
+      // Check cancel/redo BEFORE confirm to prioritize user abort intent
+      if (CANCEL_WORDS.some(w => transcript.includes(w))) {
+        confirmCancel();
         return;
       }
       if (REDO_WORDS.some(w => transcript.includes(w))) {
         confirmRedo();
         return;
       }
-      if (CANCEL_WORDS.some(w => transcript.includes(w))) {
-        confirmCancel();
+      if (CONFIRM_WORDS.some(w => transcript.includes(w))) {
+        confirmSend();
         return;
       }
     }
@@ -506,6 +561,7 @@ function stopConfirmRecognition() {
 }
 
 function confirmSend() {
+  if (!isConfirming.value) return;
   stopConfirmRecognition();
   const text = confirmedText.value;
   isConfirming.value = false;
@@ -515,6 +571,7 @@ function confirmSend() {
 }
 
 function confirmRedo() {
+  if (!isConfirming.value) return;
   stopConfirmRecognition();
   isConfirming.value = false;
   confirmedText.value = '';
@@ -524,6 +581,7 @@ function confirmRedo() {
 }
 
 function confirmCancel() {
+  if (!isConfirming.value) return;
   stopConfirmRecognition();
   isConfirming.value = false;
   confirmedText.value = '';
@@ -576,6 +634,14 @@ async function stopAndTranscribe() {
         toast.info('No speech detected');
       }
     } else {
+      // Stop parallel command detection recognition
+      if (recognition) {
+        recognition.onresult = null;
+        recognition.onend = null;
+        try { recognition.abort(); } catch { /* ignore */ }
+        recognition = null;
+      }
+
       const mimeType = mediaRecorder?.mimeType || 'audio/webm';
 
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -621,7 +687,10 @@ async function stopAndTranscribe() {
     toast.error(err instanceof Error ? err.message : 'Transcription failed');
   } finally {
     isProcessing.value = false;
-    emit('update:open', false);
+    // Don't close overlay if we entered confirmation flow
+    if (!isConfirming.value) {
+      emit('update:open', false);
+    }
   }
 }
 
