@@ -254,7 +254,13 @@ watch(() => chat.isRecoveringSession, (recovering) => {
     // Delay slightly in case a new stream starts immediately after recovery
     setTimeout(() => {
       if (!chat.isStreaming && !chat.isRecoveringSession) {
-        showCompletion();
+        // Only chime if streaming actually happened during this component's lifecycle.
+        // Tab-switch reconnects recover an already-idle session (hadStreaming is false),
+        // so they show the visual divider silently instead of playing the sound.
+        if (hadStreaming) {
+          hadStreaming = false;
+          showCompletion();
+        }
       }
     }, 500);
   }

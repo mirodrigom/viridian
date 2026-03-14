@@ -195,7 +195,7 @@ function drawFrame() {
   const w = rect.width;
   const h = rect.height;
   const cx = w / 2;
-  const cy = isConfirming.value ? h * 0.25 : h * 0.42;
+  const cy = h * 0.38;
   const time = (Date.now() - startTime) / 1000;
 
   ctx.fillStyle = bgColor.value;
@@ -216,7 +216,7 @@ function drawFrame() {
     : confirmPulse
       ? 0.15 + Math.sin(time * 1.5) * 0.08
       : avgVolume;
-  const baseRadius = Math.min(w, h) * (confirmPulse ? 0.15 : 0.28);
+  const baseRadius = Math.min(w, h) * 0.24;
 
   rotationY += 0.003 + energy * 0.015;
   rotationX = Math.sin(time * 0.2) * 0.3;
@@ -561,13 +561,7 @@ function enterConfirmation(text: string) {
   isRecording.value = false;
   clearInterval(timerInterval);
 
-  if (recognition) {
-    recognition.onresult = null;
-    recognition.onend = null;
-    recognition.onerror = null;
-    try { recognition.abort(); } catch { /* ignore */ }
-    recognition = null;
-  }
+  // Stop media recorder (don't need audio chunks anymore)
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.onstop = null;
     mediaRecorder.stop();
@@ -591,10 +585,51 @@ function enterConfirmation(text: string) {
     }
   }, 1000);
 
-  // Delay confirm recognition — browser needs time to release the previous instance
-  setTimeout(() => {
-    if (isConfirming.value) startConfirmRecognition();
-  }, 600);
+  // Reuse existing recognition for confirmation listening (avoids browser mic re-acquisition issues)
+  if (recognition) {
+    confirmRecognition = recognition;
+    recognition = null;
+    setupConfirmationHandlers(confirmRecognition);
+  } else {
+    // Fallback: create new recognition after delay
+    setTimeout(() => {
+      if (isConfirming.value) startConfirmRecognition();
+    }, 600);
+  }
+}
+
+function setupConfirmationHandlers(rec: any) {
+  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send', 'send it'];
+  const REDO_WORDS = ['redo', 'retry', 'start over'];
+  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it', 'stop'];
+
+  // Track the baseline: ignore all results that existed before we swapped handlers
+  const baselineIndex = rec.results?.length ?? 0;
+
+  rec.onresult = (event: any) => {
+    // Only process results that arrived AFTER we entered confirmation
+    const startIdx = Math.max(event.resultIndex, baselineIndex);
+    for (let i = startIdx; i < event.results.length; i++) {
+      const transcript: string = event.results[i]![0]!.transcript.toLowerCase().trim();
+      if (!transcript) continue;
+      console.log(`[AudioOverlay] Confirm heard: "${transcript}" (final: ${event.results[i]!.isFinal})`);
+
+      if (CANCEL_WORDS.some(w => transcript.includes(w))) { confirmCancel(); return; }
+      if (REDO_WORDS.some(w => transcript.includes(w))) { confirmRedo(); return; }
+      if (CONFIRM_WORDS.some(w => transcript.includes(w))) { confirmSend(); return; }
+    }
+  };
+
+  rec.onerror = (event: any) => {
+    if (event.error === 'no-speech' || event.error === 'aborted') return;
+    console.warn('[AudioOverlay] Confirm recognition error:', event.error);
+  };
+
+  rec.onend = () => {
+    if (isConfirming.value) {
+      try { confirmRecognition?.start(); } catch { /* ignore */ }
+    }
+  };
 }
 
 function startConfirmRecognition() {
@@ -605,49 +640,7 @@ function startConfirmRecognition() {
   confirmRecognition.interimResults = true;
   confirmRecognition.lang = getBrowserLang();
 
-  const CONFIRM_WORDS = ['ok', 'okay', 'confirm', 'yes', 'send it'];
-  const REDO_WORDS = ['redo', 'retry', 'start over'];
-  const CANCEL_WORDS = ['cancel', 'never mind', 'forget it'];
-
-  // Grace period: ignore the very first result (residual audio from recording)
-  let resultsReceived = 0;
-
-  confirmRecognition.onresult = (event: any) => {
-    resultsReceived++;
-    if (resultsReceived <= 1) return; // Skip first result (usually residual)
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript: string = event.results[i]![0]!.transcript.toLowerCase().trim();
-      if (!transcript) continue;
-      console.log(`[AudioOverlay] Confirm heard: "${transcript}" (final: ${event.results[i]!.isFinal})`);
-
-      // Check cancel/redo BEFORE confirm to prioritize user abort intent
-      if (CANCEL_WORDS.some(w => transcript.includes(w))) {
-        confirmCancel();
-        return;
-      }
-      if (REDO_WORDS.some(w => transcript.includes(w))) {
-        confirmRedo();
-        return;
-      }
-      if (CONFIRM_WORDS.some(w => transcript.includes(w))) {
-        confirmSend();
-        return;
-      }
-    }
-  };
-
-  confirmRecognition.onerror = (event: any) => {
-    if (event.error === 'no-speech' || event.error === 'aborted') return;
-    console.warn('[AudioOverlay] Confirm recognition error:', event.error);
-  };
-
-  confirmRecognition.onend = () => {
-    // Restart if still in confirmation mode
-    if (isConfirming.value) {
-      try { confirmRecognition?.start(); } catch { /* ignore */ }
-    }
-  };
+  setupConfirmationHandlers(confirmRecognition);
 
   try {
     confirmRecognition.start();
@@ -880,7 +873,7 @@ onUnmounted(() => {
   <Transition name="audio-overlay">
     <div
       v-if="open"
-      class="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden rounded-[inherit]"
+      class="absolute inset-0 z-30 flex flex-col items-center overflow-hidden rounded-[inherit]"
       :style="{ background: bgColor }"
     >
         <!-- Canvas -->
@@ -937,55 +930,77 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- Confirmation state -->
+        <!-- Confirmation state (mirrors recording layout — same structure, blue color) -->
         <template v-else-if="isConfirming">
-          <!-- Transcript preview — positioned below the shrunken sphere -->
-          <div class="relative z-10 mt-[45%] flex flex-col items-center gap-3 px-6 text-center max-w-lg w-full">
-            <div class="rounded-xl border border-blue-500/20 bg-blue-500/5 px-5 py-4 text-sm leading-relaxed max-h-[40vh] overflow-y-auto w-full" :class="settings.darkMode ? 'text-blue-200/90' : 'text-blue-800/90'">
+          <!-- Confirmed transcript — same position as live transcript in recording -->
+          <div class="relative z-10 mt-auto max-w-lg w-full flex-1 flex flex-col justify-end px-6 pb-2 min-h-0">
+            <div class="overflow-y-auto max-h-[30vh] rounded-lg border px-4 py-3 text-sm leading-relaxed"
+              :class="settings.darkMode
+                ? 'bg-blue-500/5 border-blue-500/10 text-blue-200/80'
+                : 'bg-blue-500/5 border-blue-500/10 text-blue-800/80'"
+            >
               {{ confirmedText }}
             </div>
+          </div>
 
-            <!-- Countdown -->
-            <div :class="settings.darkMode ? 'text-blue-400/60' : 'text-blue-600/70'" class="text-xs">
-              Sending in <span class="font-mono" :class="settings.darkMode ? 'text-blue-300' : 'text-blue-700'">{{ confirmCountdown }}s</span>
+          <!-- Status info — same position as recording status -->
+          <div class="relative z-10 mb-4 flex flex-col items-center gap-1">
+            <div class="text-xs font-mono tabular-nums tracking-wider" :class="settings.darkMode ? 'text-blue-400/60' : 'text-blue-600/70'">
+              Sending in {{ confirmCountdown }}s
+            </div>
+            <div class="text-sm font-medium" :class="settings.darkMode ? 'text-blue-300/90' : 'text-blue-700/90'">
+              Confirm
             </div>
           </div>
 
-          <!-- Spacer to push controls to bottom -->
-          <div class="flex-1 min-h-4" />
+          <!-- Controls — cancel, redo, send -->
+          <div class="relative z-10 mb-4 flex items-center gap-8">
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                class="flex h-12 w-12 items-center justify-center rounded-full border border-blue-500/15 bg-blue-500/5 transition-all"
+                :class="settings.darkMode ? 'text-blue-400/60 hover:bg-blue-500/15 hover:text-blue-300' : 'text-blue-500/60 hover:bg-blue-500/15 hover:text-blue-600'"
+                title="Cancel (Esc)"
+                @click="confirmCancel"
+              >
+                <X class="h-5 w-5" />
+              </button>
+              <span class="text-[10px]" :class="settings.darkMode ? 'text-blue-400/30' : 'text-blue-600/40'">Cancel</span>
+            </div>
 
-          <!-- Controls -->
-          <div class="relative z-10 mb-4 flex items-center gap-6">
-            <button
-              class="flex h-11 w-11 items-center justify-center rounded-full border border-red-500/20 bg-red-500/5 text-red-400/70 transition-all hover:bg-red-500/15 hover:text-red-300"
-              title="Cancel (Esc)"
-              @click="confirmCancel"
-            >
-              <X class="h-4 w-4" />
-            </button>
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                class="flex h-12 w-12 items-center justify-center rounded-full border border-blue-500/15 bg-blue-500/5 transition-all"
+                :class="settings.darkMode ? 'text-blue-400/60 hover:bg-blue-500/15 hover:text-blue-300' : 'text-blue-500/60 hover:bg-blue-500/15 hover:text-blue-600'"
+                title="Redo (R)"
+                @click="confirmRedo"
+              >
+                <RotateCcw class="h-5 w-5" />
+              </button>
+              <span class="text-[10px]" :class="settings.darkMode ? 'text-blue-400/30' : 'text-blue-600/40'">Redo</span>
+            </div>
 
-            <button
-              class="flex h-11 w-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/5 text-amber-400/70 transition-all hover:bg-amber-500/15 hover:text-amber-300"
-              title="Redo (R)"
-              @click="confirmRedo"
-            >
-              <RotateCcw class="h-4 w-4" />
-            </button>
-
-            <button
-              class="flex h-14 w-14 items-center justify-center rounded-full border border-blue-500/25 bg-blue-500/10 text-blue-300 transition-all hover:bg-blue-500/20 hover:border-blue-400/50"
-              title="Send (Enter)"
-              @click="confirmSend"
-            >
-              <Send class="h-5 w-5" />
-            </button>
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                class="flex h-16 w-16 items-center justify-center rounded-full border transition-all"
+                :class="settings.darkMode
+                  ? 'bg-blue-500/10 text-blue-300 border-blue-500/25 hover:bg-blue-500/20 hover:border-blue-400/50'
+                  : 'bg-blue-500/10 text-blue-600 border-blue-500/25 hover:bg-blue-500/20 hover:border-blue-400/50'"
+                title="Send (Enter)"
+                @click="confirmSend"
+              >
+                <Send class="h-5 w-5" />
+              </button>
+              <span class="text-[10px]" :class="settings.darkMode ? 'text-blue-400/30' : 'text-blue-600/40'">Send</span>
+            </div>
           </div>
 
-          <!-- Hint -->
-          <div class="relative z-10 mb-6 text-[10px]" :class="settings.darkMode ? 'text-blue-400/30' : 'text-blue-600/50'">
-            Say <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"ok"</span> to send &middot;
-            <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"redo"</span> to re-record &middot;
-            <span :class="settings.darkMode ? 'text-blue-400/50' : 'text-blue-700/60'">"cancel"</span> to discard
+          <!-- Hint — same style as recording hint -->
+          <div class="relative z-10 mb-6 text-xs" :class="settings.darkMode ? 'text-blue-400/25' : 'text-blue-600/40'">
+            Say <span :class="settings.darkMode ? 'text-blue-400/40' : 'text-blue-700/50'">"ok"</span> to send
+            &middot;
+            Press <kbd class="mx-0.5 rounded border border-blue-500/20 px-1 py-0.5 font-mono text-[10px]">Enter</kbd> to send
+            &middot;
+            <kbd class="mx-0.5 rounded border border-blue-500/20 px-1 py-0.5 font-mono text-[10px]">Esc</kbd> to cancel
           </div>
         </template>
 
@@ -1020,26 +1035,32 @@ onUnmounted(() => {
 
           <!-- Controls -->
           <div class="relative z-10 mb-4 flex items-center gap-8">
-            <button
-              class="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-500/15 bg-emerald-500/5 text-emerald-400/60 transition-all hover:bg-emerald-500/15 hover:text-emerald-300"
-              title="Cancel"
-              @click="cancel"
-            >
-              <X class="h-5 w-5" />
-            </button>
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                class="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-500/15 bg-emerald-500/5 text-emerald-400/60 transition-all hover:bg-emerald-500/15 hover:text-emerald-300"
+                title="Cancel"
+                @click="cancel"
+              >
+                <X class="h-5 w-5" />
+              </button>
+              <span class="text-[10px]" :class="settings.darkMode ? 'text-emerald-400/30' : 'text-emerald-600/40'">Stop</span>
+            </div>
 
-            <button
-              class="flex h-16 w-16 items-center justify-center rounded-full transition-all"
-              :class="isProcessing
-                ? 'bg-amber-500/15 text-amber-400 cursor-wait'
-                : 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/25 hover:border-emerald-400/50'"
-              :disabled="isProcessing"
-              title="Stop recording"
-              @click="stopAndTranscribe"
-            >
-              <div v-if="isProcessing" class="h-5 w-5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
-              <Square v-else class="h-5 w-5" />
-            </button>
+            <div class="flex flex-col items-center gap-1.5">
+              <button
+                class="flex h-16 w-16 items-center justify-center rounded-full transition-all"
+                :class="isProcessing
+                  ? 'bg-amber-500/15 text-amber-400 cursor-wait'
+                  : 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/25 hover:border-emerald-400/50'"
+                :disabled="isProcessing"
+                title="Stop recording"
+                @click="stopAndTranscribe"
+              >
+                <div v-if="isProcessing" class="h-5 w-5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+                <Square v-else class="h-5 w-5" />
+              </button>
+              <span class="text-[10px]" :class="settings.darkMode ? 'text-emerald-400/30' : 'text-emerald-600/40'">Done</span>
+            </div>
           </div>
 
           <!-- Hint -->

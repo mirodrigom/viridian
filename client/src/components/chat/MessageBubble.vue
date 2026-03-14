@@ -16,7 +16,18 @@ import {
   Wrench, Bot, MessageCircleQuestion, Minimize2,
   GitBranch,
 } from 'lucide-vue-next';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { renderMarkdown, setupCodeCopyHandler } from '@/lib/markdown';
+
+const lightboxOpen = ref(false);
+const lightboxSrc = ref('');
+const lightboxAlt = ref('');
+
+function openLightbox(src: string, alt: string) {
+  lightboxSrc.value = src;
+  lightboxAlt.value = alt;
+  lightboxOpen.value = true;
+}
 
 const props = withDefaults(defineProps<{
   message: ChatMessage;
@@ -258,7 +269,8 @@ function formatTime(ts: number) {
               :key="idx"
               :src="img.dataUrl"
               :alt="img.name"
-              class="max-h-48 max-w-full rounded-lg border border-primary-foreground/20 object-contain"
+              class="max-h-48 max-w-full cursor-pointer rounded-lg border border-primary-foreground/20 object-contain transition-opacity hover:opacity-80"
+              @click="openLightbox(img.dataUrl, img.name)"
             />
           </div>
           <p class="whitespace-pre-wrap text-sm leading-relaxed">{{ message.content }}</p>
@@ -438,4 +450,16 @@ function formatTime(ts: number) {
       {{ message.content }}
     </p>
   </div>
+
+  <!-- Image lightbox -->
+  <Dialog v-model:open="lightboxOpen">
+    <DialogContent class="max-w-[90vw] max-h-[90vh] p-2 border-none bg-transparent shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50 [&>button]:rounded-full [&>button]:h-8 [&>button]:w-8">
+      <DialogTitle class="sr-only">{{ lightboxAlt }}</DialogTitle>
+      <img
+        :src="lightboxSrc"
+        :alt="lightboxAlt"
+        class="max-w-full max-h-[85vh] rounded-lg object-contain"
+      />
+    </DialogContent>
+  </Dialog>
 </template>

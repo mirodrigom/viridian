@@ -4,11 +4,10 @@ import { toast } from 'vue-sonner';
 const SpeechRecognitionApi =
   (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-/** Keywords that trigger wake word detection (speech recognition often mishears "viridian") */
+/** Keywords that trigger wake word detection (speech recognition often mishears "buddy") */
 const TRIGGER_WORDS = [
-  'viridian', 'meridian', 'guardian', 'viridium', 'viridien',
-  'vivian', 'vivien', 'buddy', 'bdn', 'bidian', 'biridian',
-  'vidian', 'verdian', 'viridan', 'veridian',
+  'buddy', 'body', 'birdie', 'bunny', 'buggy', 'betty',
+  'bloody', 'money', 'bonnie', 'bday',
 ];
 
 export function useWakeWord(options: {
@@ -116,11 +115,11 @@ export function useWakeWord(options: {
       // Will start when paused becomes false
       isListening.value = true;
       console.log('[WakeWord] Enabled but paused — will start when overlay closes');
-      toast.info('Wake word enabled — say "Hey Viridian" to activate voice input');
+      toast.info('Wake word enabled — say "Hey Buddy" to activate voice input');
       return;
     }
 
-    toast.info('Wake word enabled — say "Hey Viridian" to activate voice input');
+    toast.info('Wake word enabled — say "Hey Buddy" to activate voice input');
     beginListening();
   }
 

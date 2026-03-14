@@ -247,9 +247,9 @@ onMounted(() => {
       <div class="space-y-1.5 border-t border-border pt-3">
         <div class="flex items-center justify-between">
           <div>
-            <Label class="text-xs">"Hey Viridian" Wake Word</Label>
+            <Label class="text-xs">"Hey Buddy" Wake Word</Label>
             <p class="mt-0.5 text-[10px] text-muted-foreground">
-              Always-on listening — opens voice input when you say "Hey Viridian"
+              Always-on listening — opens voice input when you say "Hey Buddy"
             </p>
           </div>
           <Switch
