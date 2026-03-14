@@ -16,7 +16,8 @@ The chat interface is the core of Viridian — your primary channel for interact
 - **Thinking modes** — Five levels of reasoning depth (Standard, Think, Think Hard, Think Harder, Ultrathink) accessible from the status bar. Higher levels produce more thorough responses for complex problems.
 - **Tool visualization** — When Claude uses tools (Bash, Edit, Read, Write, Grep, Glob, TodoWrite), each invocation is rendered as a dedicated card with tool-specific formatting — terminal output for Bash, diff views for edits, checklists for todos.
 - **Interactive approval** — In secure mode, each tool call shows Allow/Deny buttons with a 55-second countdown timer. In Full Auto mode, tools execute without prompting.
-- **Voice input** — Microphone button for speech-to-text with four enhancement modes (Raw, Clean, Expand, Code).
+- **Voice input** — Microphone button opens a full-screen audio overlay with 3D particle visualization. Supports six providers (Browser, Local Whisper, Groq, Deepgram, Gladia, AssemblyAI), four enhancement modes (Raw, Clean, Expand, Code), voice commands (send, cancel, navigation, git operations), and a "Hey Buddy" wake word.
+- **File attachments** — Attach PDF, HTML, and CSV files (up to 5 per message) alongside images. CSV content is sent as a fenced code block.
 - **Slash commands** — Type `/` to access `/clear`, `/model`, `/think`, `/permission`, `/status`, `/cost`, and `/help`.
 - **Session management** — Collapsible sidebar (36px collapsed, 280px expanded) listing all sessions sorted by time or name, with search, pagination, delete, and real-time WebSocket updates when session files change on disk.
 - **Suggested prompts** — Empty sessions show quick-start buttons (Debug, Explain Code, Refactor) to help you get started.
@@ -24,7 +25,7 @@ The chat interface is the core of Viridian — your primary channel for interact
 - **Search** — `Ctrl+F` to find and navigate through matches across all messages.
 - **Token tracking** — Status bar shows context usage percentage, cost, input/output tokens, and response time.
 - **Draft persistence** — Unsent messages are saved to localStorage per session and survive page reloads.
-- **Traces Panel** — When Langfuse is configured, the right panel shows a live list of the last 20 agent traces (auto-refreshes every 3s), with expandable observations (generation + tool spans).
+- **Traces Panel** — The right panel shows a live list of agent traces with real-time WebSocket updates, session-level token totals, and expandable observation trees (generation + agent/tool spans). Always enabled via built-in SQLite tracing — no external service required.
 
 ::: tip
 Sessions are identified by their JSONL filename, which is also the Claude CLI session ID. You can resume any web session from the CLI with `claude --resume <id>` and vice versa.
@@ -220,5 +221,36 @@ All preferences and integrations, accessible from the top bar.
 | **Dark mode** | Single-click toggle, persisted in localStorage |
 | **Language** | English, Chinese (中文), Korean (한국어) — stored in localStorage |
 | **Git identity** | Project-scoped `user.name` and `user.email` configuration |
+| **Audio provider** | Select STT provider (Browser, Local Whisper, Groq, Deepgram, Gladia, AssemblyAI), language, model, and wake word |
 
 [Full documentation →](./settings)
+
+---
+
+## Multi-Provider Support
+
+Viridian supports multiple AI coding CLI providers beyond Claude Code. The active provider is selected in Settings and determines which CLI is invoked for chat, autopilot, and graph execution.
+
+**Supported providers:**
+
+| Provider | Key capabilities |
+|----------|-----------------|
+| **Claude Code** (default) | Full feature support — thinking, tool use, permissions, images, resume, streaming, subagents, plan mode |
+| **Kiro** | Steering, custom agents, Bedrock model support |
+| **Gemini CLI** | Google's Gemini models |
+| **Codex CLI** | OpenAI Codex integration |
+| **Aider** | Git-aware AI pair programming |
+| **Qwen Code** | 256k context window |
+| **OpenCode** | LSP integration |
+
+**Key capabilities:**
+
+- **Auto-detection** — Providers are detected automatically from `PATH`. The provider list shows which CLIs are available.
+- **Per-session override** — Switch providers mid-conversation from the status bar.
+- **Capability tracking** — Each provider declares its capabilities (thinking, tool use, images, subagents, etc.). Features that aren't supported by the active provider are gracefully hidden.
+- **Model selection** — Each provider offers its own set of models with descriptions and defaults.
+- **Failure tracking** — If a provider's credentials fail, the UI shows a red status indicator so you can retry or switch.
+
+::: info
+Not all features are available with every provider. Claude Code has the most complete support. Provider-specific capabilities are tracked automatically and the UI adapts accordingly.
+:::

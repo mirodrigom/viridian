@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { useTracesStore, type LangfuseTrace, type LangfuseObservation } from '@/stores/traces';
+import { useTracesStore, type Trace, type TraceObservation } from '@/stores/traces';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   RefreshCw, Activity, Zap, Wrench, ChevronDown, ChevronRight,
-  AlertCircle, Coins, Bot, MessageSquare, WifiOff,
+  AlertCircle, Coins, Bot, MessageSquare,
 } from 'lucide-vue-next';
 
 const store = useTracesStore();
@@ -42,27 +42,32 @@ function formatDate(ts: string): string {
   return new Date(ts).toLocaleString();
 }
 
-function duration(obs: LangfuseObservation): string {
+function duration(obs: TraceObservation): string {
   if (!obs.startTime || !obs.endTime) return '';
   const ms = new Date(obs.endTime).getTime() - new Date(obs.startTime).getTime();
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function totalTokens(trace: LangfuseTrace): number {
+function traceTokens(trace: Trace): { input: number; output: number; total: number } {
   const gen = trace.observations?.find(o => o.type === 'GENERATION');
-  if (!gen?.usage) return 0;
-  return (gen.usage.input || 0) + (gen.usage.output || 0);
+  const input = gen?.usage?.input || 0;
+  const output = gen?.usage?.output || 0;
+  return { input, output, total: input + output };
 }
 
-function traceHasError(trace: LangfuseTrace): boolean {
+function fmtK(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function traceHasError(trace: Trace): boolean {
   return !!trace.observations?.some(o => o.level === 'ERROR');
 }
 
-function providerFromTags(trace: LangfuseTrace): string {
+function providerFromTags(trace: Trace): string {
   return trace.tags?.find(t => !['chat', 'autopilot', 'autopilot:orchestrator', 'autopilot:worker'].includes(t)) || 'claude';
 }
 
-function traceLabel(trace: LangfuseTrace): string {
+function traceLabel(trace: Trace): string {
   return trace.name || 'chat';
 }
 
@@ -78,44 +83,19 @@ function formatJson(val: unknown): string {
 }
 
 // ── Observation tree for selected trace ──────────────────────────────────────
-const generation = computed<LangfuseObservation | undefined>(() =>
+const generation = computed<TraceObservation | undefined>(() =>
   store.selectedTrace?.observations?.find(o => o.type === 'GENERATION'),
 );
 
-const spans = computed<LangfuseObservation[]>(() =>
+const spans = computed<TraceObservation[]>(() =>
   store.selectedTrace?.observations?.filter(o => o.type === 'SPAN') || [],
 );
 </script>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
-    <!-- No config / not reachable banners -->
-    <div v-if="!store.configured" class="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
-      <Activity class="h-12 w-12 text-muted-foreground/40" />
-      <div>
-        <p class="font-medium">Langfuse not configured</p>
-        <p class="mt-1 text-sm text-muted-foreground">Add your keys to <code class="rounded bg-muted px-1 py-0.5 text-xs">.env</code> to enable agent tracing.</p>
-      </div>
-      <div class="rounded-lg border border-border bg-muted/50 px-4 py-3 text-left text-xs font-mono">
-        <p class="text-muted-foreground"># .env</p>
-        <p>LANGFUSE_BASE_URL=http://localhost:3001</p>
-        <p>LANGFUSE_PUBLIC_KEY=pk-lf-...</p>
-        <p>LANGFUSE_SECRET_KEY=sk-lf-...</p>
-      </div>
-      <p class="text-xs text-muted-foreground">Start Langfuse: <code class="rounded bg-muted px-1 py-0.5">podman-compose up -d</code></p>
-    </div>
-
-    <div v-else-if="!store.reachable" class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <WifiOff class="h-10 w-10 text-muted-foreground/40" />
-      <p class="font-medium">Cannot reach Langfuse</p>
-      <p class="text-sm text-muted-foreground">Make sure Langfuse is running: <code class="rounded bg-muted px-1 py-0.5 text-xs">podman-compose up -d</code></p>
-      <Button variant="outline" size="sm" @click="store.fetchStatus(); store.fetchTraces()">
-        <RefreshCw class="mr-1.5 h-3.5 w-3.5" /> Retry
-      </Button>
-    </div>
-
     <!-- Main layout -->
-    <template v-else>
+    <template v-if="true">
       <!-- Toolbar -->
       <div class="flex h-10 items-center gap-2 border-b border-border px-3">
         <Activity class="h-4 w-4 text-primary" />
@@ -153,12 +133,12 @@ const spans = computed<LangfuseObservation[]>(() =>
                   <span class="truncate text-xs font-medium">{{ traceLabel(trace) }}</span>
                   <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">{{ relativeTime(trace.timestamp) }}</span>
                 </div>
-                <div class="flex items-center gap-2 pl-5 text-[10px] text-muted-foreground">
+                <div class="flex items-center gap-2 pl-5 text-[10px] tabular-nums text-muted-foreground">
                   <span class="capitalize">{{ providerFromTags(trace) }}</span>
-                  <template v-if="totalTokens(trace) > 0">
+                  <template v-if="traceTokens(trace).total > 0">
                     <span>·</span>
                     <span class="flex items-center gap-0.5">
-                      <Coins class="h-2.5 w-2.5" />{{ totalTokens(trace).toLocaleString() }}
+                      <Coins class="h-2.5 w-2.5" />in: {{ fmtK(traceTokens(trace).input) }} · out: {{ fmtK(traceTokens(trace).output) }}
                     </span>
                   </template>
                 </div>

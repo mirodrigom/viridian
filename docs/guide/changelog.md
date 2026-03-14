@@ -2,6 +2,29 @@
 
 All notable changes to Viridian are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-03-14
+
+### Added
+
+- **Built-in SQLite tracing** — All agent interactions are now traced to the local SQLite database automatically. No external service required. Traces include nested observation trees with generation, agent spans, and tool spans.
+- **Audio providers** — Six speech-to-text providers: Browser (built-in), Local Whisper (self-hosted via Docker), Groq, Deepgram, Gladia, and AssemblyAI. Configurable in Settings → Audio Provider with per-provider API keys, 13 language options, and model selection.
+- **Audio overlay** — Full-screen recording interface with 3D particle sphere visualization that responds to audio frequency. Shows live transcript, voice commands, and confirmation flow.
+- **Voice commands** — 23 voice commands across 5 categories (recording, navigation, theme, chat, git) detected during recording. Floating command chips show available commands color-coded by category.
+- **Wake word** — "Hey Buddy" always-on listening mode opens the audio overlay hands-free. Uses fuzzy matching for common misrecognitions. Configurable in Settings → Audio Provider.
+- **CSV file attachments** — Attach `.csv` files in chat; content is sent as a fenced code block in the prompt. Up to 5 document files (PDF, HTML, CSV) per message.
+- **Traces WebSocket** — Real-time `trace:started` and `trace:ended` events via `/ws/traces` endpoint. The Traces Panel updates automatically without polling.
+- **Session-level trace totals** — Traces Panel header shows accumulated input/output token counts across all traces in the current session.
+
+### Changed
+
+- **Tracing backend** — Replaced Langfuse proxy with built-in SQLite tracing service. Removed `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_BASE_URL` environment variables. Tracing is always on.
+- **Traces Panel** — Now shows tool/agent summary chips on collapsed traces, hierarchical observation tree with depth-indented spans, and session-scoped filtering by `claudeSessionId`.
+- **Voice input** — Upgraded from basic browser SpeechRecognition to full audio overlay with provider selection, confirmation flow, and voice commands.
+
+### Removed
+
+- **Langfuse integration** — Removed Langfuse proxy routes (`/api/langfuse/*`), Langfuse service, and all Langfuse-related environment variables. Docker Compose no longer includes Langfuse/PostgreSQL services.
+
 ## [0.4.0] — 2026-03-06
 
 ### Added

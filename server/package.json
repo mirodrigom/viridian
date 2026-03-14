@@ -20,7 +20,6 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "langfuse": "^3.38.6",
     "node-cron": "^4.2.1",
     "node-pty": "^1.1.0",
     "pino": "^9.6.0",

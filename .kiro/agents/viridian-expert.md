@@ -100,10 +100,10 @@ Router config: `client/src/router/index.ts`
 - `server/src/services/autopilot-profiles.ts` — 6 built-in profiles
 - `server/src/services/autopilot-git.ts` — branch + scoped auto-commit
 - `server/src/services/autopilot-scheduler.ts` — cron-like 60s tick
-- `server/src/services/langfuse.ts` — traces/observability integration
+- `server/src/services/tracing.ts` — traces/observability integration (built-in SQLite)
 - `server/src/db/database.ts` — SQLite schema + migrations
 - `server/src/index.ts` — Express app entry point
-- **REST routes:** `server/src/routes/` (auth, files, git, sessions, graphs, autopilot, management, langfuse)
+- **REST routes:** `server/src/routes/` (auth, files, git, sessions, graphs, autopilot, management, traces)
 - **WebSocket endpoints:** `server/src/ws/` (chat, shell, sessions, graph-runner, autopilot)
 
 ## Architecture Patterns

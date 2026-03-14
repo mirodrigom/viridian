@@ -1,43 +1,4 @@
 services:
-  langfuse:
-    image: langfuse/langfuse:2
-    depends_on:
-      langfuse-db:
-        condition: service_healthy
-    ports:
-      - "${LANGFUSE_PORT:-12003}:3000"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@langfuse-db:5432/langfuse
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-in-production}
-      SALT: ${LANGFUSE_SALT:-changeme-in-production}
-      NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:12003}
-      TELEMETRY_ENABLED: "false"
-      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
-      # Auto-create user, org, project and API keys on first start
-      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-cloudhesive}
-      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-Cloudhesive}
-      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-viridian}
-      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-Viridian}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-viridian-dev}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-viridian-dev}
-      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@viridian.local}
-      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Admin}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-viridian-dev}
-
-  langfuse-db:
-    image: postgres:15
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: langfuse
-    volumes:
-      - langfuse_postgres:/var/lib/postgresql/data
-
   faster-whisper:
     image: fedirz/faster-whisper-server:latest-cuda
     ports:
@@ -50,5 +11,4 @@ services:
       - whisper_models:/root/.cache/huggingface
 
 volumes:
-  langfuse_postgres:
   whisper_models:

@@ -14,7 +14,7 @@ import type { SDKMessage } from './claude-sdk.js';
 import type { ProviderId } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import { upsertSessionProvider } from '../db/database.js';
-import * as lf from './langfuse.js';
+import * as lf from './tracing.js';
 import { gracefulKill, cwdToHash } from '../utils/platform.js';
 import { initSessionFile, appendUserMessage, appendAssistantMessage, cleanupSession } from './session-writer.js';
 import { createLogger } from '../logger.js';

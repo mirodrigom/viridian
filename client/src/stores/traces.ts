@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { apiFetch } from '@/lib/apiFetch';
 import { createStoreWebSocket } from '@/lib/storeWebSocket';
 
-export interface LangfuseObservation {
+export interface TraceObservation {
   id: string;
   type: 'GENERATION' | 'SPAN' | 'EVENT';
   name: string;
@@ -19,19 +19,19 @@ export interface LangfuseObservation {
   metadata?: Record<string, unknown>;
 }
 
-export interface LangfuseTrace {
+export interface Trace {
   id: string;
   name: string;
   timestamp: string;
   userId?: string;
   tags?: string[];
   metadata?: Record<string, unknown>;
-  observations?: LangfuseObservation[];
+  observations?: TraceObservation[];
 }
 
 export const useTracesStore = defineStore('traces', () => {
-  const traces = ref<LangfuseTrace[]>([]);
-  const selectedTrace = ref<LangfuseTrace | null>(null);
+  const traces = ref<Trace[]>([]);
+  const selectedTrace = ref<Trace | null>(null);
   const loading = ref(false);
   const detailLoading = ref(false);
   const configured = ref(true);
@@ -47,8 +47,7 @@ export const useTracesStore = defineStore('traces', () => {
     // ALL traces which is wrong for a new conversation that hasn't received its
     // claudeSessionId yet (arrives on stream_end).
     if (!currentUserId.value) return;
-    // Small delay: Langfuse indexes events async even after flushAsync completes
-    setTimeout(() => fetchTraces(), 1000);
+    setTimeout(() => fetchTraces(), 300);
   });
 
   // Auto-connect when the store is first instantiated
@@ -58,7 +57,7 @@ export const useTracesStore = defineStore('traces', () => {
 
   async function fetchStatus() {
     try {
-      const res = await apiFetch('/api/langfuse/status');
+      const res = await apiFetch('/api/traces/status');
       if (res.ok) {
         const data = await res.json() as { configured: boolean; reachable?: boolean };
         configured.value = data.configured;
@@ -80,15 +79,14 @@ export const useTracesStore = defineStore('traces', () => {
     try {
       const params = new URLSearchParams({ limit: '50' });
       if (uid) params.set('userId', uid);
-      const res = await apiFetch(`/api/langfuse/traces?${params}`);
+      const res = await apiFetch(`/api/traces?${params}`);
       if (!res.ok) { error.value = 'Failed to fetch traces'; return; }
-      const data = await res.json() as { configured?: boolean; data?: LangfuseTrace[] };
+      const data = await res.json() as { configured?: boolean; data?: Trace[] };
       if (data.configured === false) { configured.value = false; return; }
       configured.value = true;
       reachable.value = true;
       const fresh = data.data || [];
       // Preserve existing traces only within the same session if fetch returns empty
-      // (handles Langfuse indexing lag right after a message completes)
       if (fresh.length > 0 || traces.value.length === 0) {
         traces.value = fresh;
       }
@@ -102,15 +100,15 @@ export const useTracesStore = defineStore('traces', () => {
   async function fetchTrace(id: string) {
     detailLoading.value = true;
     try {
-      const res = await apiFetch(`/api/langfuse/traces/${id}`);
+      const res = await apiFetch(`/api/traces/${id}`);
       if (!res.ok) return;
-      selectedTrace.value = await res.json() as LangfuseTrace;
+      selectedTrace.value = await res.json() as Trace;
     } finally {
       detailLoading.value = false;
     }
   }
 
-  function selectTrace(trace: LangfuseTrace) {
+  function selectTrace(trace: Trace) {
     selectedTrace.value = trace;
     fetchTrace(trace.id);
   }

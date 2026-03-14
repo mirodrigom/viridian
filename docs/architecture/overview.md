@@ -125,7 +125,7 @@ viridian/
 │       │   ├── terminal/     # xterm.js terminal
 │       │   ├── tasks/        # Task management
 │       │   ├── management/   # Management dashboard (services, scripts, env, processes)
-│       │   ├── traces/       # Full-page Langfuse traces view
+│       │   ├── traces/       # Full-page traces view
 │       │   ├── settings/     # Settings + tools dialogs
 │       │   └── ui/           # shadcn-vue primitives
 │       ├── pages/            # Route-level page components
@@ -166,7 +166,7 @@ viridian/
 │       │   ├── autopilot-profiles.ts  # Built-in agent profiles
 │       │   ├── autopilot-scheduler.ts # Cron-like scheduler
 │       │   ├── autopilot-git.ts       # Branch + scoped auto-commit
-│       │   └── langfuse.ts            # Observability: trace/span instrumentation
+│       │   └── tracing.ts             # Built-in SQLite tracing: trace/span instrumentation
 │       └── ws/               # WebSocket endpoint handlers
 │           ├── chat.ts       # /ws/chat — streaming chat
 │           ├── shell.ts      # /ws/shell — terminal I/O
@@ -223,7 +223,7 @@ Request
   ├── /api/agent/*  ─── authMiddleware ───── agentRoutes
   ├── /api/mcp/*    ─── authMiddleware ───── mcpRoutes
   ├── /api/management/* ─ authMiddleware ─── managementRoutes
-  └── /api/langfuse/* ── authMiddleware ──── langfuseRoutes
+  └── /api/traces/*  ── authMiddleware ───── tracesRoutes
 ```
 
 ::: info Design Rationale: Auth Middleware
@@ -241,7 +241,8 @@ HTTP Upgrade Request
   ├── /ws/shell     → setupShellWs     (terminal PTY I/O)
   ├── /ws/sessions  → setupSessionsWs  (live session list updates)
   ├── /ws/graph     → setupGraphRunnerWs (graph execution events)
-  └── /ws/autopilot → setupAutopilotWs (autopilot run events)
+  ├── /ws/autopilot → setupAutopilotWs (autopilot run events)
+  └── /ws/traces    → setupTracesWs    (real-time trace events)
 ```
 
 Each WebSocket handler authenticates the connection by extracting a JWT from the `?token=` query parameter during the upgrade handshake. Connections without a valid token are immediately destroyed.
@@ -263,7 +264,7 @@ Services encapsulate the core business logic and are the only layer that directl
 | `autopilot-scheduler.ts` | Cron-like 60-second tick that starts/stops autopilot runs based on time windows |
 | `autopilot-profiles.ts` | Built-in and user-defined agent profile management |
 | `autopilot-git.ts` | Branch creation and scoped auto-commit for autopilot runs |
-| `langfuse.ts` | Langfuse observability: instruments Claude turns with traces, generation spans, and nested tool/subagent spans. Disabled automatically when `LANGFUSE_SECRET_KEY` is absent |
+| `tracing.ts` | Built-in SQLite tracing: instruments Claude turns with traces, generation spans, and nested tool/subagent spans. Always enabled — no external service required |
 
 ### Configuration (`server/src/config.ts`)
 
@@ -276,9 +277,9 @@ Configuration is resolved at startup from environment variables with sensible de
 | `JWT_SECRET` | Dev fallback | **Required** in production (min 32 chars) |
 | `CORS_ORIGIN` | `http://localhost:5174` | Allowed CORS origin (Vite dev server) |
 | `CLAUDE_PATH` | Auto-detected | Override path to Claude CLI binary |
-| `LANGFUSE_SECRET_KEY` | *(unset)* | Langfuse secret key — enables observability when set |
-| `LANGFUSE_PUBLIC_KEY` | *(unset)* | Langfuse public key |
-| `LANGFUSE_BASE_URL` | `http://localhost:3001` | URL of the self-hosted Langfuse instance |
+| `LOCAL_WHISPER_URL` | `http://localhost:8300` | URL of the local Faster Whisper container |
+| `WHISPER_MODEL` | `Systran/faster-whisper-medium` | Whisper model to load |
+| `WHISPER_PORT` | `8300` | Port for the Whisper container |
 
 ## Client Architecture
 
@@ -367,7 +368,7 @@ Each feature domain has its own Pinia store:
 | `graphRunner` | `currentRun`, `executions`, `timeline` | Active graph execution state |
 | `autopilot` | `configs`, `currentRun`, `cycles` | Autopilot configuration and run state |
 | `management` | `services`, `scripts`, `processes`, `widgetLayout` | Management dashboard state — services, scripts, env, processes, widget layout |
-| `traces` | `traces`, `selectedTrace`, `configured` | Langfuse trace list and selected trace detail |
+| `traces` | `traces`, `selectedTrace`, `configured` | Built-in trace list and selected trace detail (WebSocket auto-refresh) |
 
 ### Composables
 

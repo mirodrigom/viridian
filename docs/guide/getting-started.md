@@ -25,8 +25,6 @@ bash setup.sh
 2. Installs pnpm if missing
 3. Installs npm dependencies (skips if lockfile unchanged)
 4. Copies `.env.example` → `.env` if `.env` is missing
-5. Installs `podman-compose` if Podman is present (for Langfuse)
-6. Pulls Langfuse container images (one-time, skipped if already pulled)
 
 Alternatively, install manually:
 
@@ -42,62 +40,65 @@ cp .env.example .env
 Edit `.env` with your settings:
 
 ```ini
-# Server port
-PORT=3010
+# Server Configuration
 HOST=localhost
+PORT=12000
 
 # JWT secret (minimum 32 characters in production)
-JWT_SECRET=your-secret-key-here-change-in-production
-
-# Environment
-NODE_ENV=development
+JWT_SECRET=your-secure-jwt-secret-here
 
 # CORS origin (client dev server)
-CORS_ORIGIN=http://localhost:5174
+CORS_ORIGIN=http://localhost:12001
+
+# Environment
+NODE_ENV=production
+
+# Claude CLI path (optional — override auto-detection)
+# CLAUDE_PATH="C:\Program Files\nodejs\claude.cmd"
+
+# Local Whisper (optional — see Local Whisper section below)
+LOCAL_WHISPER_URL=http://localhost:8300
+WHISPER_MODEL=Systran/faster-whisper-medium
+WHISPER_PORT=8300
 ```
 
 ::: tip
 Generate a secure JWT secret with: `openssl rand -base64 64`
 :::
 
-## Langfuse Observability (optional)
+## Built-in Tracing
 
-Viridian can trace every Claude turn — prompts, tool calls, subagent spans, and token usage — using [Langfuse](https://langfuse.com/), an open-source observability platform.
+Viridian automatically traces every Claude turn — prompts, tool calls, subagent spans, and token usage — to the built-in SQLite database. No external service is required; tracing is always enabled with zero configuration.
 
-### Self-hosting Langfuse
+Traces appear in the **Traces Panel** (right side of Chat) and in the full-page **Traces** view.
 
-A `docker-compose.yml` at the repo root starts a local Langfuse instance (Langfuse + PostgreSQL):
+## Local Whisper (optional)
+
+For local speech-to-text without sending audio to cloud APIs, Viridian supports [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) via Docker:
 
 ```bash
-# Docker
-docker compose up -d
-
-# Podman
-podman-compose up -d
+docker compose up faster-whisper -d
 ```
 
-Langfuse will be available at `http://localhost:3002`.
-
-### Getting API keys
-
-1. Open `http://localhost:3002` in your browser
-2. Register an account and create a new project
-3. Copy the **public key** and **secret key** from Project Settings → API Keys
-
-### Enabling tracing
-
-Add the keys to `.env`:
+Configure in `.env`:
 
 ```ini
-LANGFUSE_BASE_URL=http://localhost:3002
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+LOCAL_WHISPER_URL=http://localhost:8300
+WHISPER_MODEL=Systran/faster-whisper-medium
+WHISPER_PORT=8300
 ```
 
-Restart the server — traces will appear in the **Traces Panel** (right side of Chat) and in the Langfuse UI.
+Available models (trade-off between accuracy and VRAM usage):
 
-::: info
-Tracing is completely optional. When `LANGFUSE_SECRET_KEY` is not set, the Langfuse service is disabled with zero overhead. The Traces Panel shows a "not configured" placeholder.
+| Model | VRAM | Notes |
+|-------|------|-------|
+| `Systran/faster-whisper-large-v3` | ~10 GB | Best accuracy |
+| `Systran/faster-whisper-medium` | ~5 GB | Default, good balance |
+| `Systran/faster-whisper-small` | ~2 GB | Faster, less accurate |
+| `Systran/faster-whisper-base` | ~1 GB | Fastest, basic accuracy |
+
+::: tip
+If you prefer cloud providers, Viridian also supports Groq, Deepgram, Gladia, and AssemblyAI for speech-to-text. Configure them in Settings → Audio Provider.
 :::
 
 ## Running in Development
@@ -109,10 +110,24 @@ pnpm dev
 ```
 
 This runs concurrently:
-- **Server** at `http://localhost:3010` (Express + WebSocket)
-- **Client** at `http://localhost:5174` (Vite dev server with proxy)
+- **Server** at `http://localhost:12000` (Express + WebSocket)
+- **Client** at `http://localhost:12001` (Vite dev server with proxy)
 
-Open `http://localhost:5174` in your browser.
+Open `http://localhost:12001` in your browser.
+
+### LAN Access
+
+To access Viridian from other devices on your network (e.g., tablets, phones):
+
+```bash
+bash start-lan.sh
+```
+
+This starts with HTTPS (required for microphone access on LAN) and auto-detects your local IP. Services are available at:
+
+- **Client**: `https://{LAN_IP}:12001`
+- **Server**: `http://{LAN_IP}:12000`
+- **Docs**: `http://{LAN_IP}:12002`
 
 ## First Use
 

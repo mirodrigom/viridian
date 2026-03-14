@@ -37,9 +37,6 @@ export CORS_ORIGIN="https://${LAN_IP}:12001"
 export VITE_HOST="0.0.0.0"
 export VITE_HTTPS="1"
 
-LANGFUSE_PORT="${LANGFUSE_PORT:-12003}"
-export LANGFUSE_BASE_URL="http://${LAN_IP}:${LANGFUSE_PORT}"
-
 echo "============================================"
 echo "  viridian — LAN Mode"
 echo "============================================"
@@ -47,45 +44,13 @@ echo "  LAN IP:   ${LAN_IP}"
 echo "  Client:   https://${LAN_IP}:12001"
 echo "  Server:   http://${LAN_IP}:${PORT}"
 echo "  Docs:     http://${LAN_IP}:${DOCS_PORT}"
-echo "  Langfuse: http://${LAN_IP}:${LANGFUSE_PORT}  (${LANGFUSE_INIT_USER_EMAIL:-admin@viridian.local} / ${LANGFUSE_INIT_USER_PASSWORD:-viridian-dev})"
 echo "============================================"
 echo ""
-
-# Start Langfuse — detect podman-compose or docker compose
-# When inside Flatpak, detect container runtimes on the HOST (not the sandbox)
-COMPOSE_CMD=""
-if [ -f /.flatpak-info ]; then
-  if flatpak-spawn --host which podman-compose &>/dev/null; then
-    COMPOSE_CMD="podman-compose"
-  elif flatpak-spawn --host which docker &>/dev/null; then
-    COMPOSE_CMD="docker compose"
-  fi
-else
-  if command -v podman-compose &>/dev/null; then
-    COMPOSE_CMD="podman-compose"
-  elif command -v docker &>/dev/null; then
-    COMPOSE_CMD="docker compose"
-  fi
-fi
-
-if [ -n "$COMPOSE_CMD" ]; then
-  echo "→ Starting Langfuse ($COMPOSE_CMD)..."
-  if [ -f /.flatpak-info ]; then
-    flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && $COMPOSE_CMD up -d"
-  else
-    $COMPOSE_CMD up -d
-  fi
-  echo "  Langfuse dashboard: http://${LAN_IP}:${LANGFUSE_PORT}"
-  echo ""
-else
-  echo "  (Neither podman-compose nor docker found — skipping Langfuse)"
-  echo ""
-fi
 
 # Run pnpm (via flatpak-spawn if inside Flatpak sandbox)
 # Starts server, client, AND docs dev server
 if [ -f /.flatpak-info ]; then
-  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='https://${LAN_IP}:12001' LANGFUSE_BASE_URL='http://${LAN_IP}:${LANGFUSE_PORT}' LANGFUSE_SECRET_KEY='${LANGFUSE_SECRET_KEY:-}' LANGFUSE_PUBLIC_KEY='${LANGFUSE_PUBLIC_KEY:-}' VITE_HOST=0.0.0.0 VITE_HTTPS=1 pnpm dev:all"
+  flatpak-spawn --host bash -c "cd '$SCRIPT_DIR' && HOST=0.0.0.0 PORT=${PORT} CORS_ORIGIN='https://${LAN_IP}:12001' VITE_HOST=0.0.0.0 VITE_HTTPS=1 pnpm dev:all"
 else
   pnpm dev:all
 fi

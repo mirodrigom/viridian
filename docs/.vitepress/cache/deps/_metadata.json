@@ -1,43 +1,43 @@
 {
-  "hash": "49bbb9d9",
-  "configHash": "a032dc16",
-  "lockfileHash": "f6e233f9",
-  "browserHash": "0b1e23c0",
+  "hash": "d72e85a8",
+  "configHash": "003a3a9f",
+  "lockfileHash": "41fbdb4a",
+  "browserHash": "b2aad418",
   "optimized": {
     "vue": {
       "src": "../../../../node_modules/.pnpm/vue@3.5.28_typescript@5.9.3/node_modules/vue/dist/vue.runtime.esm-bundler.js",
       "file": "vue.js",
-      "fileHash": "cdd76abe",
+      "fileHash": "1e53a86b",
       "needsInterop": false
     },
     "vitepress > @vue/devtools-api": {
       "src": "../../../../node_modules/.pnpm/@vue+devtools-api@7.7.9/node_modules/@vue/devtools-api/dist/index.js",
       "file": "vitepress___@vue_devtools-api.js",
-      "fileHash": "c1eb0742",
+      "fileHash": "bad64d65",
       "needsInterop": false
     },
     "vitepress > @vueuse/core": {
       "src": "../../../../node_modules/.pnpm/@vueuse+core@12.8.2_typescript@5.9.3/node_modules/@vueuse/core/index.mjs",
       "file": "vitepress___@vueuse_core.js",
-      "fileHash": "ad56f7f7",
+      "fileHash": "657d4ba0",
       "needsInterop": false
     },
     "vitepress > @vueuse/integrations/useFocusTrap": {
       "src": "../../../../node_modules/.pnpm/@vueuse+integrations@12.8.2_focus-trap@7.8.0_typescript@5.9.3/node_modules/@vueuse/integrations/useFocusTrap.mjs",
       "file": "vitepress___@vueuse_integrations_useFocusTrap.js",
-      "fileHash": "88b530cb",
+      "fileHash": "ec79414d",
       "needsInterop": false
     },
     "vitepress > mark.js/src/vanilla.js": {
       "src": "../../../../node_modules/.pnpm/mark.js@8.11.1/node_modules/mark.js/src/vanilla.js",
       "file": "vitepress___mark__js_src_vanilla__js.js",
-      "fileHash": "e013e6b3",
+      "fileHash": "2ade4fe9",
       "needsInterop": false
     },
     "vitepress > minisearch": {
       "src": "../../../../node_modules/.pnpm/minisearch@7.2.0/node_modules/minisearch/dist/es/index.js",
       "file": "vitepress___minisearch.js",
-      "fileHash": "dc5ddce4",
+      "fileHash": "96d3c742",
       "needsInterop": false
     }
   },

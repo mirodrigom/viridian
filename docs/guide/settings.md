@@ -181,6 +181,40 @@ Locale is stored in `localStorage` under the key `locale` and defaults to `en`. 
 The locale infrastructure is in place (`client/src/i18n/index.ts` with `LOCALE_OPTIONS` and per-locale message files), but a visible language selector is not yet wired into the Settings dialog. To change the language today, set `localStorage.locale` to `en`, `zh`, or `ko` and reload.
 :::
 
+## Audio Provider
+
+The **Audio Provider** section in Settings lets you configure speech-to-text for voice input.
+
+### Provider Selection
+
+| Provider | Transport | Requires |
+|----------|-----------|----------|
+| **Browser** | Built-in SpeechRecognition API | Internet connection (most browsers) |
+| **Local Whisper** | Local Docker container | GPU, Docker, `LOCAL_WHISPER_URL` in `.env` |
+| **Groq** | Cloud API | API key |
+| **Deepgram** | Cloud API | API key |
+| **Gladia** | Cloud API | API key |
+| **AssemblyAI** | Cloud API | API key |
+
+### Configuring a Cloud Provider
+
+1. Select the provider from the dropdown.
+2. Enter your **API key** in the inline field.
+3. Click **Test** to verify connectivity.
+4. The key is stored server-side via `POST /api/audio/providers/{id}/configure`.
+
+### Language
+
+Select from 13 languages: auto-detect, English, Spanish, French, German, Portuguese, Italian, Japanese, Korean, Chinese, Russian, Arabic, Hindi. Language is sent to the provider with each transcription request.
+
+### Model Selection
+
+Some providers offer multiple models. When available, a model dropdown appears with descriptions and a default indicator.
+
+### Wake Word
+
+Toggle **"Hey Buddy"** to enable always-on voice listening. When the wake word is detected, the audio overlay opens automatically. The browser's SpeechRecognition runs in the background continuously, listening for "hey buddy" (with fuzzy matching for common misrecognitions like "body", "birdie", "bunny").
+
 ## Git User Configuration
 
 The **Git Identity** section at the bottom of the Settings dialog lets you set the `user.name` and `user.email` that Git uses for commits in the current project.
@@ -197,6 +231,8 @@ The **Git Identity** section at the bottom of the Settings dialog lets you set t
 |---|---|
 | Model, permission mode, thinking mode, editor prefs, dark mode, tool lists | `localStorage` (client) |
 | Locale | `localStorage` key `locale` (client) |
+| Audio provider, language, model, wake word | `localStorage` (client) + server-side API keys |
 | MCP servers | Server-side via REST API |
 | API keys | Server-side SQLite database |
+| Traces | Server-side SQLite database (automatic) |
 | Git identity | Server-side `git config` in the project directory |

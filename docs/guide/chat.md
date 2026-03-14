@@ -58,6 +58,29 @@ Attached images appear as thumbnails below the input. Hover over a thumbnail to 
 Image attachments are converted to base64 data URLs client-side, so they work without any file upload server. Only image MIME types are accepted; other file types are silently ignored.
 :::
 
+### File Attachments (PDF, HTML, CSV)
+
+You can attach up to **5 document files** per message (separate from image attachments):
+
+- **Drag and drop** files onto the input area.
+- **Click the attachment button** in the input toolbar.
+- **Paste** from clipboard.
+
+Supported types: `.pdf`, `.html`, `.htm`, `.csv`.
+
+CSV files are read as plain text and sent to Claude wrapped in a fenced code block:
+
+```
+--- Attached CSV file: data.csv ---
+```csv
+name,value
+...
+```
+--- End of data.csv ---
+```
+
+Attached files appear as removable badges in the input footer.
+
 ### Rate Limiting
 
 When the API rate limit is reached, the input area transitions to a red-tinted state with a live countdown showing when the limit resets. The textarea and send button are disabled until the cooldown expires.
@@ -151,13 +174,28 @@ In **Full Auto** mode (`bypassPermissions`), all tools are approved automaticall
 
 ## Voice Input
 
-The microphone button (visible when the browser supports the Web Speech API) enables voice-to-text input.
+The microphone button enables voice-to-text input with support for multiple audio providers and voice commands.
 
 ### How to Use
 
-1. Click the **microphone icon** to start recording. It turns red and pulses to indicate active recording.
-2. Speak your message. The browser performs real-time speech recognition.
-3. Click again to stop. The transcribed text is inserted into the input field.
+1. Click the **microphone icon** to open the Audio Overlay — a full-screen recording interface with a 3D particle sphere that visualizes audio frequency in real time.
+2. Speak your message. A live transcript appears below the sphere as you speak.
+3. Say **"send"** to finish — an 8-second confirmation countdown starts. Say **"ok"**, **"yes"**, or **"confirm"** to send, or **"cancel"** to abort. You can also click the on-screen buttons.
+
+### Audio Providers
+
+Choose your speech-to-text provider in Settings → Audio Provider:
+
+| Provider | Description |
+|----------|-------------|
+| **Browser** | Built-in `SpeechRecognition` API — no API key needed, requires internet on most browsers. |
+| **Local Whisper** | Self-hosted Faster Whisper via Docker — fully offline, requires GPU. See [Local Whisper setup](./getting-started#local-whisper-optional). |
+| **Groq** | Cloud STT via Groq API — fast, requires API key. |
+| **Deepgram** | Cloud STT via Deepgram — supports streaming and diarization, requires API key. |
+| **Gladia** | Cloud STT via Gladia — multilingual, requires API key. |
+| **AssemblyAI** | Cloud STT via AssemblyAI — high accuracy, requires API key. |
+
+Each provider supports **13 languages** (auto-detect, English, Spanish, French, German, Portuguese, Italian, Japanese, Korean, Chinese, Russian, Arabic, Hindi) and may offer multiple models to choose from.
 
 ### Enhancement Modes
 
@@ -170,8 +208,28 @@ Right-click the microphone button to select an enhancement mode that transforms 
 | **Expand** | Wraps the transcription as `Please help me with: <your speech>`, turning it into a prompt. |
 | **Code** | Wraps the transcription as `Write code to <your speech>`, framing it as a coding instruction. |
 
+### Voice Commands
+
+While recording, you can speak commands instead of text. Commands are detected in real time and shown as **floating command chips** around the sphere, color-coded by category:
+
+| Category | Commands | Action |
+|----------|----------|--------|
+| **Recording** | send, cancel, redo, stop | Control the recording flow |
+| **Navigation** | chat, editor, git, tasks, graph, autopilot, dashboard, management, diagrams | Navigate to the specified tab |
+| **Theme** | dark, light, toggle | Switch dark/light mode |
+| **Chat** | new session, clear context | Start a new session or clear messages |
+| **Git** | commit, push, pull | Execute git operations (requires voice confirmation) |
+
+Commands like **"send it"**, **"send message"**, or **"send please"** are all recognized as the "send" command. Git commands require a second voice confirmation for safety.
+
+### Wake Word
+
+Enable **"Hey Buddy"** in Settings → Audio Provider to activate always-on voice listening. When detected, the Audio Overlay opens automatically — no need to click the microphone button.
+
+The wake word uses fuzzy matching to handle common misrecognitions (buddy, body, birdie, bunny, etc.). After activation there is a 3-second cooldown to avoid repeated triggers.
+
 ::: info
-Voice input uses the browser's built-in `SpeechRecognition` API (or `webkitSpeechRecognition` on Chrome). It requires an internet connection on most browsers because recognition happens on remote servers. If microphone access is denied, a toast notification explains how to fix it.
+When using server providers (Groq, Deepgram, etc.), the browser's SpeechRecognition runs in parallel for live command detection while audio is recorded as a blob and sent to the server for final transcription.
 :::
 
 ## Session Management
@@ -262,7 +320,7 @@ Draft persistence uses `localStorage` rather than `sessionStorage` so that draft
 
 ## Traces Panel
 
-When [Langfuse observability](./getting-started#langfuse-observability-optional) is configured, the right panel of the chat view shows a live **Traces Panel** — a compact view of recent agent interactions.
+The right panel of the chat view shows a live **Traces Panel** — a compact view of recent agent interactions. Tracing is **always enabled** using a built-in SQLite store — no external service required.
 
 The Traces Panel is the default right-panel content, shown whenever there is no active Plan Review or Todo Timeline.
 
@@ -273,24 +331,33 @@ Each entry in the trace list represents one Claude turn and includes:
 - A **status dot** (green = success, red = error)
 - A **type icon** (chat bubble for regular turns, bot icon for autopilot)
 - The **trace name** (e.g. `chat`, `autopilot:orchestrator`)
-- **Token count** (in thousands)
+- **Token counts** (input/output in thousands)
+- **Tool/agent summary chips** — collapsed rows show which tools and subagents were used
 - **Relative timestamp** (e.g. `2m`)
+
+The header displays **session-level accumulated totals** (total input/output tokens across all traces in the current session).
 
 ### Expanding a trace
 
-Click any trace row to expand it and see its **observations** — the structured spans recorded during that turn:
+Click any trace row to expand it and see its **observations** — a hierarchical tree of spans recorded during that turn:
 
 - **Generation** (⚡) — The model call, with input/output token counts and the model name. Expand further to see the raw input prompt and output text.
-- **Spans** (🔧) — Tool calls and subagent invocations. Expand to see input arguments and output. Subagent spans (nested under `Task` or `Skill` tool calls) are labeled accordingly.
+- **Agent spans** (🤖) — Subagent invocations via `Task` or `Skill` tools, shown with a bot icon and bold label (e.g. `agent: fix bug`, `skill: commit`).
+- **Tool spans** (🔧) — Tool calls nested under their parent agent span (or directly under the trace for top-level calls). Expand to see input arguments, output, and duration.
 
-### Auto-refresh
+Observations are displayed depth-first with indentation reflecting the nesting: Trace → Generation → Agent span → subagent tool spans.
 
-The panel polls Langfuse every **3 seconds** while open, so you can watch traces appear in real time as Claude responds.
+### Real-time updates
 
-### Not configured
+The panel connects via WebSocket (`/ws/traces`) and receives `trace:ended` events, automatically refreshing when a new trace completes. A manual refresh button is also available.
 
-If Langfuse keys are not set in `.env`, the panel shows a "Langfuse not configured" placeholder instead of traces. Set `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_BASE_URL` in `.env` to enable it.
+### Traces View
+
+The full-page **Traces** view provides a resizable list/detail layout:
+
+- **Left panel (30%)** — Scrollable trace list with provider tag, token counts, and error indicators.
+- **Right panel (70%)** — Full observation tree for the selected trace, including generation I/O, span I/O, token breakdowns, durations, and error messages.
 
 ::: tip
-The full-page **Traces** view (accessible from the Management tab) provides a resizable list/detail layout with a 5-second auto-refresh toggle and a complete observation tree for each selected trace.
+Traces are scoped to the current session's `claudeSessionId`. When you start a new conversation, the panel clears and begins collecting traces for the new session once the first response completes.
 :::

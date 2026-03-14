@@ -329,6 +329,47 @@ function runMigrations(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_scheduled_task_executions_task ON scheduled_task_executions(task_id, started_at DESC);
   `);
 
+  // ── Tracing tables (replaces Langfuse) ──────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS traces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT 'chat',
+      user_id TEXT,
+      session_id TEXT,
+      metadata TEXT DEFAULT '{}',
+      tags TEXT DEFAULT '[]',
+      input TEXT,
+      output TEXT,
+      status TEXT DEFAULT 'active',
+      start_time TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+      end_time TEXT,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_traces_user_id ON traces(user_id);
+    CREATE INDEX IF NOT EXISTS idx_traces_start_time ON traces(start_time DESC);
+
+    CREATE TABLE IF NOT EXISTS observations (
+      id TEXT PRIMARY KEY,
+      trace_id TEXT NOT NULL REFERENCES traces(id) ON DELETE CASCADE,
+      parent_observation_id TEXT,
+      type TEXT NOT NULL DEFAULT 'SPAN',
+      name TEXT NOT NULL,
+      input TEXT,
+      output TEXT,
+      model TEXT,
+      metadata TEXT DEFAULT '{}',
+      start_time TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+      end_time TEXT,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      level TEXT DEFAULT 'DEFAULT',
+      status_message TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_observations_trace ON observations(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_observations_parent ON observations(parent_observation_id);
+  `);
+
   // ── Incremental migrations (safe to run multiple times) ──────────
   const safeAddColumn = (table: string, column: string, type: string) => {
     try {
