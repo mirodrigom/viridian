@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import { nextTick, type Ref } from 'vue';
 import type { ViewportTransform } from '@vue-flow/core';
 import { toast } from 'vue-sonner';
 import type { useDiagramsStore } from '@/stores/diagrams';
@@ -7,9 +7,11 @@ interface UseCanvasExportOptions {
   flowContainer: Ref<HTMLDivElement | undefined>;
   diagrams: ReturnType<typeof useDiagramsStore>;
   getViewport: () => ViewportTransform;
+  fitView: (options?: { padding?: number }) => void;
+  setViewport: (viewport: ViewportTransform) => void;
 }
 
-export function useCanvasExport({ flowContainer, diagrams, getViewport }: UseCanvasExportOptions) {
+export function useCanvasExport({ flowContainer, diagrams, getViewport, fitView, setViewport }: UseCanvasExportOptions) {
   function exportJson() {
     const data = diagrams.serialize(getViewport());
     const json = JSON.stringify({ name: diagrams.currentDiagramName, ...data }, null, 2);
@@ -25,47 +27,52 @@ export function useCanvasExport({ flowContainer, diagrams, getViewport }: UseCan
 
   async function exportPng() {
     try {
-      const captureTarget = flowContainer.value?.querySelector('.vue-flow__transformationpane') as HTMLElement
-        ?? flowContainer.value?.querySelector('.vue-flow__viewport') as HTMLElement
-        ?? flowContainer.value;
+      const captureTarget = flowContainer.value;
       if (!captureTarget) { toast.error('Cannot find canvas element'); return; }
+      const bounds = diagrams.getContentBounds(0);
+      if (!bounds) { toast.error('No nodes to export'); return; }
 
-      const html2canvas = (await import('html2canvas')).default;
-      const bounds = diagrams.getContentBounds(50);
-      const viewport = getViewport();
+      const { toCanvas } = await import('html-to-image');
 
-      if (bounds) {
-        const screenX = bounds.x * viewport.zoom + viewport.x;
-        const screenY = bounds.y * viewport.zoom + viewport.y;
-        const screenW = bounds.width * viewport.zoom;
-        const screenH = bounds.height * viewport.zoom;
+      // Compute fit-to-content viewport manually (no animation)
+      const savedViewport = getViewport();
+      const containerRect = captureTarget.getBoundingClientRect();
+      const PADDING = 0.04;
+      const zoom = Math.min(
+        (containerRect.width  * (1 - PADDING * 2)) / bounds.width,
+        (containerRect.height * (1 - PADDING * 2)) / bounds.height,
+      );
+      const x = (containerRect.width  - bounds.width  * zoom) / 2 - bounds.x * zoom;
+      const y = (containerRect.height - bounds.height * zoom) / 2 - bounds.y * zoom;
+      setViewport({ x, y, zoom });
+      await nextTick();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-        const scale = 2;
-        const canvas = await html2canvas(captureTarget, {
-          x: screenX,
-          y: screenY,
-          width: screenW,
-          height: screenH,
-          scale,
-          backgroundColor: '#0a0a0a',
-          logging: false,
-          useCORS: true,
-          allowTaint: true,
-        });
+      const canvas = await toCanvas(captureTarget, {
+        pixelRatio: 2,
+        backgroundColor: '#0a0a0a',
+        filter: (node) => {
+          if (node instanceof Element) {
+            if (node.classList.contains('vue-flow__controls')) return false;
+            if (node.classList.contains('vue-flow__minimap')) return false;
+            if (node.classList.contains('vue-flow__handle')) return false;
+          }
+          return true;
+        },
+      });
 
-        canvas.toBlob((blob) => {
-          if (!blob) return;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.png`;
-          a.click();
-          URL.revokeObjectURL(url);
-          toast.success('Diagram exported as PNG (cropped to content)');
-        });
-      } else {
-        toast.error('No nodes to export');
-      }
+      setViewport(savedViewport);
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success('Diagram exported as PNG');
+      }, 'image/png');
     } catch (err) {
       console.error('PNG export error:', err);
       toast.error('PNG export failed');

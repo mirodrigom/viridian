@@ -55,42 +55,39 @@ export type {
 export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMessage, void, undefined> {
   const claudeBin = findClaudeBinary();
 
-  // Prepare temp image and document files
+  // Prepare temp files for PDFs (images are sent as vision content blocks instead)
   let imageTempDir: string | null = null;
-  const imagePaths: string[] = [];
   const documentPaths: string[] = [];
+  // Collect image vision blocks for inline delivery (no temp files needed)
+  const imageBlocks: Array<{ type: 'image'; source: { type: 'base64'; media_type: string; data: string } }> = [];
+
   if (options.images?.length) {
-    imageTempDir = mkdtempSync(join(tmpdir(), 'claude-img-'));
     for (const img of options.images) {
-      // Handle PDF files (sent as data URLs with application/pdf mime type)
+      // Handle PDF files — still use temp files since PDFs are read via the Read tool
       const pdfMatch = img.dataUrl.match(/^data:application\/pdf;base64,(.+)$/);
       if (pdfMatch) {
+        if (!imageTempDir) imageTempDir = mkdtempSync(join(tmpdir(), 'claude-img-'));
         const buf = Buffer.from(pdfMatch[1]!, 'base64');
         const filePath = join(imageTempDir, `${img.name || uuid().slice(0, 8) + '.pdf'}`);
         writeFileSync(filePath, buf);
         documentPaths.push(filePath);
         continue;
       }
-      // Handle image files
-      const match = img.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+      // Handle image files — send as vision content blocks (no temp files, no Read tool needed)
+      const match = img.dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
       if (!match) continue;
-      const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-      const buf = Buffer.from(match[2]!, 'base64');
-      const filePath = join(imageTempDir, `${uuid().slice(0, 8)}.${ext}`);
-      writeFileSync(filePath, buf);
-      imagePaths.push(filePath);
+      imageBlocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: match[1]!, data: match[2]! },
+      });
     }
   }
 
-  // Build prompt — prepend image/document paths so Claude can read them with its Read tool
+  // Build prompt — prepend document paths so Claude can read PDFs with its Read tool
   let prompt = options.prompt;
   if (documentPaths.length > 0) {
-    const docRefs = documentPaths.map(p => p).join('\n');
+    const docRefs = documentPaths.join('\n');
     prompt = `[Attached PDF documents — use the Read tool to view them]\n${docRefs}\n\n${prompt}`;
-  }
-  if (imagePaths.length > 0) {
-    const imageRefs = imagePaths.map(p => p).join('\n');
-    prompt = `[Attached images — use the Read tool to view them]\n${imageRefs}\n\n${prompt}`;
   }
 
   // When using --input-format stream-json, do NOT use -p flag
@@ -196,11 +193,16 @@ export async function* claudeQuery(options: QueryOptions): AsyncGenerator<SDKMes
   }
 
   // Send the initial user message via stdin
+  // When there are images, build a content array with vision blocks so Claude can see them
+  // without needing the Read tool (which may be disabled in some contexts like diagram AI chat).
+  const messageContent = imageBlocks.length > 0
+    ? [...imageBlocks, { type: 'text', text: prompt }]
+    : prompt;
   const userMessage = {
     type: 'user',
     message: {
       role: 'user',
-      content: prompt,
+      content: messageContent,
     },
   };
   proc.stdin!.write(JSON.stringify(userMessage) + '\n');

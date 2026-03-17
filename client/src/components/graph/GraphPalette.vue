@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Bot, GitBranch, Sparkles, Zap, Server, ShieldCheck, Circle } from 'lucide-vue-next';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+const props = defineProps<{ mobile?: boolean }>();
+const emit = defineEmits<{ 'add-node': [type: GraphNodeType] }>();
+
 const graph = useGraphStore();
 
 const nodeTypes: { type: GraphNodeType; icon: typeof Bot }[] = [
@@ -21,6 +24,10 @@ function onDragStart(event: DragEvent, type: GraphNodeType) {
   if (!event.dataTransfer) return;
   event.dataTransfer.setData('application/vueflow', type);
   event.dataTransfer.effectAllowed = 'move';
+}
+
+function onTapAdd(type: GraphNodeType) {
+  emit('add-node', type);
 }
 </script>
 
@@ -49,10 +56,11 @@ function onDragStart(event: DragEvent, type: GraphNodeType) {
           v-for="node in nodeTypes"
           :key="node.type"
           :data-testid="`graph-node-type-${node.type}`"
-          class="cursor-grab rounded-md border border-border/50 bg-card p-2.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
-          :class="NODE_CONFIG[node.type].accentClass"
-          draggable="true"
-          @dragstart="(e) => onDragStart(e, node.type)"
+          class="rounded-md border border-border/50 bg-card p-2.5 transition-all hover:border-border hover:shadow-sm"
+          :class="[NODE_CONFIG[node.type].accentClass, props.mobile ? 'cursor-pointer active:bg-accent' : 'cursor-grab active:cursor-grabbing']"
+          :draggable="!props.mobile"
+          @dragstart="(e) => !props.mobile && onDragStart(e, node.type)"
+          @click="props.mobile && onTapAdd(node.type)"
         >
           <div class="flex items-center gap-2">
             <component :is="node.icon" class="h-4 w-4 shrink-0" />

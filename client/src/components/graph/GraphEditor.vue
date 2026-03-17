@@ -142,6 +142,26 @@ onNodeClick(({ node }) => {
   graph.selectNode(node.id);
 });
 
+// ─── Mobile tap-to-add ──────────────────────────────────────────────
+
+function onMobileAddNode(type: GraphNodeType) {
+  // Add node at viewport center
+  const el = flowContainer.value;
+  if (!el) return;
+  const bounds = el.getBoundingClientRect();
+  const position = project({
+    x: bounds.width / 2,
+    y: bounds.height / 2,
+  });
+
+  const id = graph.addNode(type, position);
+  const node = graph.nodes.find(n => n.id === id);
+  if (node) addNodes([{ ...node }]);
+
+  graph.selectNode(id);
+  showMobilePalette.value = false;
+}
+
 // ─── Drop handler ───────────────────────────────────────────────────
 
 function onDragOver(event: DragEvent) {
@@ -349,6 +369,7 @@ function isValidConnection(connection: Connection): boolean {
           @load="showLoadDialog = true"
           @templates="showTemplatesDialog = true"
           @import="showImportDialog = true"
+          @import-project="showImportProjectDialog = true"
           @save-to-project="showSaveToProject = true"
           @run="showRunDialog = true"
           @abort="abortRun()"
@@ -411,7 +432,7 @@ function isValidConnection(connection: Connection): boolean {
                 <X class="h-4 w-4" />
               </Button>
             </div>
-            <GraphPalette />
+            <GraphPalette :mobile="true" @add-node="onMobileAddNode" />
           </div>
         </Transition>
 

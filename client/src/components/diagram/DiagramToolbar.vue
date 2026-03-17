@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { ref, computed, onUnmounted } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   Save, FolderOpen, FilePlus, Maximize2, Download, ImageDown, FileJson, FileType, Grid3x3, MousePointerSquareDashed,
-  Minimize2, Maximize, Film, Undo2, Redo2,
+  Minimize2, Maximize, Film, Undo2, Redo2, Import,
+  Play, Pause, SkipBack, SkipForward, StopCircle,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -13,6 +15,64 @@ const props = defineProps<{
 }>();
 
 const diagrams = useDiagramsStore();
+
+// ─── Flow playback ──────────────────────────────────────────────────────────
+const isPlaying = ref(false);
+let playTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Show the playback section whenever there are edges to step through. */
+const showPlayback = computed(() => diagrams.edgeCount > 0);
+
+function enterPlayback() {
+  diagrams.setPlaybackStep(0);
+}
+
+function exitPlayback() {
+  stopAutoPlay();
+  diagrams.setPlaybackStep(null);
+}
+
+function prevStep() {
+  if (diagrams.playbackStep === null || diagrams.playbackStep <= 0) return;
+  diagrams.setPlaybackStep(diagrams.playbackStep - 1);
+}
+
+function nextStep() {
+  if (diagrams.playbackStep === null) { diagrams.setPlaybackStep(0); return; }
+  if (diagrams.playbackStep < diagrams.playbackMaxStep) {
+    diagrams.setPlaybackStep(diagrams.playbackStep + 1);
+  } else {
+    stopAutoPlay();
+  }
+}
+
+function toggleAutoPlay() {
+  isPlaying.value ? stopAutoPlay() : startAutoPlay();
+}
+
+function startAutoPlay() {
+  isPlaying.value = true;
+  if (diagrams.playbackStep === null || diagrams.playbackStep >= diagrams.playbackMaxStep) {
+    diagrams.setPlaybackStep(0);
+  }
+  const advance = () => {
+    if (!isPlaying.value) return;
+    if (diagrams.playbackStep === null || diagrams.playbackStep >= diagrams.playbackMaxStep) {
+      stopAutoPlay();
+      return;
+    }
+    diagrams.setPlaybackStep(diagrams.playbackStep + 1);
+    playTimer = setTimeout(advance, 2000);
+  };
+  playTimer = setTimeout(advance, 2000);
+}
+
+function stopAutoPlay() {
+  isPlaying.value = false;
+  if (playTimer !== null) { clearTimeout(playTimer); playTimer = null; }
+}
+
+onUnmounted(stopAutoPlay);
 
 const emit = defineEmits<{
   (e: 'fitView'): void;
@@ -23,6 +83,7 @@ const emit = defineEmits<{
   (e: 'exportSvg'): void;
   (e: 'exportJson'): void;
   (e: 'exportGif'): void;
+  (e: 'import'): void;
   (e: 'toggleSnap'): void;
   (e: 'collapseAll'): void;
   (e: 'expandAll'): void;
@@ -141,6 +202,25 @@ const exportTools = [
       <!-- Separator -->
       <div class="mx-1 h-4 w-px bg-border" />
 
+      <!-- Import -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            data-testid="toolbar-import"
+            @click="emit('import')"
+          >
+            <Import class="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Import (draw.io, Lucidchart)</TooltipContent>
+      </Tooltip>
+
+      <!-- Separator -->
+      <div class="mx-1 h-4 w-px bg-border" />
+
       <!-- Export tools -->
       <Tooltip v-for="tool in exportTools" :key="tool.event">
         <TooltipTrigger as-child>
@@ -156,6 +236,72 @@ const exportTools = [
         </TooltipTrigger>
         <TooltipContent>{{ tool.label }}</TooltipContent>
       </Tooltip>
+
+      <!-- Flow playback controls — only visible when diagram has numbered flow levels -->
+      <template v-if="showPlayback">
+        <div class="mx-1 h-4 w-px bg-border" />
+
+        <!-- Enter playback: single "Flow" button when not in playback mode -->
+        <Tooltip v-if="diagrams.playbackStep === null">
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost" size="sm"
+              class="h-7 gap-1.5 px-2 text-[11px] font-medium"
+              @click="enterPlayback()"
+            >
+              <Play class="h-3 w-3" />
+              Flow
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Step through the flow animation level by level</TooltipContent>
+        </Tooltip>
+
+        <!-- Playback controls when active -->
+        <template v-else>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0"
+                :disabled="diagrams.playbackStep <= 0" @click="prevStep()">
+                <SkipBack class="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Previous step</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="toggleAutoPlay()">
+                <Pause v-if="isPlaying" class="h-3.5 w-3.5" />
+                <Play v-else class="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{{ isPlaying ? 'Pause' : 'Play' }} auto-advance</TooltipContent>
+          </Tooltip>
+
+          <span class="mx-1 min-w-[32px] text-center text-[11px] font-medium tabular-nums text-foreground">
+            {{ diagrams.playbackStep + 1 }}<span class="text-muted-foreground">/{{ diagrams.playbackMaxStep + 1 }}</span>
+          </span>
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0"
+                :disabled="diagrams.playbackStep >= diagrams.playbackMaxStep" @click="nextStep()">
+                <SkipForward class="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Next step</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button variant="ghost" size="sm" class="h-7 w-7 p-0 text-muted-foreground" @click="exitPlayback()">
+                <StopCircle class="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Exit flow playback (show all)</TooltipContent>
+          </Tooltip>
+        </template>
+      </template>
 
       <!-- Spacer -->
       <div class="flex-1" />

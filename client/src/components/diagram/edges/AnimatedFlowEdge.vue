@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { getBezierPath, getStraightPath, getSmoothStepPath } from '@vue-flow/core';
+import { getBezierPath, getStraightPath, getSmoothStepPath, EdgeLabelRenderer } from '@vue-flow/core';
 import type { EdgeProps } from '@vue-flow/core';
 import type { DiagramEdgeData } from '@/stores/diagrams';
 import { useDiagramsStore } from '@/stores/diagrams';
@@ -82,6 +82,20 @@ const flowLevel = computed(() => {
 });
 const flowDelay = computed(() => flowLevel.value * diagrams.flowStagger);
 
+// ── Flow playback state ───────────────────────────────────────────────
+const playbackActive = computed(() => diagrams.playbackStep !== null);
+const isCurrentStep = computed(() => !playbackActive.value || flowLevel.value === diagrams.playbackStep);
+const isPastStep = computed(() => playbackActive.value && flowLevel.value < diagrams.playbackStep!);
+const isFutureStep = computed(() => playbackActive.value && flowLevel.value > diagrams.playbackStep!);
+
+// Opacity and animation gating based on playback state
+const edgeOpacity = computed(() => {
+  if (isFutureStep.value) return 0.1;
+  if (isPastStep.value) return 0.35;
+  return 1;
+});
+const showAnimation = computed(() => showDots.value && !isFutureStep.value && isCurrentStep.value);
+
 // Generate delay offsets for multiple dots (used in live animateMotion mode)
 // flowDelay staggers edges by topological level; dots within the same edge are spaced evenly
 const dots = computed(() => {
@@ -145,7 +159,7 @@ const dotPositions = computed(() => {
 </script>
 
 <template>
-  <g>
+  <g :style="{ opacity: edgeOpacity, transition: 'opacity 0.4s ease' }">
     <!-- Custom marker defs (VueFlow's built-in markers don't react to post-creation changes) -->
     <defs>
       <marker
@@ -215,7 +229,7 @@ const dotPositions = computed(() => {
     />
 
     <!-- Live mode: native SVG animation (zero JS overhead) -->
-    <template v-if="!isExportMode && showDots">
+    <template v-if="!isExportMode && showAnimation">
       <circle
         v-for="dot in dots"
         :key="dot.key"
@@ -250,40 +264,65 @@ const dotPositions = computed(() => {
       />
     </template>
 
-    <!-- Edge label -->
-    <g v-if="edgeData.label" :transform="`translate(${labelX}, ${labelY})`">
-      <rect
-        :x="-(edgeData.label.length * labelCharWidth / 2 + labelPadX)"
-        :y="-(labelFontSize / 2 + labelPadY)"
-        :width="edgeData.label.length * labelCharWidth + labelPadX * 2"
-        :height="labelFontSize + labelPadY * 2"
-        :rx="labelFontSize <= 10 ? 4 : 6"
-        fill="var(--card)"
-        :stroke="edgeColor"
-        stroke-width="1"
-        :opacity="0.95"
-      />
-      <text
-        text-anchor="middle"
-        dominant-baseline="central"
-        :style="{ fontSize: labelFontSize + 'px', fontWeight: labelFontSize >= 14 ? 600 : 500 }"
-        fill="var(--foreground)"
-      >
-        {{ edgeData.label }}
-      </text>
-    </g>
-
-    <!-- Flow sequence badge (shown when multiple topological levels exist) -->
-    <g v-if="badgePos && !isExportMode" :transform="`translate(${badgePos.x}, ${badgePos.y})`" class="flow-badge">
-      <circle r="9" fill="var(--card)" :stroke="edgeColor" stroke-width="1.5" />
-      <text
-        text-anchor="middle"
-        dominant-baseline="central"
-        fill="var(--foreground)"
-        style="font-size: 8px; font-weight: 700; font-family: ui-monospace, monospace;"
-      >
-        {{ flowLevel + 1 }}
-      </text>
-    </g>
   </g>
+
+  <!-- Edge label and flow badge rendered as HTML so they appear above nodes -->
+  <EdgeLabelRenderer>
+    <!-- Edge label -->
+    <div
+      v-if="edgeData.label"
+      class="nodrag nopan"
+      :style="{
+        position: 'absolute',
+        transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+        pointerEvents: 'none',
+      }"
+    >
+      <span
+        :style="{
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: `${labelPadY}px ${labelPadX}px`,
+          fontSize: labelFontSize + 'px',
+          fontWeight: labelFontSize >= 14 ? 600 : 500,
+          borderRadius: labelFontSize <= 10 ? '4px' : '6px',
+          backgroundColor: 'var(--card)',
+          border: `1px solid ${edgeColor}`,
+          color: 'var(--foreground)',
+          whiteSpace: 'nowrap',
+          lineHeight: 1,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+        }"
+      >{{ edgeData.label }}</span>
+    </div>
+
+    <!-- Flow sequence badge -->
+    <div
+      v-if="badgePos && !isExportMode"
+      class="nodrag nopan flow-badge"
+      :style="{
+        position: 'absolute',
+        transform: `translate(-50%, -50%) translate(${badgePos.x}px, ${badgePos.y}px)`,
+        pointerEvents: 'none',
+      }"
+    >
+      <span
+        :style="{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '18px',
+          height: '18px',
+          borderRadius: '50%',
+          fontSize: '8px',
+          fontWeight: 700,
+          fontFamily: 'ui-monospace, monospace',
+          backgroundColor: 'var(--card)',
+          border: `1.5px solid ${edgeColor}`,
+          color: 'var(--foreground)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+        }"
+      >{{ flowLevel + 1 }}</span>
+    </div>
+  </EdgeLabelRenderer>
 </template>

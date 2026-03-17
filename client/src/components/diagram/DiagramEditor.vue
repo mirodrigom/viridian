@@ -19,11 +19,17 @@ import AWSServiceNode from './nodes/AWSServiceNode.vue';
 import AWSGroupNode from './nodes/AWSGroupNode.vue';
 import AnimatedFlowEdge from './edges/AnimatedFlowEdge.vue';
 import ExportGifDialog from './dialogs/ExportGifDialog.vue';
+import AddCustomServiceDialog from './dialogs/AddCustomServiceDialog.vue';
+import ImportDiagramDialog from './dialogs/ImportDiagramDialog.vue';
+import DiagramAIChat from './DiagramAIChat.vue';
 
 import { useCanvasExport } from '@/composables/diagram/useCanvasExport';
 import { useVueFlowSync } from '@/composables/diagram/useVueFlowSync';
 import { useDiagramEvents } from '@/composables/diagram/useDiagramEvents';
 import { useMobileResponsive } from '@/composables/diagram/useMobileResponsive';
+import { applyDagreLayout } from '@/composables/diagram/useDiagramAutoLayout';
+import type { ImportResult } from '@/lib/import';
+import { toast } from 'vue-sonner';
 
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
@@ -35,7 +41,10 @@ const diagrams = useDiagramsStore();
 const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showGifDialog = ref(false);
+const showCustomServiceDialog = ref(false);
+const showImportDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
+const aiChatRef = ref<InstanceType<typeof DiagramAIChat> | null>(null);
 const snapToGrid = ref(true);
 const hoveredGroupId = ref<string | null>(null);
 
@@ -105,6 +114,8 @@ const { exportJson, exportPng, exportSvg } = useCanvasExport({
   flowContainer,
   diagrams,
   getViewport,
+  fitView,
+  setViewport,
 });
 
 // ─── Toolbar actions ─────────────────────────────────────────────────
@@ -117,9 +128,84 @@ function onNew() {
   diagrams.newDiagram();
 }
 
+// ─── Mobile tap-to-add ────────────────────────────────────────────────
+function onMobileAddNode(type: 'service' | 'group', id: string) {
+  const el = flowContainer.value;
+  if (!el) return;
+  const bounds = el.getBoundingClientRect();
+  const position = screenToFlowCoordinate({
+    x: bounds.left + bounds.width / 2,
+    y: bounds.top + bounds.height / 2,
+  });
+
+  let nodeId: string;
+  if (type === 'service') {
+    nodeId = diagrams.addServiceNode(id, position);
+  } else {
+    nodeId = diagrams.addGroupNode(id, position);
+  }
+
+  if (type === 'service') {
+    const groupId = diagrams.findGroupAtPosition(position, nodeId);
+    if (groupId) diagrams.setNodeParent(nodeId, groupId);
+  }
+
+  const node = diagrams.nodes.find(n => n.id === nodeId);
+  if (node) addNodes([{ ...node }]);
+
+  showMobilePalette.value = false;
+}
+
+function onAddCustomService(name: string, iconUrl: string, color: string) {
+  const el = flowContainer.value;
+  if (!el) return;
+  const bounds = el.getBoundingClientRect();
+  const position = screenToFlowCoordinate({
+    x: bounds.left + bounds.width / 2,
+    y: bounds.top + bounds.height / 2,
+  });
+
+  const nodeId = diagrams.addCustomServiceNode(name, iconUrl, position, color);
+  const node = diagrams.nodes.find(n => n.id === nodeId);
+  if (node) addNodes([{ ...node }]);
+
+  showMobilePalette.value = false;
+}
+
 function onSave() {
   diagrams.savedViewport = getViewport();
   showSaveDialog.value = true;
+}
+
+function onAIImport(prompt: string) {
+  showImportDialog.value = false;
+  aiChatRef.value?.openWithPrompt(prompt);
+}
+
+function onImportResult(result: ImportResult, options: { autoLayout: boolean }) {
+  // Clear existing diagram and load imported data
+  diagrams.newDiagram();
+
+  const config = {
+    id: '',
+    name: 'Imported Diagram',
+    nodes: result.nodes,
+    edges: result.edges,
+  };
+
+  diagrams.deserialize(config);
+
+  if (options.autoLayout) {
+    // Small delay for VueFlow to render nodes before layout
+    setTimeout(() => {
+      applyDagreLayout(diagrams, () => fitView());
+    }, 200);
+  } else {
+    setTimeout(() => fitView(), 100);
+  }
+
+  const source = result.format === 'drawio-xml' ? 'draw.io' : 'Lucidchart';
+  toast.success(`Imported ${result.nodes.length} nodes from ${source}`);
 }
 </script>
 
@@ -132,7 +218,7 @@ function onSave() {
         <div class="flex h-full flex-col border-r border-border">
           <ResizablePanelGroup direction="vertical">
             <ResizablePanel :default-size="60" :min-size="20">
-              <NodePalette />
+              <NodePalette @add-custom="showCustomServiceDialog = true" />
             </ResizablePanel>
             <ResizableHandle />
             <ResizablePanel :default-size="40" :min-size="15">
@@ -157,6 +243,7 @@ function onSave() {
             @save="onSave"
             @load="showLoadDialog = true"
             @new="onNew"
+            @import="showImportDialog = true"
             @export-png="exportPng"
             @export-svg="exportSvg"
             @export-json="exportJson"
@@ -194,7 +281,7 @@ function onSave() {
 
               <Background :gap="15" :size="1" pattern-color="var(--border)" />
               <MiniMap
-                class="!bottom-4 !right-4"
+                class="!top-4 !right-4 !bottom-auto"
                 :node-color="() => 'var(--primary)'"
                 :mask-color="'rgba(19, 24, 20, 0.8)'"
               />
@@ -216,6 +303,9 @@ function onSave() {
                 @blur="commitInlineEdgeLabel"
               />
             </div>
+
+            <!-- AI Architect chat widget -->
+            <DiagramAIChat ref="aiChatRef" :fit-view="() => fitView()" />
           </div>
         </div>
       </ResizablePanel>
@@ -239,6 +329,7 @@ function onSave() {
           @save="onSave"
           @load="showLoadDialog = true"
           @new="onNew"
+          @import="showImportDialog = true"
           @export-png="exportPng"
           @export-svg="exportSvg"
           @export-json="exportJson"
@@ -273,14 +364,17 @@ function onSave() {
             <template #edge-animated-flow="edgeProps"><AnimatedFlowEdge v-bind="edgeProps" /></template>
 
             <Background :gap="15" :size="1" pattern-color="var(--border)" />
-            <MiniMap class="!bottom-16 !right-4" :node-color="() => 'var(--primary)'" :mask-color="'rgba(19, 24, 20, 0.8)'" />
+            <MiniMap class="!top-4 !right-4 !bottom-auto" :node-color="() => 'var(--primary)'" :mask-color="'rgba(19, 24, 20, 0.8)'" />
             <Controls class="!bottom-16 !left-4" />
           </VueFlow>
         </div>
 
+        <!-- AI Architect chat widget (mobile) -->
+        <DiagramAIChat :fit-view="() => fitView()" />
+
         <!-- FAB: Add node -->
         <Button
-          class="absolute bottom-4 right-4 z-10 h-12 w-12 rounded-full shadow-lg"
+          class="absolute bottom-20 right-4 z-10 h-12 w-12 rounded-full shadow-lg"
           @click="showMobilePalette = true"
         >
           <Plus class="h-5 w-5" />
@@ -298,7 +392,7 @@ function onSave() {
                 <X class="h-4 w-4" />
               </Button>
             </div>
-            <NodePalette />
+            <NodePalette :mobile="true" @add-node="onMobileAddNode" @add-custom="showCustomServiceDialog = true" />
           </div>
         </Transition>
 
@@ -324,6 +418,8 @@ function onSave() {
     <SaveDiagramDialog v-model:open="showSaveDialog" />
     <LoadDiagramDialog v-model:open="showLoadDialog" />
     <ExportGifDialog v-model:open="showGifDialog" :flow-container="flowContainer" />
+    <AddCustomServiceDialog v-model:open="showCustomServiceDialog" @add="onAddCustomService" />
+    <ImportDiagramDialog v-model:open="showImportDialog" @import="onImportResult" @ai-import="onAIImport" />
   </div>
 </template>
 

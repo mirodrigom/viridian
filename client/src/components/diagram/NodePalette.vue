@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronRight, Circle, Search, X } from 'lucide-vue-next';
+import { ChevronDown, ChevronRight, Circle, Search, X, Plus } from 'lucide-vue-next';
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   AWS_SERVICES, AWS_CATEGORIES, AWS_GROUP_TYPES,
@@ -90,11 +90,21 @@ function clearSearch() {
   search.value = '';
 }
 
+const props = defineProps<{ mobile?: boolean }>();
+const emit = defineEmits<{
+  'add-node': [type: 'service' | 'group', id: string];
+  'add-custom': [];
+}>();
+
 function onDragStart(event: DragEvent, type: 'service' | 'group', id: string) {
   if (!event.dataTransfer) return;
   event.dataTransfer.setData('application/diagram-type', type);
   event.dataTransfer.setData('application/diagram-id', id);
   event.dataTransfer.effectAllowed = 'move';
+}
+
+function onTapAdd(type: 'service' | 'group', id: string) {
+  emit('add-node', type, id);
 }
 
 /** Highlight matched substring in text */
@@ -165,9 +175,11 @@ function highlightMatch(text: string): string {
               v-for="group in filteredGroups"
               :key="group.id"
               :data-testid="`palette-group-${group.id}`"
-              class="cursor-grab rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
-              draggable="true"
-              @dragstart="(e) => onDragStart(e, 'group', group.id)"
+              class="rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm"
+              :class="props.mobile ? 'cursor-pointer active:bg-accent' : 'cursor-grab active:cursor-grabbing'"
+              :draggable="!props.mobile"
+              @dragstart="(e) => !props.mobile && onDragStart(e, 'group', group.id)"
+              @click="props.mobile && onTapAdd('group', group.id)"
             >
               <div class="flex items-center gap-2">
                 <div
@@ -210,9 +222,11 @@ function highlightMatch(text: string): string {
               v-for="service in services"
               :key="service.id"
               :data-testid="`palette-service-${service.id}`"
-              class="cursor-grab rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm active:cursor-grabbing"
-              draggable="true"
-              @dragstart="(e) => onDragStart(e, 'service', service.id)"
+              class="rounded border border-transparent bg-card px-2 py-1.5 transition-all hover:border-border hover:shadow-sm"
+              :class="props.mobile ? 'cursor-pointer active:bg-accent' : 'cursor-grab active:cursor-grabbing'"
+              :draggable="!props.mobile"
+              @dragstart="(e) => !props.mobile && onDragStart(e, 'service', service.id)"
+              @click="props.mobile && onTapAdd('service', service.id)"
             >
               <div class="flex items-center gap-2">
                 <img v-if="service.iconUrl" :src="service.iconUrl" :alt="service.shortName" class="h-4 w-4 shrink-0" />
@@ -226,6 +240,24 @@ function highlightMatch(text: string): string {
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Custom section -->
+        <div v-if="!searchQuery" class="pt-1">
+          <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Custom</div>
+          <button
+            data-testid="palette-add-custom"
+            class="flex w-full items-center gap-2 rounded border border-dashed border-border/60 bg-card px-2 py-1.5 text-left transition-all hover:border-primary/50 hover:bg-primary/5"
+            @click="emit('add-custom')"
+          >
+            <div class="flex h-4 w-4 items-center justify-center rounded bg-muted text-muted-foreground">
+              <Plus class="h-3 w-3" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="text-[11px] font-medium">Add Custom Service</div>
+              <div class="text-[9px] text-muted-foreground/70">Upload a logo or paste a URL</div>
+            </div>
+          </button>
         </div>
 
         <!-- No results -->

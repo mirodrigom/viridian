@@ -778,20 +778,20 @@ function handleKeydown(e: KeyboardEvent) {
         <Button
           v-if="!(chat?.isStreaming ?? false)"
           size="sm"
-          class="h-8 w-8 rounded-lg p-0"
+          class="h-10 w-10 sm:h-8 sm:w-8 rounded-lg p-0"
           :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)"
           @click="handleSubmit"
         >
-          <Send class="h-4 w-4" />
+          <Send class="h-5 w-5 sm:h-4 sm:w-4" />
         </Button>
         <Button
           v-else
           size="sm"
           variant="destructive"
-          class="h-8 w-8 rounded-lg p-0"
+          class="h-10 w-10 sm:h-8 sm:w-8 rounded-lg p-0"
           @click="emit('abort')"
         >
-          <Square class="h-3.5 w-3.5" />
+          <Square class="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         </Button>
       </div>
     </div>

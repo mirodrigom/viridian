@@ -171,6 +171,20 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
               />
             </div>
 
+            <!-- Icon URL (editable for custom services) -->
+            <div v-if="(nodeData as AWSServiceNodeData).serviceId?.startsWith('custom-')" class="space-y-1">
+              <Label class="text-[11px]">Icon URL</Label>
+              <Input
+                :model-value="(nodeData as AWSServiceNodeData).service.iconUrl"
+                class="h-7 text-xs"
+                placeholder="https://example.com/logo.svg"
+                @update:model-value="(v: string) => {
+                  const svc = { ...(nodeData as AWSServiceNodeData).service, iconUrl: v };
+                  diagrams.updateNodeData(diagrams.selectedNodeId!, { service: svc } as any);
+                }"
+              />
+            </div>
+
             <!-- Description -->
             <div class="space-y-1">
               <Label class="text-[11px]">Description</Label>

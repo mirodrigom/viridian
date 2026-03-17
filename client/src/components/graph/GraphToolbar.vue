@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
+import { useWindowSize } from '@vueuse/core';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
 import { useAuthStore } from '@/stores/auth';
@@ -7,11 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { toast } from 'vue-sonner';
 import { resolveApiUrl } from '@/lib/serverUrl';
+import {
+  DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal,
+  DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from 'reka-ui';
 import type { GraphExportData, ExportedNode, NodeData, EdgeType } from '@/types/graph';
 import {
   FilePlus, Save, FolderOpen, LayoutTemplate, Download, Upload, Package, FolderOutput,
-  LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight, FolderSearch,
+  LayoutGrid, Maximize2, Trash2, Play, Square, PanelRight, FolderSearch, EllipsisVertical,
 } from 'lucide-vue-next';
+import { computed } from 'vue';
 
 const emit = defineEmits<{
   fitView: [];
@@ -29,6 +35,9 @@ const graph = useGraphStore();
 const runner = useGraphRunnerStore();
 const auth = useAuthStore();
 const router = useRouter();
+
+const { width } = useWindowSize();
+const isMobile = computed(() => width.value < 768);
 
 function onNewGraph() {
   graph.newGraph();
@@ -149,8 +158,9 @@ async function onExportClaude() {
   <div data-testid="graph-toolbar" class="flex h-9 items-center gap-1.5 border-b border-border px-3">
     <div class="flex-1" />
 
-    <!-- Actions -->
     <TooltipProvider :delay-duration="300">
+      <!-- ═══ Primary actions (always visible) ═══ -->
+
       <Tooltip>
         <TooltipTrigger as-child>
           <Button data-testid="graph-toolbar-new" variant="ghost" size="sm" class="h-7 w-7 p-0" @click="onNewGraph()">
@@ -178,101 +188,185 @@ async function onExportClaude() {
         <TooltipContent>Load Graph</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('templates')">
-            <LayoutTemplate class="h-4 w-4" />
+      <!-- ═══ Secondary actions (hidden on mobile, in overflow menu) ═══ -->
+      <template v-if="!isMobile">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('templates')">
+              <LayoutTemplate class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Templates</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExport()">
+              <Download class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Export as JSON</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExportClaude()">
+              <Package class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Export as .claude/ (zip)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('import')">
+              <Upload class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Import from JSON</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('importProject')">
+              <FolderSearch class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Import from Project (.claude/)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="emit('saveToProject')">
+              <FolderOutput class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Save to Project (.claude/)</TooltipContent>
+        </Tooltip>
+
+        <div class="mx-1 h-4 w-px bg-border" />
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="graph.autoLayout()">
+              <LayoutGrid class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Auto Layout</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('fitView')">
+              <Maximize2 class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Fit View</TooltipContent>
+        </Tooltip>
+
+        <div class="mx-1 h-4 w-px bg-border" />
+
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              data-testid="graph-toolbar-delete"
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0 text-destructive hover:text-destructive"
+              :disabled="!graph.selectedNodeId"
+              @click="graph.selectedNodeId && graph.removeNode(graph.selectedNodeId)"
+            >
+              <Trash2 class="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Delete Selected</TooltipContent>
+        </Tooltip>
+
+        <div class="mx-1 h-4 w-px bg-border" />
+      </template>
+
+      <!-- ═══ Overflow dropdown (mobile only) ═══ -->
+      <DropdownMenuRoot v-if="isMobile">
+        <DropdownMenuTrigger as-child>
+          <Button variant="ghost" size="sm" class="h-7 w-7 p-0">
+            <EllipsisVertical class="h-4 w-4" />
           </Button>
-        </TooltipTrigger>
-        <TooltipContent>Templates</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExport()">
-            <Download class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Export as JSON</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="onExportClaude()">
-            <Package class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Export as .claude/ (zip)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('import')">
-            <Upload class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Import from JSON</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('importProject')">
-            <FolderSearch class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Import from Project (.claude/)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" :disabled="graph.nodeCount === 0" @click="emit('saveToProject')">
-            <FolderOutput class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Save to Project (.claude/)</TooltipContent>
-      </Tooltip>
-
-      <div class="mx-1 h-4 w-px bg-border" />
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="graph.autoLayout()">
-            <LayoutGrid class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Auto Layout</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button variant="ghost" size="sm" class="h-7 w-7 p-0" @click="emit('fitView')">
-            <Maximize2 class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Fit View</TooltipContent>
-      </Tooltip>
-
-      <div class="mx-1 h-4 w-px bg-border" />
-
-      <Tooltip>
-        <TooltipTrigger as-child>
-          <Button
-            data-testid="graph-toolbar-delete"
-            variant="ghost"
-            size="sm"
-            class="h-7 w-7 p-0 text-destructive hover:text-destructive"
-            :disabled="!graph.selectedNodeId"
-            @click="graph.selectedNodeId && graph.removeNode(graph.selectedNodeId)"
+        </DropdownMenuTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuContent
+            align="end"
+            :side-offset="4"
+            class="bg-popover text-popover-foreground z-50 min-w-[12rem] overflow-hidden rounded-md border p-1 shadow-md animate-in fade-in-0 zoom-in-95"
           >
-            <Trash2 class="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Delete Selected</TooltipContent>
-      </Tooltip>
+            <DropdownMenuItem class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent" @click="emit('templates')">
+              <LayoutTemplate class="h-4 w-4 text-muted-foreground" />
+              Templates
+            </DropdownMenuItem>
 
-      <div class="mx-1 h-4 w-px bg-border" />
+            <DropdownMenuSeparator class="mx-1 my-1 h-px bg-border" />
 
-      <!-- Run / Stop -->
+            <DropdownMenuItem class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent" @click="emit('import')">
+              <Upload class="h-4 w-4 text-muted-foreground" />
+              Import from JSON
+            </DropdownMenuItem>
+            <DropdownMenuItem class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent" @click="emit('importProject')">
+              <FolderSearch class="h-4 w-4 text-muted-foreground" />
+              Import from Project
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator class="mx-1 my-1 h-px bg-border" />
+
+            <DropdownMenuItem
+              class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent"
+              :disabled="graph.nodeCount === 0"
+              @click="onExport()"
+            >
+              <Download class="h-4 w-4 text-muted-foreground" />
+              Export as JSON
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent"
+              :disabled="graph.nodeCount === 0"
+              @click="onExportClaude()"
+            >
+              <Package class="h-4 w-4 text-muted-foreground" />
+              Export as .claude/
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent"
+              :disabled="graph.nodeCount === 0"
+              @click="emit('saveToProject')"
+            >
+              <FolderOutput class="h-4 w-4 text-muted-foreground" />
+              Save to Project
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator class="mx-1 my-1 h-px bg-border" />
+
+            <DropdownMenuItem class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent" @click="graph.autoLayout()">
+              <LayoutGrid class="h-4 w-4 text-muted-foreground" />
+              Auto Layout
+            </DropdownMenuItem>
+            <DropdownMenuItem class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent" @click="emit('fitView')">
+              <Maximize2 class="h-4 w-4 text-muted-foreground" />
+              Fit View
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator class="mx-1 my-1 h-px bg-border" />
+
+            <DropdownMenuItem
+              class="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-destructive outline-hidden hover:bg-accent"
+              :disabled="!graph.selectedNodeId"
+              @click="graph.selectedNodeId && graph.removeNode(graph.selectedNodeId)"
+            >
+              <Trash2 class="h-4 w-4" />
+              Delete Selected
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenuPortal>
+      </DropdownMenuRoot>
+
+      <!-- ═══ Run / Stop (always visible) ═══ -->
       <Tooltip v-if="!runner.isRunning">
         <TooltipTrigger as-child>
           <Button

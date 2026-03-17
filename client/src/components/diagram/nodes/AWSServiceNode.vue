@@ -111,10 +111,13 @@ function deleteNode() { diagrams.removeNode(props.id); closeContextMenu(); }
       class="flex items-center gap-2 rounded-t-lg border-b px-3 py-2"
       :style="{ backgroundColor: data.service.color + '15', borderColor: data.service.color + '30' }"
     >
-      <img v-if="data.service.iconUrl" :src="data.service.iconUrl" :alt="data.service.shortName" class="h-5 w-5 shrink-0" />
-      <svg v-else class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="data.service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <img v-if="data.service.iconUrl" :src="data.service.iconUrl" :alt="data.service.shortName" class="h-5 w-5 shrink-0 object-contain" />
+      <svg v-else-if="data.service.iconPath" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" :stroke="data.service.color" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path :d="data.service.iconPath" />
       </svg>
+      <div v-else class="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[9px] font-bold" :style="{ backgroundColor: data.service.color + '30', color: data.service.color }">
+        {{ (data.customLabel || data.label || '?').charAt(0).toUpperCase() }}
+      </div>
       <span class="flex-1 truncate text-xs font-semibold text-foreground">{{ displayLabel }}</span>
       <button
         class="rounded p-0.5 opacity-0 transition-opacity hover:bg-background/50 group-hover:opacity-100"

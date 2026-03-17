@@ -36,10 +36,10 @@ onMounted(() => {
           <Button
             variant="ghost"
             size="sm"
-            class="relative h-8 w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
+            class="relative h-10 w-10 sm:h-8 sm:w-8 rounded-lg p-0 text-muted-foreground hover:text-foreground"
             @click="emit('activate')"
           >
-            <Mic class="h-4 w-4" />
+            <Mic class="h-5 w-5 sm:h-4 sm:w-4" />
             <span
               v-if="audioStore.wakeWordEnabled"
               class="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]"

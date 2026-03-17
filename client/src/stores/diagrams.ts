@@ -259,6 +259,23 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     return result;
   });
 
+  // ─── Flow playback ──────────────────────────────────────────────────
+  /** null = normal mode (all edges animate). Number = only edges up to this step are shown. */
+  const playbackStep = ref<number | null>(null);
+
+  /** Highest flow level present in the current diagram (0 when no levels). */
+  const playbackMaxStep = computed((): number => {
+    let max = 0;
+    for (const level of edgeFlowLevels.value.values()) {
+      if (level > max) max = level;
+    }
+    return max;
+  });
+
+  function setPlaybackStep(step: number | null) {
+    playbackStep.value = step;
+  }
+
   /** Compute the bounding box of all visible nodes (absolute coords) with optional padding. */
   function getContentBounds(padding = 40): { x: number; y: number; width: number; height: number } | null {
     const visible = nodes.value.filter(n => !n.hidden);
@@ -300,6 +317,47 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       label: service.shortName,
       customLabel: '',
       description: service.description,
+      notes: '',
+      service,
+    };
+
+    nodes.value.push({
+      id,
+      type: 'aws-service',
+      position,
+      data,
+    });
+
+    isDirty.value = true;
+    selectedNodeId.value = id;
+    pushSnapshot();
+    return id;
+  }
+
+  function addCustomServiceNode(
+    name: string,
+    iconUrl: string,
+    position: { x: number; y: number },
+    color = '#6B7280',
+  ): string {
+    const id = uuid();
+    const service: AWSService = {
+      id: `custom-${id}`,
+      name,
+      shortName: name,
+      category: 'Custom' as any,
+      iconPath: '',
+      iconUrl,
+      description: 'Custom service',
+      color,
+    };
+
+    const data: AWSServiceNodeData = {
+      nodeType: 'aws-service',
+      serviceId: service.id,
+      label: name,
+      customLabel: '',
+      description: '',
       notes: '',
       service,
     };
@@ -533,6 +591,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     currentDiagramName.value = 'Untitled Diagram';
     savedViewport.value = null;
     isDirty.value = false;
+    playbackStep.value = null;
     diagramVersion.value++;
     clearHistory();
     pushSnapshot(); // initial snapshot so first action is undoable
@@ -558,8 +617,10 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     selectedNode, selectedEdge, nodeCount, edgeCount,
     // Flow cascade
     flowStagger, edgeFlowLevels,
+    // Flow playback
+    playbackStep, playbackMaxStep, setPlaybackStep,
     // Node CRUD
-    addServiceNode, addGroupNode, removeNode,
+    addServiceNode, addCustomServiceNode, addGroupNode, removeNode,
     updateNodeData, updateNodePosition, selectNode, selectEdge,
     // Parent-child nesting (from grouping module)
     setNodeParent: grouping.setNodeParent,

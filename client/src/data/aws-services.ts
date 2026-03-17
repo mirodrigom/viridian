@@ -51,6 +51,7 @@ import iconCodePipeline from 'aws-icons/icons/architecture-service/AWSCodePipeli
 import iconCodeCommit from 'aws-icons/icons/architecture-service/AWSCodeCommit.svg';
 import iconCodeBuild from 'aws-icons/icons/architecture-service/AWSCodeBuild.svg';
 import iconCDK from 'aws-icons/icons/architecture-service/AWSCloudDevelopmentKit.svg';
+import iconVerifiedPermissions from 'aws-icons/icons/architecture-service/AmazonVerifiedPermissions.svg';
 
 export type AWSCategory =
   | 'Compute'
@@ -376,6 +377,13 @@ export const AWS_SERVICES: AWSService[] = [
     id: 'cdk', name: 'AWS CDK', shortName: 'CDK', category: 'Developer Tools',
     color: '#C925D1', description: 'Cloud Development Kit',
     iconPath: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z', iconUrl: iconCDK,
+  },
+
+  // ── Security (additional) ──────────────────────────────────────────
+  {
+    id: 'verified-permissions', name: 'Amazon Verified Permissions', shortName: 'Verified Perms', category: 'Security',
+    color: '#DD344C', description: 'Fine-grained authorization for applications',
+    iconPath: 'M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm-1 11l-3-3 1.41-1.41L11 10.17l4.59-4.58L17 7l-6 6z', iconUrl: iconVerifiedPermissions,
   },
 ];
 
