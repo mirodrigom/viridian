@@ -5,7 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   Save, FolderOpen, FilePlus, Maximize2, Download, ImageDown, FileJson, FileType, Grid3x3, MousePointerSquareDashed,
-  Minimize2, Maximize, Film, Undo2, Redo2, Import,
+  Minimize2, Maximize, Film, Undo2, Redo2, Import, FileUp,
   Play, Pause, SkipBack, SkipForward, StopCircle,
 } from 'lucide-vue-next';
 
@@ -84,6 +84,7 @@ const emit = defineEmits<{
   (e: 'exportJson'): void;
   (e: 'exportGif'): void;
   (e: 'import'): void;
+  (e: 'importJson'): void;
   (e: 'toggleSnap'): void;
   (e: 'collapseAll'): void;
   (e: 'expandAll'): void;
@@ -216,6 +217,22 @@ const exportTools = [
           </Button>
         </TooltipTrigger>
         <TooltipContent>Import (draw.io, Lucidchart)</TooltipContent>
+      </Tooltip>
+
+      <!-- Import JSON -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            data-testid="toolbar-importJson"
+            @click="emit('importJson')"
+          >
+            <FileUp class="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Import JSON</TooltipContent>
       </Tooltip>
 
       <!-- Separator -->

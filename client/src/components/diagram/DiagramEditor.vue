@@ -110,7 +110,7 @@ const { commitInlineEdgeLabel, cancelInlineEdgeLabel, onDragOver, onDrop } = use
 });
 
 // ─── Canvas export (PNG, SVG, JSON) ──────────────────────────────────
-const { exportJson, exportPng, exportSvg } = useCanvasExport({
+const { exportJson, exportPng, exportSvg, importJson } = useCanvasExport({
   flowContainer,
   diagrams,
   getViewport,
@@ -248,6 +248,7 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
             @export-svg="exportSvg"
             @export-json="exportJson"
             @export-gif="showGifDialog = true"
+            @import-json="importJson"
             @toggle-snap="toggleSnapToGrid"
             @collapse-all="diagrams.collapseAllGroups()"
             @expand-all="diagrams.expandAllGroups()"

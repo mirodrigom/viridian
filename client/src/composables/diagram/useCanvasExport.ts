@@ -116,5 +116,47 @@ export function useCanvasExport({ flowContainer, diagrams, getViewport, fitView,
     }
   }
 
-  return { exportJson, exportPng, exportSvg };
+  function importJson() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const raw = JSON.parse(e.target?.result as string);
+
+          // Validate basic structure
+          if (!Array.isArray(raw.nodes) || !Array.isArray(raw.edges)) {
+            toast.error('Invalid diagram JSON: missing nodes or edges arrays');
+            return;
+          }
+
+          diagrams.newDiagram();
+          diagrams.deserialize({
+            id: '',
+            name: raw.name || 'Imported Diagram',
+            nodes: raw.nodes,
+            edges: raw.edges,
+            viewport: raw.viewport,
+          });
+
+          // Fit view after VueFlow renders the imported nodes
+          setTimeout(() => fitView(), 200);
+
+          toast.success(`Imported diagram "${raw.name || 'Untitled'}" (${raw.nodes.length} nodes, ${raw.edges.length} edges)`);
+        } catch (err) {
+          console.error('JSON import error:', err);
+          toast.error('Failed to import JSON: ' + (err instanceof Error ? err.message : 'Invalid file'));
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
+
+  return { exportJson, exportPng, exportSvg, importJson };
 }

@@ -180,6 +180,7 @@ const codexProvider: IProvider = {
       cwd: options.cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: process.platform === 'win32', // Required for .cmd files on Windows
     });
 
     // Abort support

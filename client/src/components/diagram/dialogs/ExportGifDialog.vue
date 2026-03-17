@@ -3,7 +3,6 @@ import { ref, computed, nextTick } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useDiagramsStore } from '@/stores/diagrams';
-import { useVueFlow } from '@vue-flow/core';
 import { toast } from 'vue-sonner';
 
 const props = defineProps<{
@@ -16,39 +15,9 @@ const emit = defineEmits<{
 }>();
 
 const diagrams = useDiagramsStore();
-const { getViewport, getNodes } = useVueFlow('diagram-editor');
-
-function getContentBounds(padding = 50): { x: number; y: number; width: number; height: number } | null {
-  const visible = getNodes.value.filter(n => !n.hidden);
-  if (visible.length === 0) return null;
-
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const node of visible) {
-    let absX = node.position.x;
-    let absY = node.position.y;
-    if (node.parentNode) {
-      const parent = visible.find(n => n.id === node.parentNode);
-      if (parent) {
-        absX += parent.position.x;
-        absY += parent.position.y;
-      }
-    }
-    const w = node.dimensions?.width || (node.type === 'aws-group' ? 400 : 160);
-    const h = node.dimensions?.height || (node.type === 'aws-group' ? 300 : 60);
-
-    if (absX < minX) minX = absX;
-    if (absY < minY) minY = absY;
-    if (absX + w > maxX) maxX = absX + w;
-    if (absY + h > maxY) maxY = absY + h;
-  }
-
-  return { x: minX - padding, y: minY - padding, width: maxX - minX + padding * 2, height: maxY - minY + padding * 2 };
-}
-
 const duration = ref(3);
 const fps = ref(8);
 const scale = ref(1);
-const cropMode = ref<'content' | 'viewport'>('content');
 const isExporting = ref(false);
 const progress = ref(0);
 
@@ -63,15 +32,7 @@ const scaleOptions = [
 const totalFrames = computed(() => duration.value * fps.value);
 const estimatedSeconds = computed(() => Math.round(totalFrames.value * 1.5));
 
-// Show estimated output dimensions (content mode: based on diagram-space, not screen-space)
 const estimatedSize = computed(() => {
-  if (cropMode.value === 'content') {
-    const bounds = getContentBounds();
-    if (!bounds) return null;
-    const w = Math.round(bounds.width * scale.value);
-    const h = Math.round(bounds.height * scale.value);
-    return { w, h };
-  }
   const el = props.flowContainer;
   if (!el) return null;
   const rect = el.getBoundingClientRect();
@@ -156,40 +117,11 @@ async function startExport() {
     const { toCanvas } = await import('html-to-image');
     const { encode: encodeGif } = await import('modern-gif');
 
-    // Determine capture region and compute zoom-independent output dimensions
+    // Capture the current viewport (what's visible on screen)
     const targetRect = captureTarget.getBoundingClientRect();
-    const viewport = getViewport();
-    let cropX = 0;       // screen-space offset of content within the element
-    let cropY = 0;
-    let screenW = targetRect.width;   // content region in screen pixels
-    let screenH = targetRect.height;
-    let canvasWidth: number;
-    let canvasHeight: number;
-    let pixelRatio: number;
-
-    if (cropMode.value === 'content') {
-      const bounds = getContentBounds();
-      if (!bounds) {
-        toast.error('No nodes to export');
-        return;
-      }
-      cropX = bounds.x * viewport.zoom + viewport.x;
-      cropY = bounds.y * viewport.zoom + viewport.y;
-      screenW = bounds.width * viewport.zoom;
-      screenH = bounds.height * viewport.zoom;
-
-      // Output size = diagram-space dimensions * scale (independent of zoom)
-      canvasWidth = Math.round(bounds.width * scale.value);
-      canvasHeight = Math.round(bounds.height * scale.value);
-
-      // pixelRatio to ensure the full canvas has enough pixels to crop from
-      // Capped at 4 to prevent excessive memory usage on very zoomed-out views
-      pixelRatio = Math.min(scale.value / viewport.zoom, 4);
-    } else {
-      canvasWidth = Math.round(targetRect.width * scale.value);
-      canvasHeight = Math.round(targetRect.height * scale.value);
-      pixelRatio = scale.value;
-    }
+    const canvasWidth = Math.round(targetRect.width * scale.value);
+    const canvasHeight = Math.round(targetRect.height * scale.value);
+    const pixelRatio = scale.value;
 
     const frameDelay = Math.round(1000 / fps.value);
     const frames: { data: Uint8ClampedArray; width: number; height: number; delay: number }[] = [];
@@ -215,27 +147,13 @@ async function startExport() {
         },
       });
 
-      // Crop to content bounds if needed
+      // Scale to output dimensions
       const frameCanvas = document.createElement('canvas');
       frameCanvas.width = canvasWidth;
       frameCanvas.height = canvasHeight;
       const ctx = frameCanvas.getContext('2d');
       if (!ctx) throw new Error('Canvas context unavailable');
-
-      if (cropMode.value === 'content') {
-        // Source region in the full canvas: screen coords * pixelRatio
-        const srcX = cropX * pixelRatio;
-        const srcY = cropY * pixelRatio;
-        const srcW = screenW * pixelRatio;
-        const srcH = screenH * pixelRatio;
-        ctx.drawImage(
-          fullCanvas,
-          srcX, srcY, srcW, srcH,
-          0, 0, canvasWidth, canvasHeight,
-        );
-      } else {
-        ctx.drawImage(fullCanvas, 0, 0, canvasWidth, canvasHeight);
-      }
+      ctx.drawImage(fullCanvas, 0, 0, canvasWidth, canvasHeight);
 
       frames.push({
         data: ctx.getImageData(0, 0, canvasWidth, canvasHeight).data,
@@ -285,27 +203,6 @@ async function startExport() {
           <h3 class="mb-4 text-sm font-semibold">Export GIF Animation</h3>
 
           <div class="space-y-4">
-            <!-- Crop Mode -->
-            <div class="space-y-1">
-              <Label class="text-[11px]">Crop</Label>
-              <div class="flex gap-1">
-                <button
-                  class="flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
-                  :class="cropMode === 'content' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                  @click="cropMode = 'content'"
-                >
-                  Fit to Content
-                </button>
-                <button
-                  class="flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
-                  :class="cropMode === 'viewport' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted/50'"
-                  @click="cropMode = 'viewport'"
-                >
-                  Full Viewport
-                </button>
-              </div>
-            </div>
-
             <!-- Duration -->
             <div class="space-y-1">
               <Label class="text-[11px]">Duration (seconds)</Label>
@@ -359,7 +256,7 @@ async function startExport() {
               <div>Total frames: <span class="text-foreground font-medium">{{ totalFrames }}</span></div>
               <div v-if="estimatedSize">Output: <span class="text-foreground font-medium">{{ estimatedSize.w }} x {{ estimatedSize.h }}px</span></div>
               <div>Estimated time: <span class="text-foreground font-medium">~{{ estimatedSeconds }}s</span></div>
-              <div v-if="cropMode === 'content'" class="text-green-500">Cropped to content bounds</div>
+              <div class="text-muted-foreground">Exports the current viewport (visible area)</div>
             </div>
 
             <!-- Progress -->
