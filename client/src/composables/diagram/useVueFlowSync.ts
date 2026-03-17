@@ -77,9 +77,9 @@ export function useVueFlowSync({
     },
   );
 
-  // Sync individual node data changes
+  // Sync individual node/edge data changes — watch dataVersion counter instead of deep-watching arrays
   watch(
-    () => diagrams.nodes.map(n => n.data),
+    () => diagrams.dataVersion,
     () => {
       for (const storeNode of diagrams.nodes) {
         const vfNode = findNode(storeNode.id);
@@ -87,14 +87,6 @@ export function useVueFlowSync({
           vfNode.data = storeNode.data;
         }
       }
-    },
-    { deep: true },
-  );
-
-  // Sync individual edge data changes
-  watch(
-    () => diagrams.edges.map(e => e.data),
-    () => {
       for (const storeEdge of diagrams.edges) {
         const vfEdge = findEdge(storeEdge.id);
         if (vfEdge && vfEdge.data !== storeEdge.data) {
@@ -102,33 +94,23 @@ export function useVueFlowSync({
         }
       }
     },
-    { deep: true },
   );
 
-  // Sync node removals from store to Vue Flow
+  // Sync node/edge removals and zIndex changes — watch mutationVersion counter
   watch(
-    () => diagrams.nodes.map(n => n.id),
-    (storeNodeIds) => {
-      const storeIdSet = new Set(storeNodeIds);
-      const toRemove = getNodes.value.filter(n => !storeIdSet.has(n.id));
-      if (toRemove.length) removeNodes(toRemove);
-    },
-  );
-
-  // Sync edge removals from store to Vue Flow
-  watch(
-    () => diagrams.edges.map(e => e.id),
-    (storeEdgeIds) => {
-      const storeIdSet = new Set(storeEdgeIds);
-      const toRemove = getEdges.value.filter(e => !storeIdSet.has(e.id));
-      if (toRemove.length) removeEdges(toRemove);
-    },
-  );
-
-  // Sync zIndex changes from store to Vue Flow
-  watch(
-    () => diagrams.nodes.map(n => (n as any).zIndex ?? 0),
+    () => diagrams.mutationVersion,
     () => {
+      // Remove nodes that no longer exist in the store
+      const storeNodeIds = new Set(diagrams.nodes.map(n => n.id));
+      const nodesToRemove = getNodes.value.filter(n => !storeNodeIds.has(n.id));
+      if (nodesToRemove.length) removeNodes(nodesToRemove);
+
+      // Remove edges that no longer exist in the store
+      const storeEdgeIds = new Set(diagrams.edges.map(e => e.id));
+      const edgesToRemove = getEdges.value.filter(e => !storeEdgeIds.has(e.id));
+      if (edgesToRemove.length) removeEdges(edgesToRemove);
+
+      // Sync zIndex changes
       for (const storeNode of diagrams.nodes) {
         const vfNode = findNode(storeNode.id);
         if (vfNode) {

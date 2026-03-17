@@ -116,7 +116,7 @@ onMounted(() => {
 });
 
 const isExportMode = computed(() => diagrams.gifExportProgress !== null);
-const maxFlowLevel = computed(() => Math.max(...diagrams.edgeFlowLevels.values(), 0));
+const maxFlowLevel = computed(() => diagrams.maxFlowLevel);
 const hasManualOrder = computed(() => edgeData.value.flowOrder != null);
 
 // Position for the sequence badge — near source or target end of the path

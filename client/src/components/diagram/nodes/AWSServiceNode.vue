@@ -78,7 +78,7 @@ function deleteNode() { diagrams.removeNode(props.id); closeContextMenu(); }
 <template>
   <div
     :data-testid="`service-node-${id}`"
-    class="group relative h-full w-full rounded-lg border bg-card text-card-foreground shadow-md transition-all"
+    class="group relative h-full w-full rounded-lg border bg-card text-card-foreground shadow-md transition-[box-shadow,border-color]"
     :class="[
       selected ? 'ring-2 shadow-lg' : 'hover:shadow-lg',
     ]"

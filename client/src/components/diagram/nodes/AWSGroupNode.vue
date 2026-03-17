@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onUnmounted } from 'vue';
 import type { NodeProps } from '@vue-flow/core';
-import { Handle, Position } from '@vue-flow/core';
+import { Handle, Position, useVueFlow } from '@vue-flow/core';
 import { NodeResizer } from '@vue-flow/node-resizer';
 import '@vue-flow/node-resizer/dist/style.css';
 import type { AWSGroupNodeData } from '@/stores/diagrams';
@@ -10,6 +10,7 @@ import { Trash2, ChevronDown, ChevronRight } from 'lucide-vue-next';
 
 const props = defineProps<NodeProps & { hoveredGroupId?: string | null }>();
 const diagrams = useDiagramsStore();
+const { panBy } = useVueFlow();
 
 const data = computed(() => props.data as AWSGroupNodeData);
 const displayLabel = computed(() => data.value.customLabel || data.value.label);
@@ -43,8 +44,15 @@ const showContextMenu = ref(false);
 const contextMenuPos = ref({ x: 0, y: 0 });
 const menuRef = ref<HTMLElement | null>(null);
 
+// Track whether a right-click drag (pan) occurred to suppress the context menu
+let isPanning = false;
+
 function onContextMenu(event: MouseEvent) {
   event.preventDefault();
+  if (isPanning) {
+    isPanning = false;
+    return;
+  }
   event.stopPropagation();
   contextMenuPos.value = { x: event.offsetX, y: event.offsetY };
   showContextMenu.value = true;
@@ -67,6 +75,36 @@ function handleClickOutside(e: MouseEvent) {
 onUnmounted(() => {
   document.removeEventListener('mousedown', handleClickOutside);
 });
+
+// Right-click drag: pan the canvas manually using panBy, then suppress context menu
+function onPointerDown(event: PointerEvent) {
+  if (event.button !== 2) return;
+  event.stopPropagation();
+
+  let lastX = event.clientX;
+  let lastY = event.clientY;
+  let moved = false;
+
+  function onMove(e: PointerEvent) {
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    if (Math.abs(dx) > 0 || Math.abs(dy) > 0) {
+      moved = true;
+      panBy({ x: dx, y: dy });
+    }
+    lastX = e.clientX;
+    lastY = e.clientY;
+  }
+
+  function onUp() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    if (moved) isPanning = true;
+  }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
 
 function toggleCollapse() {
   diagrams.toggleGroupCollapse(props.id);
@@ -133,7 +171,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
 <template>
   <div
     :data-testid="`group-node-${id}`"
-    class="group relative h-full w-full rounded-lg transition-all"
+    class="group relative h-full w-full rounded-lg transition-[box-shadow,border-color,background-color]"
     :style="{
       '--group-color': data.groupType.color,
       border: `2px ${data.groupType.borderStyle} ${isDropTarget ? data.groupType.color : data.groupType.color + '60'}`,
@@ -142,6 +180,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
     }"
     @contextmenu="onContextMenu"
     @click="closeContextMenu"
+    @pointerdown="onPointerDown"
   >
     <!-- Resize handles (hidden when collapsed) -->
     <NodeResizer

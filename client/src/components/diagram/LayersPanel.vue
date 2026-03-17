@@ -1,11 +1,30 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Layers } from 'lucide-vue-next';
 import { useDiagramsStore, type AWSServiceNodeData, type AWSGroupNodeData } from '@/stores/diagrams';
 
 const diagrams = useDiagramsStore();
+
+// ─── Visibility tracking (skip recomputation when panel is hidden/collapsed) ──
+const panelRef = ref<HTMLElement | null>(null);
+const isVisible = ref(true);
+let observer: IntersectionObserver | null = null;
+
+onMounted(() => {
+  if (panelRef.value) {
+    observer = new IntersectionObserver(
+      ([entry]) => { isVisible.value = entry.isIntersecting; },
+      { threshold: 0.01 },
+    );
+    observer.observe(panelRef.value);
+  }
+});
+
+onUnmounted(() => {
+  observer?.disconnect();
+});
 
 interface LayerItem {
   id: string;
@@ -21,7 +40,8 @@ interface LayerItem {
   children: LayerItem[];
 }
 
-const layerTree = computed((): LayerItem[] => {
+// Internal computeds that do the real work
+const _layerTree = computed((): LayerItem[] => {
   function buildItem(node: any): LayerItem {
     const data = node.data;
     const isService = data.nodeType === 'aws-service';
@@ -62,8 +82,7 @@ const layerTree = computed((): LayerItem[] => {
   return roots;
 });
 
-// Flatten tree depth-first for rendering
-const flatLayers = computed((): LayerItem[] => {
+const _flatLayers = computed((): LayerItem[] => {
   const result: LayerItem[] = [];
   function walk(items: LayerItem[]) {
     for (const item of items) {
@@ -71,8 +90,26 @@ const flatLayers = computed((): LayerItem[] => {
       if (item.children.length > 0) walk(item.children);
     }
   }
-  walk(layerTree.value);
+  walk(_layerTree.value);
   return result;
+});
+
+// Cached versions that only update when the panel is visible
+let cachedLayerTree: LayerItem[] = [];
+let cachedFlatLayers: LayerItem[] = [];
+
+const layerTree = computed((): LayerItem[] => {
+  if (isVisible.value) {
+    cachedLayerTree = _layerTree.value;
+  }
+  return cachedLayerTree;
+});
+
+const flatLayers = computed((): LayerItem[] => {
+  if (isVisible.value) {
+    cachedFlatLayers = _flatLayers.value;
+  }
+  return cachedFlatLayers;
 });
 
 // ─── Drag and drop ─────────────────────────────────────────────
@@ -132,7 +169,7 @@ function onDragEnd() {
 </script>
 
 <template>
-  <div data-testid="layers-panel" class="flex h-full flex-col bg-background" style="min-height: 0;">
+  <div ref="panelRef" data-testid="layers-panel" class="flex h-full flex-col bg-background" style="min-height: 0;">
     <!-- Header -->
     <div class="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-2">
       <Layers class="h-3.5 w-3.5 text-muted-foreground" />

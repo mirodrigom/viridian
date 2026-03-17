@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useDebounceFn } from '@vueuse/core';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -28,10 +29,20 @@ function updateNodeField(field: string, value: string) {
   diagrams.updateNodeData(diagrams.selectedNodeId, { [field]: value } as never);
 }
 
+/** Debounced version for text input handlers (typing). */
+const updateNodeFieldDebounced = useDebounceFn((field: string, value: string) => {
+  updateNodeField(field, value);
+}, 300);
+
 function updateEdgeField(field: string, value: string | boolean | number | undefined) {
   if (!diagrams.selectedEdgeId) return;
   diagrams.updateEdgeData(diagrams.selectedEdgeId, { [field]: value } as never);
 }
+
+/** Debounced version for text input handlers (typing). */
+const updateEdgeFieldDebounced = useDebounceFn((field: string, value: string) => {
+  updateEdgeField(field, value);
+}, 300);
 
 const currentFlowOrder = computed(() => {
   if (!diagrams.selectedEdgeId) return 0;
@@ -167,7 +178,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
-                @update:model-value="(v: string) => updateNodeField('customLabel', v)"
+                @update:model-value="(v: string) => updateNodeFieldDebounced('customLabel', v)"
               />
             </div>
 
@@ -193,7 +204,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 rows="2"
                 placeholder="Service description..."
-                @input="updateNodeField('description', ($event.target as HTMLTextAreaElement).value)"
+                @input="updateNodeFieldDebounced('description', ($event.target as HTMLTextAreaElement).value)"
               />
             </div>
 
@@ -205,7 +216,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 rows="3"
                 placeholder="Additional notes..."
-                @input="updateNodeField('notes', ($event.target as HTMLTextAreaElement).value)"
+                @input="updateNodeFieldDebounced('notes', ($event.target as HTMLTextAreaElement).value)"
               />
             </div>
 
@@ -239,7 +250,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
-                @update:model-value="(v: string) => updateNodeField('customLabel', v)"
+                @update:model-value="(v: string) => updateNodeFieldDebounced('customLabel', v)"
               />
             </div>
 
@@ -259,7 +270,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 rows="3"
                 placeholder="Additional notes..."
-                @input="updateNodeField('notes', ($event.target as HTMLTextAreaElement).value)"
+                @input="updateNodeFieldDebounced('notes', ($event.target as HTMLTextAreaElement).value)"
               />
             </div>
 
@@ -297,7 +308,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
             :model-value="edgeData.label || ''"
             class="h-7 text-xs"
             placeholder="Connection label..."
-            @update:model-value="(v: string) => updateEdgeField('label', v)"
+            @update:model-value="(v: string) => updateEdgeFieldDebounced('label', v)"
           />
         </div>
 
@@ -684,7 +695,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
             class="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             rows="3"
             placeholder="Connection notes..."
-            @input="updateEdgeField('notes', ($event.target as HTMLTextAreaElement).value)"
+            @input="updateEdgeFieldDebounced('notes', ($event.target as HTMLTextAreaElement).value)"
           />
         </div>
         </TooltipProvider>

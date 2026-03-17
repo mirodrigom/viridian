@@ -5,11 +5,22 @@
  * to integrate with the parent store.
  */
 import type { Node } from '@vue-flow/core';
-import type { Ref } from 'vue';
+import type { Ref, ComputedRef } from 'vue';
 import type { AWSGroupNodeData, DiagramNodeData } from './diagrams';
+
+/** Group type IDs that represent top-level region boundaries and must never be nested inside other groups. */
+const REGION_GROUP_TYPE_IDS = new Set(['region']);
+
+/** Returns true if the node is an aws-group of a region type that cannot be a child of another group. */
+function isRegionGroup(node: Node): boolean {
+  if (node.type !== 'aws-group') return false;
+  const data = node.data as AWSGroupNodeData;
+  return REGION_GROUP_TYPE_IDS.has(data.groupTypeId);
+}
 
 export interface DiagramGroupingDeps {
   nodes: Ref<Node[]>;
+  nodeById: ComputedRef<Map<string, Node>>;
   isDirty: Ref<boolean>;
   diagramVersion: Ref<number>;
   selectedNodeId: Ref<string | null>;
@@ -68,12 +79,12 @@ function getSiblings(nodes: Node[], nodeId: string): Node[] {
 // ─── Factory: creates all grouping methods bound to store deps ──────
 
 export function createDiagramGrouping(deps: DiagramGroupingDeps) {
-  const { nodes, isDirty, pushSnapshot } = deps;
+  const { nodes, nodeById, isDirty, pushSnapshot } = deps;
 
   // ─── Parent-child nesting ─────────────────────────────────────
 
   function setNodeParent(childId: string, parentId: string | null) {
-    const child = nodes.value.find(n => n.id === childId);
+    const child = nodeById.value.get(childId);
     if (!child) return;
 
     if (parentId === null) {
@@ -82,11 +93,14 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
       delete child.parentNode;
       delete child.extent;
     } else {
-      const parent = nodes.value.find(n => n.id === parentId);
+      const parent = nodeById.value.get(parentId);
       if (!parent) return;
       if (parent.type !== 'aws-group') return;
       if (childId === parentId) return;
       if (child.parentNode === parentId) return;
+
+      // Region groups must never be nested inside other groups
+      if (isRegionGroup(child)) return;
 
       const childAbs = getAbsolutePosition(nodes.value, childId);
       const parentAbs = getAbsolutePosition(nodes.value, parentId);
@@ -122,7 +136,7 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   // ─── Collapse / Expand ────────────────────────────────────────
 
   function toggleGroupCollapse(groupId: string) {
-    const group = nodes.value.find(n => n.id === groupId);
+    const group = nodeById.value.get(groupId);
     if (!group || group.type !== 'aws-group') return;
     const data = group.data as AWSGroupNodeData;
     const children = getGroupChildren(groupId);
@@ -176,7 +190,7 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   // ─── Z-Index layers ───────────────────────────────────────────
 
   function bringToFront(nodeId: string) {
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodeById.value.get(nodeId);
     if (!node) return;
     const siblings = getSiblings(nodes.value, nodeId);
     const baseZ = getDepthBaseZ(nodes.value, nodeId);
@@ -187,7 +201,7 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   }
 
   function sendToBack(nodeId: string) {
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodeById.value.get(nodeId);
     if (!node) return;
     const siblings = getSiblings(nodes.value, nodeId);
     const baseZ = getDepthBaseZ(nodes.value, nodeId);
@@ -198,7 +212,7 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   }
 
   function bringForward(nodeId: string) {
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodeById.value.get(nodeId);
     if (!node) return;
     const baseZ = getDepthBaseZ(nodes.value, nodeId);
     const currentZ = (node as any).zIndex ?? baseZ;
@@ -208,7 +222,7 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   }
 
   function sendBackward(nodeId: string) {
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodeById.value.get(nodeId);
     if (!node) return;
     const baseZ = getDepthBaseZ(nodes.value, nodeId);
     const currentZ = (node as any).zIndex ?? baseZ;
@@ -218,12 +232,18 @@ export function createDiagramGrouping(deps: DiagramGroupingDeps) {
   }
 
   function getNodeZIndex(nodeId: string): number {
-    const node = nodes.value.find(n => n.id === nodeId);
+    const node = nodeById.value.get(nodeId);
     if (!node) return 0;
     return (node as any).zIndex ?? 0;
   }
 
   function findGroupAtPosition(position: { x: number; y: number }, excludeId?: string): string | null {
+    // If the node being placed is a region group, it must never be nested
+    if (excludeId) {
+      const excludeNode = nodeById.value.get(excludeId);
+      if (excludeNode && isRegionGroup(excludeNode)) return null;
+    }
+
     let bestId: string | null = null;
     let bestDepth = -1;
 

@@ -1,6 +1,7 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { Node, Edge, Connection } from '@vue-flow/core';
+import { useDebounceFn } from '@vueuse/core';
 import { uuid } from '@/lib/utils';
 import { getServiceById, type AWSService, type AWSGroupType, AWS_GROUP_TYPES } from '@/data/aws-services';
 import { useUndoRedo } from '@/composables/useUndoRedo';
@@ -109,6 +110,18 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   /** null = live SVG animation, 0-1 = GIF export frame progress */
   const gifExportProgress = ref<number | null>(null);
 
+  // ─── Version counters (for targeted reactivity) ───────────────
+  /** Increments on every structural change (add/remove node/edge) */
+  const mutationVersion = ref(0);
+  /** Increments on data updates (node data, edge data, position) */
+  const dataVersion = ref(0);
+  /** Increments only when topology changes (nodes/edges added or removed) — used to cache BFS */
+  const topologyVersion = ref(0);
+
+  // ─── Map indexes (O(1) lookup by id) ──────────────────────────
+  const nodeById = computed(() => new Map(nodes.value.map(n => [n.id, n])));
+  const edgeById = computed(() => new Map(edges.value.map(e => [e.id, e])));
+
   // ─── Undo / Redo ──────────────────────────────────────────────
   const undoRedo = useUndoRedo({
     getSnapshot: () => JSON.stringify({
@@ -184,6 +197,9 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       selectedEdgeId.value = null;
       isDirty.value = true;
       diagramVersion.value++;
+      mutationVersion.value++;
+      topologyVersion.value++;
+      dataVersion.value++;
     },
   });
 
@@ -195,13 +211,18 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     undoRedo.pushSnapshot();
   }
 
+  /** Debounced version of pushSnapshot for continuous operations (typing, dragging). */
+  const pushSnapshotDebounced = useDebounceFn(() => {
+    pushSnapshot();
+  }, 300);
+
   // ─── Computed ───────────────────────────────────────────────────
   const selectedNode = computed(() =>
-    nodes.value.find(n => n.id === selectedNodeId.value) || null,
+    selectedNodeId.value ? nodeById.value.get(selectedNodeId.value) || null : null,
   );
 
   const selectedEdge = computed(() =>
-    edges.value.find(e => e.id === selectedEdgeId.value) || null,
+    selectedEdgeId.value ? edgeById.value.get(selectedEdgeId.value) || null : null,
   );
 
   const nodeCount = computed(() => nodes.value.length);
@@ -211,15 +232,25 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   /** Stagger delay (seconds) between topological levels for cascade animation */
   const flowStagger = ref(0.4);
 
-  /** Auto-computed topological level per edge based on graph structure (BFS from source nodes) */
-  const edgeFlowLevels = computed((): Map<string, number> => {
-    const result = new Map<string, number>();
-    if (edges.value.length === 0) return result;
+  /** Auto-computed topological level per edge based on graph structure (BFS from source nodes).
+   *  Only recomputes when topologyVersion changes (nodes/edges added or removed). */
+  const _edgeFlowLevelsCache = ref<Map<string, number>>(new Map());
+  const _maxFlowLevelCache = ref(0);
 
-    const nodeIds = new Set(nodes.value.map(n => n.id));
+  function _recomputeFlowLevels() {
+    const result = new Map<string, number>();
+    const edgeList = edges.value;
+    const nodeList = nodes.value;
+    if (edgeList.length === 0) {
+      _edgeFlowLevelsCache.value = result;
+      _maxFlowLevelCache.value = 0;
+      return;
+    }
+
+    const nodeIds = new Set(nodeList.map(n => n.id));
     const incoming = new Map<string, number>();
     for (const id of nodeIds) incoming.set(id, 0);
-    for (const edge of edges.value) {
+    for (const edge of edgeList) {
       if (nodeIds.has(edge.target)) {
         incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
       }
@@ -244,7 +275,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     while (qi < queue.length) {
       const id = queue[qi++];
       const level = nodeLevel.get(id)!;
-      for (const edge of edges.value) {
+      for (const edge of edgeList) {
         if (edge.source === id && !nodeLevel.has(edge.target)) {
           nodeLevel.set(edge.target, level + 1);
           queue.push(edge.target);
@@ -252,25 +283,33 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       }
     }
 
-    for (const edge of edges.value) {
-      result.set(edge.id, nodeLevel.get(edge.source) || 0);
+    let max = 0;
+    for (const edge of edgeList) {
+      const level = nodeLevel.get(edge.source) || 0;
+      result.set(edge.id, level);
+      if (level > max) max = level;
     }
 
-    return result;
-  });
+    _edgeFlowLevelsCache.value = result;
+    _maxFlowLevelCache.value = max;
+  }
+
+  // Recompute only when topology changes
+  // (uses { flush: 'sync' } so the cache is ready before any downstream computed reads it)
+  watch(() => topologyVersion.value, _recomputeFlowLevels, { immediate: true, flush: 'sync' });
+
+  /** Readonly accessor for edge flow levels (cached behind topologyVersion). */
+  const edgeFlowLevels = computed((): Map<string, number> => _edgeFlowLevelsCache.value);
+
+  /** Highest flow level present in the current diagram (0 when no levels). */
+  const maxFlowLevel = computed((): number => _maxFlowLevelCache.value);
 
   // ─── Flow playback ──────────────────────────────────────────────────
   /** null = normal mode (all edges animate). Number = only edges up to this step are shown. */
   const playbackStep = ref<number | null>(null);
 
-  /** Highest flow level present in the current diagram (0 when no levels). */
-  const playbackMaxStep = computed((): number => {
-    let max = 0;
-    for (const level of edgeFlowLevels.value.values()) {
-      if (level > max) max = level;
-    }
-    return max;
-  });
+  /** Highest flow level present in the current diagram (0 when no levels). Reuses maxFlowLevel. */
+  const playbackMaxStep = computed((): number => maxFlowLevel.value);
 
   function setPlaybackStep(step: number | null) {
     playbackStep.value = step;
@@ -330,6 +369,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     isDirty.value = true;
     selectedNodeId.value = id;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
     return id;
   }
@@ -371,6 +412,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     isDirty.value = true;
     selectedNodeId.value = id;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
     return id;
   }
@@ -400,15 +443,17 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     isDirty.value = true;
     selectedNodeId.value = id;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
     return id;
   }
 
   function removeNode(id: string) {
     // Unparent children first
+    const parent = nodeById.value.get(id);
     for (const child of nodes.value) {
       if (child.parentNode === id) {
-        const parent = nodes.value.find(n => n.id === id);
         if (parent) {
           child.position = {
             x: child.position.x + parent.position.x,
@@ -425,23 +470,27 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     if (selectedNodeId.value === id) selectedNodeId.value = null;
     isDirty.value = true;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
   }
 
   function updateNodeData(id: string, updates: Partial<DiagramNodeData>) {
-    const node = nodes.value.find(n => n.id === id);
+    const node = nodeById.value.get(id);
     if (!node) return;
     node.data = { ...node.data, ...updates } as DiagramNodeData;
     isDirty.value = true;
-    pushSnapshot();
+    dataVersion.value++;
+    pushSnapshotDebounced();
   }
 
   function updateNodePosition(id: string, position: { x: number; y: number }) {
-    const node = nodes.value.find(n => n.id === id);
+    const node = nodeById.value.get(id);
     if (!node) return;
     node.position = position;
     isDirty.value = true;
-    pushSnapshot();
+    dataVersion.value++;
+    pushSnapshotDebounced();
   }
 
   function selectNode(id: string | null) {
@@ -456,7 +505,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
   // ─── Grouping (delegated) ─────────────────────────────────────
   const grouping = createDiagramGrouping({
-    nodes, isDirty, diagramVersion, selectedNodeId, selectedEdgeId, pushSnapshot,
+    nodes, nodeById, isDirty, diagramVersion, selectedNodeId, selectedEdgeId, pushSnapshot,
   });
 
   // ─── Multi-select helpers ─────────────────────────────────────
@@ -476,7 +525,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (exists) return;
 
     let autoColor = '';
-    const sourceNode = nodes.value.find(n => n.id === connection.source);
+    const sourceNode = nodeById.value.get(connection.source);
     if (sourceNode) {
       const d = sourceNode.data as DiagramNodeData;
       if (d.nodeType === 'aws-service') autoColor = (d as AWSServiceNodeData).service.color;
@@ -516,6 +565,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
       ...(autoColor ? { style: { stroke: autoColor } } : {}),
     });
     isDirty.value = true;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
   }
 
@@ -523,11 +574,13 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     edges.value = edges.value.filter(e => e.id !== id);
     if (selectedEdgeId.value === id) selectedEdgeId.value = null;
     isDirty.value = true;
+    mutationVersion.value++;
+    topologyVersion.value++;
     pushSnapshot();
   }
 
   function updateEdgeData(id: string, updates: Partial<DiagramEdgeData>) {
-    const edge = edges.value.find(e => e.id === id);
+    const edge = edgeById.value.get(id);
     if (!edge) return;
     edge.data = { ...edge.data, ...updates } as DiagramEdgeData;
     if (updates.label !== undefined) edge.label = updates.label;
@@ -577,7 +630,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     }
 
     isDirty.value = true;
-    pushSnapshot();
+    dataVersion.value++;
+    pushSnapshotDebounced();
   }
 
   // ─── Diagram management ────────────────────────────────────────
@@ -593,6 +647,9 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     isDirty.value = false;
     playbackStep.value = null;
     diagramVersion.value++;
+    mutationVersion.value++;
+    topologyVersion.value++;
+    dataVersion.value++;
     clearHistory();
     pushSnapshot(); // initial snapshot so first action is undoable
   }
@@ -613,10 +670,14 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     nodes, edges, selectedNodeId, selectedEdgeId,
     currentDiagramId, currentDiagramName,
     isDirty, loading, diagramList, diagramVersion, savedViewport, gifExportProgress,
+    // Version counters
+    mutationVersion, dataVersion, topologyVersion,
+    // Map indexes
+    nodeById, edgeById,
     // Computed
     selectedNode, selectedEdge, nodeCount, edgeCount,
     // Flow cascade
-    flowStagger, edgeFlowLevels,
+    flowStagger, edgeFlowLevels, maxFlowLevel,
     // Flow playback
     playbackStep, playbackMaxStep, setPlaybackStep,
     // Node CRUD
