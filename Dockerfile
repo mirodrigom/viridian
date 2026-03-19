@@ -5,15 +5,13 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
-COPY client/package.json client/
 COPY server/package.json server/
 
 RUN pnpm install --frozen-lockfile
 
-COPY client/ client/
 COPY server/ server/
 
-RUN pnpm --filter client build && pnpm --filter server build
+RUN pnpm --filter server build
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-slim
@@ -36,8 +34,7 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 WORKDIR /app
 
-# Copy built artifacts
-COPY --from=build /app/client/dist /app/client/dist
+# Copy built artifacts (client is deployed to S3+CloudFront separately)
 COPY --from=build /app/server/dist /app/server/dist
 COPY --from=build /app/server/package.json /app/server/
 COPY --from=build /app/package.json /app/

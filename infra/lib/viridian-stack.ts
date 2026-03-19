@@ -8,6 +8,7 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
 
 export class ViridianStack extends cdk.Stack {
@@ -60,7 +61,9 @@ export class ViridianStack extends cdk.Stack {
     const container = taskDef.addContainer('viridian', {
       image: ecrImageUri
         ? ecs.ContainerImage.fromRegistry(ecrImageUri)
-        : ecs.ContainerImage.fromAsset('..'),
+        : ecs.ContainerImage.fromAsset('..', {
+            exclude: ['node_modules', 'infra/cdk.out', 'infra/node_modules', '.git', 'client/dist', 'docs'],
+          }),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'viridian',
         logRetention: logs.RetentionDays.ONE_MONTH,
@@ -88,13 +91,6 @@ export class ViridianStack extends cdk.Stack {
       },
     });
 
-    // Construct DATABASE_URL in the container's entry point
-    // We pass individual secret fields and build the URL in the container
-    container.addEnvironment(
-      'DATABASE_URL_TEMPLATE',
-      'postgresql://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}',
-    );
-
     // ── ALB ────────────────────────────────────────────────────────────────
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       vpc,
@@ -117,6 +113,7 @@ export class ViridianStack extends cdk.Stack {
 
     const targetGroup = listener.addTargets('EcsTarget', {
       port: 12000,
+      protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [service],
       healthCheck: {
         path: '/api/health',
@@ -170,6 +167,20 @@ export class ViridianStack extends cdk.Stack {
           ttl: cdk.Duration.seconds(0),
         },
       ],
+    });
+
+    // ── Inject CloudFront URL into ECS container for CORS ──────────────────
+    container.addEnvironment(
+      'CLOUDFRONT_URL',
+      `https://${distribution.distributionDomainName}`,
+    );
+
+    // ── Deploy client to S3 + invalidate CloudFront ─────────────────────
+    new s3deploy.BucketDeployment(this, 'DeployClient', {
+      sources: [s3deploy.Source.asset('../client/dist')],
+      destinationBucket: clientBucket,
+      distribution,
+      distributionPaths: ['/*'],
     });
 
     // ── Outputs ────────────────────────────────────────────────────────────

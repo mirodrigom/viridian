@@ -1,14 +1,4 @@
-services:
-  faster-whisper:
-    image: fedirz/faster-whisper-server:latest-cuda
-    ports:
-      - "${WHISPER_PORT:-8300}:8000"
-    environment:
-      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-medium}
-    devices:
-      - nvidia.com/gpu=all
-    volumes:
-      - whisper_models:/root/.cache/huggingface
-
-volumes:
-  whisper_models:
+# Viridian — Docker Compose
+# Local Whisper removed; speech-to-text uses browser Web Speech API by default.
+# Cloud STT providers (Groq, Deepgram, etc.) can be configured in settings.
+services: {}

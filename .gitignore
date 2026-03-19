@@ -11,3 +11,4 @@ docs/--host/
 server/logs/
 .claude/settings.local.json
 .kiro/settings.local.json
+infra/cdk.out

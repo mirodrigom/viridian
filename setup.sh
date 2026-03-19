@@ -9,8 +9,7 @@
 #   2. Installs pnpm if missing
 #   3. Installs npm dependencies (skips if lockfile unchanged)
 #   4. Copies .env.example → .env if .env is missing
-#   5. Installs podman-compose if podman is present but compose is missing
-#   6. Pulls Langfuse container images (if compose is available)
+#   5. Done!
 
 set -euo pipefail
 
@@ -103,79 +102,9 @@ step ".env"
 if [ ! -f "$SCRIPT_DIR/.env" ]; then
   cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
   warn ".env created from .env.example"
-  warn "Edit .env to set JWT_SECRET and Langfuse keys before production use."
+  warn "Edit .env to set JWT_SECRET before production use."
 else
   ok ".env exists"
-fi
-
-# ── 5. Container runtime ─────────────────────────────────────────────────────
-
-step "Container runtime (for Langfuse)"
-COMPOSE_CMD=""
-
-if host "command -v podman-compose" &>/dev/null; then
-  COMPOSE_CMD="podman-compose"
-  ok "podman-compose $(host 'podman-compose --version 2>/dev/null || echo ""')"
-elif host "command -v docker" &>/dev/null; then
-  COMPOSE_CMD="docker compose"
-  ok "docker $(host 'docker --version')"
-elif host "command -v podman" &>/dev/null; then
-  # Podman is available but podman-compose isn't — try to install it
-  warn "podman found but podman-compose is missing — installing..."
-  if host "command -v pip3" &>/dev/null; then
-    host "pip3 install --user podman-compose" 2>&1 | sed 's/^/    /'
-    # Reload PATH to find newly installed binary
-    export PATH="$HOME/.local/bin:$PATH"
-    if host "command -v podman-compose" &>/dev/null; then
-      COMPOSE_CMD="podman-compose"
-      ok "podman-compose installed"
-    else
-      warn "podman-compose installed but not in PATH yet. Re-run after restarting terminal."
-    fi
-  else
-    # Try system package manager
-    if host "command -v dnf" &>/dev/null; then
-      warn "Installing via dnf (may ask for sudo)..."
-      host "sudo dnf install -y podman-compose" 2>&1 | sed 's/^/    /'
-      COMPOSE_CMD="podman-compose"
-      ok "podman-compose installed via dnf"
-    elif host "command -v apt-get" &>/dev/null; then
-      warn "Installing via apt (may ask for sudo)..."
-      host "sudo apt-get install -y podman-compose" 2>&1 | sed 's/^/    /'
-      COMPOSE_CMD="podman-compose"
-      ok "podman-compose installed via apt"
-    else
-      warn "Could not auto-install podman-compose. Install it manually:"
-      warn "  Fedora/RHEL: sudo dnf install podman-compose"
-      warn "  Debian/Ubuntu: sudo apt install podman-compose"
-      warn "  Any: pip3 install --user podman-compose"
-    fi
-  fi
-else
-  warn "No container runtime found. Langfuse observability will be unavailable."
-  warn "To install on Fedora/RHEL:  sudo dnf install podman podman-compose"
-  warn "To install on Debian/Ubuntu: sudo apt install podman podman-compose"
-  warn "Or install Docker:  https://docs.docker.com/get-docker/"
-fi
-
-# ── 6. Pull Langfuse images ──────────────────────────────────────────────────
-
-if [ -n "$COMPOSE_CMD" ]; then
-  step "Langfuse images"
-  # Check if images are already pulled to avoid re-downloading on every run
-  if host "command -v podman" &>/dev/null; then
-    LANGFUSE_PULLED=$(host "podman images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -c 'langfuse/langfuse:2'" || true)
-  else
-    LANGFUSE_PULLED=$(host "docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -c 'langfuse/langfuse:2'" || true)
-  fi
-
-  if [ "${LANGFUSE_PULLED:-0}" -eq 0 ]; then
-    warn "Pulling Langfuse + Postgres images (one-time download)..."
-    host "cd '$SCRIPT_DIR' && $COMPOSE_CMD pull" 2>&1 | sed 's/^/    /'
-    ok "Images pulled"
-  else
-    ok "Images already present"
-  fi
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
