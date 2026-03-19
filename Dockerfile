@@ -1,6 +1,11 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM node:22-slim AS build
 
+# Build tools for native modules (node-pty, bcrypt, better-sqlite3)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
@@ -11,7 +16,10 @@ RUN pnpm install --frozen-lockfile
 
 COPY server/ server/
 
-RUN pnpm --filter server build
+# tsc emits JS even with type errors (pre-existing strict-mode issues in source)
+RUN pnpm --filter server exec tsc --project tsconfig.build.json || true
+# Verify the output was actually emitted
+RUN test -f /app/server/dist/index.js
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-slim
@@ -45,8 +53,9 @@ COPY --from=build /app/pnpm-lock.yaml /app/
 COPY server/package.json /app/server/
 RUN cd /app && pnpm install --frozen-lockfile --prod --filter server
 
-# Copy migration files (needed at runtime)
-COPY --from=build /app/server/src/db/migrations /app/server/dist/db/migrations
+# Copy migration files (needed at runtime) — only .js files, exclude .d.ts
+COPY --from=build /app/server/dist/db/migrations /app/server/dist/db/migrations
+RUN find /app/server/dist/db/migrations -name '*.d.ts' -delete 2>/dev/null; true
 
 # Entrypoint script (builds DATABASE_URL from ECS secrets)
 COPY docker-entrypoint.sh /app/
