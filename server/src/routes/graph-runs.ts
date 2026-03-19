@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { createLogger } from '../logger.js';
 import { validate } from '../middleware/validate.js';
@@ -60,21 +60,21 @@ function rowToFull(row: GraphRunRow) {
 }
 
 // GET /api/graph-runs?graphId=xxx — list runs for a graph
-router.get('/', validate({ query: z.object({ graphId: z.string().min(1) }) }), (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ graphId: z.string().min(1) }) }), async (req: AuthRequest, res) => {
   const { graphId } = req.query;
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM graph_runs WHERE graph_id = ? AND user_id = ? ORDER BY started_at DESC LIMIT 50',
-  ).all(graphId, req.user!.id) as GraphRunRow[];
+  const rows = await db('graph_runs')
+    .where({ graph_id: graphId, user_id: req.user!.id })
+    .orderBy('started_at', 'desc')
+    .limit(50)
+    .select() as GraphRunRow[];
   res.json({ runs: rows.map(rowToSummary) });
 });
 
 // GET /api/graph-runs/:id — full run with timeline & executions
-router.get('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT * FROM graph_runs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as GraphRunRow | undefined;
+router.get('/:id', async (req: AuthRequest, res) => {
+  const row = await db('graph_runs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as GraphRunRow | undefined;
   if (!row) {
     res.status(404).json({ error: 'Run not found' });
     return;
@@ -83,12 +83,11 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // DELETE /api/graph-runs/:id — delete a run
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const result = db.prepare(
-    'DELETE FROM graph_runs WHERE id = ? AND user_id = ?',
-  ).run(req.params.id, req.user!.id);
-  if (result.changes === 0) {
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const count = await db('graph_runs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .delete();
+  if (count === 0) {
     res.status(404).json({ error: 'Run not found' });
     return;
   }

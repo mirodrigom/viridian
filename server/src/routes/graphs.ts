@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync } from 
 import { join, dirname } from 'node:path';
 import archiver from 'archiver';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { claudeQuery } from '../services/claude-sdk.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { createLogger } from '../logger.js';
@@ -55,13 +55,13 @@ function rowToSummary(row: GraphRow) {
 }
 
 // GET / — list graphs for a project
-router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), async (req: AuthRequest, res) => {
   const { project } = req.query;
 
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM graphs WHERE user_id = ? AND project_path = ? ORDER BY updated_at DESC',
-  ).all(req.user!.id, project) as GraphRow[];
+  const rows = await db('graphs')
+    .where({ user_id: req.user!.id, project_path: project as string })
+    .orderBy('updated_at', 'desc')
+    .select() as GraphRow[];
   res.json({ graphs: rows.map(rowToSummary) });
 });
 
@@ -312,67 +312,66 @@ router.get('/project-assets', validate({ query: z.object({ cwd: z.string().min(1
 });
 
 // GET /:id — get single graph with full data
-router.get('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT * FROM graphs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as GraphRow | undefined;
+router.get('/:id', async (req: AuthRequest, res) => {
+  const row = await db('graphs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as GraphRow | undefined;
   if (!row) { res.status(404).json({ error: 'Graph not found' }); return; }
   res.json(rowToGraph(row));
 });
 
 // POST / — create graph
-router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
+router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), async (req: AuthRequest, res) => {
   const { name, project, description, graphData } = req.body;
 
-  const db = getDb();
   const id = randomUUID();
 
-  db.prepare(`
-    INSERT INTO graphs (id, user_id, project_path, name, description, graph_data)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, req.user!.id, project, name || 'Untitled Graph', description || '', JSON.stringify(graphData || {}));
+  await db('graphs').insert({
+    id,
+    user_id: req.user!.id,
+    project_path: project,
+    name: name || 'Untitled Graph',
+    description: description || '',
+    graph_data: JSON.stringify(graphData || {}),
+  });
 
-  const row = db.prepare('SELECT * FROM graphs WHERE id = ?').get(id) as GraphRow;
+  const row = await db('graphs').where({ id }).first() as GraphRow;
   res.status(201).json(rowToGraph(row));
 });
 
 // PUT /:id — update graph
-router.put('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare(
-    'SELECT * FROM graphs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as GraphRow | undefined;
+router.put('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('graphs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as GraphRow | undefined;
   if (!existing) { res.status(404).json({ error: 'Graph not found' }); return; }
 
   const { name, description, graphData } = req.body;
 
-  const updates: string[] = [];
-  const params: unknown[] = [];
+  const updates: Record<string, unknown> = {};
 
-  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (description !== undefined) { updates.push('description = ?'); params.push(description); }
-  if (graphData !== undefined) { updates.push('graph_data = ?'); params.push(JSON.stringify(graphData)); }
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+  if (graphData !== undefined) updates.graph_data = JSON.stringify(graphData);
 
-  if (updates.length === 0) { res.json(rowToGraph(existing)); return; }
+  if (Object.keys(updates).length === 0) { res.json(rowToGraph(existing)); return; }
 
-  updates.push('updated_at = CURRENT_TIMESTAMP');
-  params.push(req.params.id, req.user!.id);
+  updates.updated_at = db.fn.now();
 
-  db.prepare(`UPDATE graphs SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
-  const row = db.prepare('SELECT * FROM graphs WHERE id = ?').get(req.params.id) as GraphRow;
+  await db('graphs').where({ id: req.params.id, user_id: req.user!.id }).update(updates);
+  const row = await db('graphs').where({ id: req.params.id }).first() as GraphRow;
   res.json(rowToGraph(row));
 });
 
 // DELETE /:id — delete graph
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare(
-    'SELECT id FROM graphs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id);
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('graphs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!existing) { res.status(404).json({ error: 'Graph not found' }); return; }
 
-  db.prepare('DELETE FROM graphs WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  await db('graphs').where({ id: req.params.id, user_id: req.user!.id }).delete();
   res.json({ ok: true });
 });
 

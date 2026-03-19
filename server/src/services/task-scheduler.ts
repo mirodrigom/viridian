@@ -5,7 +5,7 @@
 
 import cron, { type ScheduledTask as CronJob } from 'node-cron';
 import { randomUUID } from 'crypto';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { getDefaultProvider } from '../providers/registry.js';
 import { createLogger } from '../logger.js';
 
@@ -121,10 +121,9 @@ function matchField(expr: string, value: number, _min: number, _max: number): bo
 
 // ─── Core scheduler functions ─────────────────────────────────────────────────
 
-export function startTaskScheduler(): void {
+export async function startTaskScheduler(): Promise<void> {
   log.info('Starting task scheduler');
-  const db = getDb();
-  const tasks = db.prepare('SELECT * FROM scheduled_tasks WHERE enabled = 1').all() as ScheduledTask[];
+  const tasks = await db('scheduled_tasks').where({ enabled: 1 }).select('*') as ScheduledTask[];
 
   for (const task of tasks) {
     scheduleTask(task);
@@ -162,8 +161,7 @@ export function scheduleTask(task: ScheduledTask): void {
   // Update nextRunAt
   const nextRun = computeNextRun(task.schedule);
   if (nextRun) {
-    const db = getDb();
-    db.prepare('UPDATE scheduled_tasks SET next_run_at = ? WHERE id = ?').run(nextRun, task.id);
+    db('scheduled_tasks').where({ id: task.id }).update({ next_run_at: nextRun }).catch(() => { /* ignore */ });
   }
 
   log.info({ taskId: task.id, name: task.name, schedule: task.schedule }, 'Scheduled task');
@@ -179,8 +177,7 @@ export function unscheduleTask(taskId: string): void {
 }
 
 export async function executeTask(taskId: string): Promise<TaskExecution> {
-  const db = getDb();
-  const task = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(taskId) as ScheduledTask | undefined;
+  const task = await db('scheduled_tasks').where({ id: taskId }).first() as ScheduledTask | undefined;
 
   if (!task) {
     throw new Error(`Scheduled task not found: ${taskId}`);
@@ -190,14 +187,16 @@ export async function executeTask(taskId: string): Promise<TaskExecution> {
   const startedAt = new Date().toISOString();
 
   // Create execution record
-  db.prepare(`
-    INSERT INTO scheduled_task_executions (id, task_id, status, output, started_at)
-    VALUES (?, ?, 'running', '', ?)
-  `).run(executionId, taskId, startedAt);
+  await db('scheduled_task_executions').insert({
+    id: executionId,
+    task_id: taskId,
+    status: 'running',
+    output: '',
+    started_at: startedAt,
+  });
 
   // Update task status
-  db.prepare('UPDATE scheduled_tasks SET status = ?, last_run_at = ? WHERE id = ?')
-    .run('running', startedAt, taskId);
+  await db('scheduled_tasks').where({ id: taskId }).update({ status: 'running', last_run_at: startedAt });
 
   log.info({ taskId, executionId, name: task.name }, 'Executing scheduled task');
 
@@ -240,16 +239,20 @@ export async function executeTask(taskId: string): Promise<TaskExecution> {
   const durationMs = new Date(completedAt).getTime() - new Date(startedAt).getTime();
 
   // Update execution record
-  db.prepare(`
-    UPDATE scheduled_task_executions
-    SET status = ?, output = ?, error = ?, completed_at = ?, duration_ms = ?
-    WHERE id = ?
-  `).run(status, output, error, completedAt, durationMs, executionId);
+  await db('scheduled_task_executions').where({ id: executionId }).update({
+    status,
+    output,
+    error,
+    completed_at: completedAt,
+    duration_ms: durationMs,
+  });
 
   // Update task status and compute next run
   const nextRun = computeNextRun(task.schedule);
-  db.prepare('UPDATE scheduled_tasks SET status = ?, next_run_at = ? WHERE id = ?')
-    .run(status === 'success' ? 'idle' : 'error', nextRun, taskId);
+  await db('scheduled_tasks').where({ id: taskId }).update({
+    status: status === 'success' ? 'idle' : 'error',
+    next_run_at: nextRun,
+  });
 
   log.info({ taskId, executionId, status, durationMs }, 'Task execution completed');
 
@@ -266,9 +269,8 @@ export async function executeTask(taskId: string): Promise<TaskExecution> {
 }
 
 /** Refresh scheduling for a task (after update). */
-export function refreshTask(taskId: string): void {
-  const db = getDb();
-  const task = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(taskId) as ScheduledTask | undefined;
+export async function refreshTask(taskId: string): Promise<void> {
+  const task = await db('scheduled_tasks').where({ id: taskId }).first() as ScheduledTask | undefined;
   if (!task) {
     unscheduleTask(taskId);
     return;

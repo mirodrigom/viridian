@@ -3,7 +3,7 @@
  * scheduled time windows and starts/stops runs automatically.
  */
 
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { createLogger } from '../logger.js';
 
@@ -21,9 +21,9 @@ const CHECK_INTERVAL = 60_000; // 60 seconds
 let checkTimer: ReturnType<typeof setInterval> | null = null;
 const scheduledRuns = new Map<string, string>(); // configId → runId
 
-export function startScheduler() {
+export async function startScheduler() {
   // Seed built-in profiles on scheduler start
-  seedBuiltinProfiles();
+  await seedBuiltinProfiles();
 
   if (checkTimer) return;
   checkTimer = setInterval(tick, CHECK_INTERVAL);
@@ -41,73 +41,73 @@ export function stopScheduler() {
 }
 
 function tick() {
-  try {
-    const db = getDb();
-    const now = new Date();
+  (async () => {
+    try {
+      const now = new Date();
 
-    // Find all configs with schedule_enabled = 1
-    const configs = db.prepare(`
-      SELECT * FROM autopilot_configs WHERE schedule_enabled = 1
-    `).all() as Record<string, unknown>[];
+      // Find all configs with schedule_enabled = 1
+      const configs = await db('autopilot_configs').where({ schedule_enabled: 1 }).select('*') as Record<string, unknown>[];
 
-    for (const cfg of configs) {
-      const configId = cfg.id as string;
-      const existingRunId = scheduledRuns.get(configId);
+      for (const cfg of configs) {
+        const configId = cfg.id as string;
+        const existingRunId = scheduledRuns.get(configId);
 
-      // Check if there's an active run for this config
-      if (existingRunId) {
-        const ctx = getActiveRun(existingRunId);
-        if (ctx) {
-          // Run is active — check if we should stop it (outside window)
-          if (!isWithinWindow(cfg, now)) {
-            log.info({ configId, runId: existingRunId }, 'Outside window, pausing run');
-            pauseRun(existingRunId);
-            scheduledRuns.delete(configId);
+        // Check if there's an active run for this config
+        if (existingRunId) {
+          const ctx = getActiveRun(existingRunId);
+          if (ctx) {
+            // Run is active — check if we should stop it (outside window)
+            if (!isWithinWindow(cfg, now)) {
+              log.info({ configId, runId: existingRunId }, 'Outside window, pausing run');
+              pauseRun(existingRunId);
+              scheduledRuns.delete(configId);
+            }
+            continue;
           }
-          continue;
+          // Run no longer active — clean up
+          scheduledRuns.delete(configId);
         }
-        // Run no longer active — clean up
-        scheduledRuns.delete(configId);
-      }
 
-      // Check if there's already a running/paused run in DB
-      const activeDbRun = db.prepare(`
-        SELECT id FROM autopilot_runs
-        WHERE config_id = ? AND status IN ('running', 'paused', 'rate_limited')
-      `).get(configId) as { id: string } | undefined;
+        // Check if there's already a running/paused run in DB
+        const activeDbRun = await db('autopilot_runs')
+          .where({ config_id: configId })
+          .whereIn('status', ['running', 'paused', 'rate_limited'])
+          .select('id')
+          .first() as { id: string } | undefined;
 
-      if (activeDbRun) continue; // Already running
+        if (activeDbRun) continue; // Already running
 
-      // Check if within schedule window
-      if (isWithinWindow(cfg, now)) {
-        log.info({ configId }, 'Within window, starting run');
-        try {
-          const runConfig: AutopilotRunConfig = {
-            configId,
-            userId: cfg.user_id as number,
-            projectPath: cfg.project_path as string,
-            cwd: cfg.project_path as string,
-            goalPrompt: cfg.goal_prompt as string,
-            agentAProfileId: cfg.agent_a_profile as string,
-            agentBProfileId: cfg.agent_b_profile as string,
-            agentAModel: cfg.agent_a_model as string,
-            agentBModel: cfg.agent_b_model as string,
-            allowedPaths: safeJsonParse<string[]>(cfg.allowed_paths as string, []),
-            maxIterations: cfg.max_iterations as number,
-            maxTokensPerSession: cfg.max_tokens_per_session as number,
-            scheduleEndTime: getWindowEnd(cfg, now),
-          };
+        // Check if within schedule window
+        if (isWithinWindow(cfg, now)) {
+          log.info({ configId }, 'Within window, starting run');
+          try {
+            const runConfig: AutopilotRunConfig = {
+              configId,
+              userId: cfg.user_id as number,
+              projectPath: cfg.project_path as string,
+              cwd: cfg.project_path as string,
+              goalPrompt: cfg.goal_prompt as string,
+              agentAProfileId: cfg.agent_a_profile as string,
+              agentBProfileId: cfg.agent_b_profile as string,
+              agentAModel: cfg.agent_a_model as string,
+              agentBModel: cfg.agent_b_model as string,
+              allowedPaths: safeJsonParse<string[]>(cfg.allowed_paths as string, []),
+              maxIterations: cfg.max_iterations as number,
+              maxTokensPerSession: cfg.max_tokens_per_session as number,
+              scheduleEndTime: getWindowEnd(cfg, now),
+            };
 
-          const ctx = startAutopilotRun(runConfig);
-          scheduledRuns.set(configId, ctx.runId);
-        } catch (err) {
-          log.error({ err, configId }, 'Failed to start run');
+            const ctx = await startAutopilotRun(runConfig);
+            scheduledRuns.set(configId, ctx.runId);
+          } catch (err) {
+            log.error({ err, configId }, 'Failed to start run');
+          }
         }
       }
+    } catch (err) {
+      log.error({ err }, 'Error in tick');
     }
-  } catch (err) {
-    log.error({ err }, 'Error in tick');
-  }
+  })();
 }
 
 /**

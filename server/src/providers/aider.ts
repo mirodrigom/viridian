@@ -168,11 +168,11 @@ const aiderProvider: IProvider = {
     return findAiderBinary();
   },
 
-  isConfigured() {
+  async isConfigured() {
     // Check keys explicitly stored for Aider via our settings flow.
     // Do NOT read shared env vars (GEMINI_API_KEY etc.) because they may have
     // been set by other providers (e.g. Gemini) and would give a false positive.
-    const stored = getProviderConfig('aider');
+    const stored = await getProviderConfig('aider');
     if (
       stored['ANTHROPIC_API_KEY'] ||
       stored['OPENAI_API_KEY'] ||

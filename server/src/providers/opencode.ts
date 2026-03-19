@@ -139,11 +139,11 @@ const openCodeProvider: IProvider = {
     return findOpenCodeBinary();
   },
 
-  isConfigured() {
+  async isConfigured() {
     // Check keys explicitly stored for OpenCode via our settings flow.
     // Do NOT read shared env vars (GEMINI_API_KEY etc.) because they may have
     // been set by other providers (e.g. Gemini) and would give a false positive.
-    const stored = getProviderConfig('opencode');
+    const stored = await getProviderConfig('opencode');
     if (stored['ANTHROPIC_API_KEY'] || stored['OPENAI_API_KEY'] || stored['GEMINI_API_KEY']) {
       return { configured: true };
     }

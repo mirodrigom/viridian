@@ -30,7 +30,7 @@ router.post('/login', validate({ body: credentialsBody }), async (req, res) => {
 
 router.post('/register', validate({ body: registerBody }), async (req, res) => {
   try {
-    const count = getUserCount();
+    const count = await getUserCount();
     if (count > 0) {
       res.status(403).json({ error: 'Registration is disabled. A user already exists.' });
       return;
@@ -46,8 +46,8 @@ router.post('/register', validate({ body: registerBody }), async (req, res) => {
   }
 });
 
-router.get('/status', (_req, res) => {
-  const count = getUserCount();
+router.get('/status', async (_req, res) => {
+  const count = await getUserCount();
   res.json({ hasUsers: count > 0, userCount: count });
 });
 

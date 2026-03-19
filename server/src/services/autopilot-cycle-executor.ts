@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { autoCommit } from './autopilot-git.js';
 import { type AutopilotRunConfig, type AutopilotContext } from './autopilot-run-manager.js';
 import { buildAgentAPrompt, buildAgentBPrompt, summarize } from './autopilot-prompt-builder.js';
@@ -20,17 +20,18 @@ export async function executeCycle(
   cycleId: string,
 ): Promise<void> {
   const { emitter, runId } = ctx;
-  const db = getDb();
 
   // Insert cycle record
-  db.prepare(`
-    INSERT INTO autopilot_cycles (id, run_id, cycle_number, status)
-    VALUES (?, ?, ?, 'agent_a_running')
-  `).run(cycleId, runId, cycleNumber);
+  await db('autopilot_cycles').insert({
+    id: cycleId,
+    run_id: runId,
+    cycle_number: cycleNumber,
+    status: 'agent_a_running',
+  });
 
   // ── Phase 1: Agent A ──────────────────────────────────────────────────
 
-  const agentAPrompt = buildAgentAPrompt(ctx, config, cycleNumber);
+  const agentAPrompt = await buildAgentAPrompt(ctx, config, cycleNumber);
 
   emitter.emit('cycle_started', { runId, cycleNumber, phase: 'agent_a' });
 
@@ -44,26 +45,20 @@ export async function executeCycle(
   });
 
   // Update DB
-  db.prepare(`
-    UPDATE autopilot_cycles
-    SET agent_a_prompt = ?, agent_a_response = ?,
-        agent_a_tokens_in = ?, agent_a_tokens_out = ?,
-        status = 'agent_b_running'
-    WHERE id = ?
-  `).run(
-    agentAPrompt,
-    agentAResult.response,
-    agentAResult.tokens.inputTokens,
-    agentAResult.tokens.outputTokens,
-    cycleId,
-  );
+  await db('autopilot_cycles').where({ id: cycleId }).update({
+    agent_a_prompt: agentAPrompt,
+    agent_a_response: agentAResult.response,
+    agent_a_tokens_in: agentAResult.tokens.inputTokens,
+    agent_a_tokens_out: agentAResult.tokens.outputTokens,
+    status: 'agent_b_running',
+  });
 
   // Check if Agent A signals completion
   if (agentAResult.response.includes('AUTOPILOT_COMPLETE')) {
-    db.prepare(`
-      UPDATE autopilot_cycles SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(cycleId);
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      status: 'completed',
+      completed_at: db.fn.now(),
+    });
     emitter.emit('cycle_completed', { runId, cycleNumber, summary: 'Agent A signaled completion' });
     ctx.status = 'completed'; // Will break the loop
     return;
@@ -99,41 +94,30 @@ export async function executeCycle(
       filesChanged: commitResult.filesChanged,
     });
 
-    db.prepare(`
-      UPDATE autopilot_cycles
-      SET agent_b_prompt = ?, agent_b_response = ?,
-          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
-          commit_hash = ?, commit_message = ?, files_changed = ?,
-          status = 'committed', completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      agentBPrompt,
-      agentBResult.response,
-      agentBResult.tokens.inputTokens,
-      agentBResult.tokens.outputTokens,
-      commitResult.hash,
-      commitResult.message,
-      JSON.stringify(commitResult.filesChanged),
-      cycleId,
-    );
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      agent_b_prompt: agentBPrompt,
+      agent_b_response: agentBResult.response,
+      agent_b_tokens_in: agentBResult.tokens.inputTokens,
+      agent_b_tokens_out: agentBResult.tokens.outputTokens,
+      commit_hash: commitResult.hash,
+      commit_message: commitResult.message,
+      files_changed: JSON.stringify(commitResult.filesChanged),
+      status: 'committed',
+      completed_at: db.fn.now(),
+    });
 
     // Update run counters
-    updateRunCounters(ctx, runId);
+    await updateRunCounters(ctx, runId);
   } else {
     // No files changed — still mark cycle as completed
-    db.prepare(`
-      UPDATE autopilot_cycles
-      SET agent_b_prompt = ?, agent_b_response = ?,
-          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
-          status = 'completed', completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      agentBPrompt,
-      agentBResult.response,
-      agentBResult.tokens.inputTokens,
-      agentBResult.tokens.outputTokens,
-      cycleId,
-    );
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      agent_b_prompt: agentBPrompt,
+      agent_b_response: agentBResult.response,
+      agent_b_tokens_in: agentBResult.tokens.inputTokens,
+      agent_b_tokens_out: agentBResult.tokens.outputTokens,
+      status: 'completed',
+      completed_at: db.fn.now(),
+    });
   }
 
   emitter.emit('cycle_completed', {
@@ -159,19 +143,15 @@ export async function executeCustomCycle(
   },
 ): Promise<void> {
   const { emitter, runId } = ctx;
-  const db = getDb();
 
   // Insert cycle record
-  db.prepare(`
-    INSERT INTO autopilot_cycles (id, run_id, cycle_number, status, is_test_verification)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    cycleId,
-    runId,
-    cycleNumber,
-    options?.skipAgentA ? 'agent_b_running' : 'agent_a_running',
-    options?.isTestVerification ? 1 : 0,
-  );
+  await db('autopilot_cycles').insert({
+    id: cycleId,
+    run_id: runId,
+    cycle_number: cycleNumber,
+    status: options?.skipAgentA ? 'agent_b_running' : 'agent_a_running',
+    is_test_verification: options?.isTestVerification ? 1 : 0,
+  });
 
   let agentAResult;
 
@@ -190,19 +170,13 @@ export async function executeCustomCycle(
     });
 
     // Update DB
-    db.prepare(`
-      UPDATE autopilot_cycles
-      SET agent_a_prompt = ?, agent_a_response = ?,
-          agent_a_tokens_in = ?, agent_a_tokens_out = ?,
-          status = 'agent_b_running'
-      WHERE id = ?
-    `).run(
-      customPrompt,
-      agentAResult.response,
-      agentAResult.tokens.inputTokens,
-      agentAResult.tokens.outputTokens,
-      cycleId,
-    );
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      agent_a_prompt: customPrompt,
+      agent_a_response: agentAResult.response,
+      agent_a_tokens_in: agentAResult.tokens.inputTokens,
+      agent_a_tokens_out: agentAResult.tokens.outputTokens,
+      status: 'agent_b_running',
+    });
   }
 
   // ── Phase 2: Agent B ──────────────────────────────────────────────────
@@ -239,40 +213,29 @@ export async function executeCustomCycle(
       filesChanged: commitResult.filesChanged,
     });
 
-    db.prepare(`
-      UPDATE autopilot_cycles
-      SET agent_b_prompt = ?, agent_b_response = ?,
-          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
-          commit_hash = ?, commit_message = ?, files_changed = ?,
-          status = 'committed', completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      agentBPrompt,
-      agentBResult.response,
-      agentBResult.tokens.inputTokens,
-      agentBResult.tokens.outputTokens,
-      commitResult.hash,
-      commitResult.message,
-      JSON.stringify(commitResult.filesChanged),
-      cycleId,
-    );
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      agent_b_prompt: agentBPrompt,
+      agent_b_response: agentBResult.response,
+      agent_b_tokens_in: agentBResult.tokens.inputTokens,
+      agent_b_tokens_out: agentBResult.tokens.outputTokens,
+      commit_hash: commitResult.hash,
+      commit_message: commitResult.message,
+      files_changed: JSON.stringify(commitResult.filesChanged),
+      status: 'committed',
+      completed_at: db.fn.now(),
+    });
 
     // Update run counters
-    updateRunCounters(ctx, runId);
+    await updateRunCounters(ctx, runId);
   } else {
-    db.prepare(`
-      UPDATE autopilot_cycles
-      SET agent_b_prompt = ?, agent_b_response = ?,
-          agent_b_tokens_in = ?, agent_b_tokens_out = ?,
-          status = 'completed', completed_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      agentBPrompt,
-      agentBResult.response,
-      agentBResult.tokens.inputTokens,
-      agentBResult.tokens.outputTokens,
-      cycleId,
-    );
+    await db('autopilot_cycles').where({ id: cycleId }).update({
+      agent_b_prompt: agentBPrompt,
+      agent_b_response: agentBResult.response,
+      agent_b_tokens_in: agentBResult.tokens.inputTokens,
+      agent_b_tokens_out: agentBResult.tokens.outputTokens,
+      status: 'completed',
+      completed_at: db.fn.now(),
+    });
   }
 
   emitter.emit('cycle_completed', {
@@ -286,21 +249,13 @@ export async function executeCustomCycle(
 
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
-function updateRunCounters(ctx: AutopilotContext, runId: string): void {
-  const db = getDb();
-  db.prepare(`
-    UPDATE autopilot_runs
-    SET commit_count = ?, cycle_count = ?,
-        agent_a_input_tokens = ?, agent_a_output_tokens = ?,
-        agent_b_input_tokens = ?, agent_b_output_tokens = ?
-    WHERE id = ?
-  `).run(
-    ctx.commitCount,
-    ctx.cycleCount + 1,
-    ctx.totalTokens.agentA.inputTokens,
-    ctx.totalTokens.agentA.outputTokens,
-    ctx.totalTokens.agentB.inputTokens,
-    ctx.totalTokens.agentB.outputTokens,
-    runId,
-  );
+async function updateRunCounters(ctx: AutopilotContext, runId: string): Promise<void> {
+  await db('autopilot_runs').where({ id: runId }).update({
+    commit_count: ctx.commitCount,
+    cycle_count: ctx.cycleCount + 1,
+    agent_a_input_tokens: ctx.totalTokens.agentA.inputTokens,
+    agent_a_output_tokens: ctx.totalTokens.agentA.outputTokens,
+    agent_b_input_tokens: ctx.totalTokens.agentB.inputTokens,
+    agent_b_output_tokens: ctx.totalTokens.agentB.outputTokens,
+  });
 }

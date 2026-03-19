@@ -62,8 +62,8 @@ router.get('/:id', (req, res) => {
  * GET /api/providers/:id/config — Return masked env var values for a provider.
  * Values are shown as first4****last4 so users can verify which key is stored.
  */
-router.get('/:id/config', (req, res) => {
-  const config = getProviderConfig(req.params.id as ProviderId);
+router.get('/:id/config', async (req, res) => {
+  const config = await getProviderConfig(req.params.id as ProviderId);
   const masked: Record<string, string> = {};
   for (const [key, value] of Object.entries(config)) {
     if (value) {
@@ -79,7 +79,7 @@ router.get('/:id/config', (req, res) => {
  * DELETE /api/providers/:id/config — Remove a stored env var for a provider.
  * Body: { envVarName: string }
  */
-router.delete('/:id/config', (req, res) => {
+router.delete('/:id/config', async (req, res) => {
   const id = req.params.id as ProviderId;
   const { envVarName } = req.body as { envVarName?: string };
 
@@ -96,7 +96,7 @@ router.delete('/:id/config', (req, res) => {
     return;
   }
 
-  deleteProviderEnvVar(id, varName);
+  await deleteProviderEnvVar(id, varName);
   res.json({ success: true });
 });
 
@@ -341,7 +341,7 @@ router.post('/:id/configure', validate({
     apiKey: z.string().min(1),
     envVarName: z.string().optional(),
   }),
-}), (req, res) => {
+}), async (req, res) => {
   try {
     const provider = getProvider(req.params.id as ProviderId);
     const { apiKey, envVarName } = req.body as { apiKey: string; envVarName?: string };
@@ -350,7 +350,7 @@ router.post('/:id/configure', validate({
     const home = getHomeDir();
 
     if (id === 'gemini') {
-      saveProviderConfig('gemini', { GEMINI_API_KEY: apiKey.trim() });
+      await saveProviderConfig('gemini', { GEMINI_API_KEY: apiKey.trim() });
       // Write settings.json so CLI knows to use API key auth
       const geminiDir = join(home, '.gemini');
       mkdirSync(geminiDir, { recursive: true });
@@ -365,7 +365,7 @@ router.post('/:id/configure', validate({
     }
 
     if (id === 'codex') {
-      saveProviderConfig('codex', { OPENAI_API_KEY: apiKey.trim() });
+      await saveProviderConfig('codex', { OPENAI_API_KEY: apiKey.trim() });
       res.json({ success: true });
       return;
     }
@@ -374,13 +374,13 @@ router.post('/:id/configure', validate({
       // Aider supports multiple backends; caller specifies which env var to set
       const validVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'DEEPSEEK_API_KEY'];
       const varName = envVarName && validVars.includes(envVarName) ? envVarName : 'ANTHROPIC_API_KEY';
-      saveProviderConfig('aider', { [varName]: apiKey.trim() });
+      await saveProviderConfig('aider', { [varName]: apiKey.trim() });
       res.json({ success: true });
       return;
     }
 
     if (id === 'qwen') {
-      saveProviderConfig('qwen', { DASHSCOPE_API_KEY: apiKey.trim() });
+      await saveProviderConfig('qwen', { DASHSCOPE_API_KEY: apiKey.trim() });
       // Write settings.json so CLI knows to use API key auth
       const qwenDir = join(home, '.qwen');
       mkdirSync(qwenDir, { recursive: true });
@@ -398,7 +398,7 @@ router.post('/:id/configure', validate({
       // OpenCode picks up standard provider env vars automatically
       const validVars = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY'];
       const varName = envVarName && validVars.includes(envVarName) ? envVarName : 'ANTHROPIC_API_KEY';
-      saveProviderConfig('opencode', { [varName]: apiKey.trim() });
+      await saveProviderConfig('opencode', { [varName]: apiKey.trim() });
       res.json({ success: true });
       return;
     }
@@ -514,7 +514,7 @@ router.post('/:id/test', async (req, res) => {
   try {
     const id = req.params.id as ProviderId;
     const { envVarName } = req.body as { envVarName?: string };
-    const config = getProviderConfig(id);
+    const config = await getProviderConfig(id);
 
     // Claude — CLI OAuth, no REST key to test
     if (id === 'claude') {

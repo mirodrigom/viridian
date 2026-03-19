@@ -5,7 +5,7 @@ import { createSession, getSession, sendMessage, abortSession, removeSession, ty
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { getHomeDir } from '../utils/platform.js';
 import { verifyToken } from '../services/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { createLogger } from '../logger.js';
 import { validate } from '../middleware/validate.js';
 
@@ -40,21 +40,27 @@ function agentAuth(req: AuthRequest, res: any, next: any) {
   // API key auth (ck_ prefix)
   if (token.startsWith('ck_')) {
     const hash = createHash('sha256').update(token).digest('hex');
-    const db = getDb();
-    const key = db.prepare(
-      'SELECT api_keys.id, api_keys.user_id, users.username FROM api_keys JOIN users ON api_keys.user_id = users.id WHERE api_keys.key_hash = ? AND api_keys.revoked = 0',
-    ).get(hash) as { id: number; user_id: number; username: string } | undefined;
+    db('api_keys')
+      .join('users', 'api_keys.user_id', 'users.id')
+      .where('api_keys.key_hash', hash)
+      .where('api_keys.revoked', 0)
+      .select('api_keys.id', 'api_keys.user_id', 'users.username')
+      .first()
+      .then(async (key: { id: number; user_id: number; username: string } | undefined) => {
+        if (!key) {
+          res.status(401).json({ error: 'Invalid or revoked API key' });
+          return;
+        }
 
-    if (!key) {
-      res.status(401).json({ error: 'Invalid or revoked API key' });
-      return;
-    }
+        // Update last_used_at
+        await db('api_keys').where({ id: key.id }).update({ last_used_at: db.fn.now() });
 
-    // Update last_used_at
-    db.prepare('UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(key.id);
-
-    req.user = { id: key.user_id, username: key.username };
-    next();
+        req.user = { id: key.user_id, username: key.username };
+        next();
+      })
+      .catch(() => {
+        res.status(500).json({ error: 'Authentication error' });
+      });
     return;
   }
 

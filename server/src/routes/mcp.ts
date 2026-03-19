@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { createLogger } from '../logger.js';
 import { validate } from '../middleware/validate.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 
 const log = createLogger('mcp');
 const router: ReturnType<typeof Router> = Router();
@@ -103,11 +103,8 @@ function writeSettings(settings: Record<string, any>) {
  * Sync enabled MCP servers from our DB to ~/.claude/settings.json
  * so that Claude Code picks them up across all sessions.
  */
-function syncToClaudeSettings(userId: number) {
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM mcp_servers WHERE user_id = ?',
-  ).all(userId) as McpServerRow[];
+async function syncToClaudeSettings(userId: number) {
+  const rows = await db('mcp_servers').where({ user_id: userId }).select() as McpServerRow[];
 
   const settings = readSettings();
   const mcpServers: Record<string, McpServer> = {};
@@ -176,12 +173,12 @@ router.delete('/servers/:name', (req, res) => {
 // ─── Managed MCP server CRUD (DB-backed) ─────────────────────────────────────
 
 // GET /api/mcp/managed — list all managed MCP servers for the user
-router.get('/managed', (req, res) => {
+router.get('/managed', async (req, res) => {
   const user = (req as AuthRequest).user!;
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM mcp_servers WHERE user_id = ? ORDER BY created_at ASC',
-  ).all(user.id) as McpServerRow[];
+  const rows = await db('mcp_servers')
+    .where({ user_id: user.id })
+    .orderBy('created_at', 'asc')
+    .select() as McpServerRow[];
   res.json({ servers: rows.map(rowToConfig) });
 });
 
@@ -197,28 +194,36 @@ router.post('/managed', validate({
     headers: z.record(z.string()).optional().default({}),
     enabled: z.boolean().optional().default(true),
   }),
-}), (req, res) => {
+}), async (req, res) => {
   const user = (req as AuthRequest).user!;
   const { name, serverType, command, args, env, url, headers, enabled } = req.body;
-  const db = getDb();
 
   // Check for duplicate name
-  const existing = db.prepare(
-    'SELECT id FROM mcp_servers WHERE user_id = ? AND name = ?',
-  ).get(user.id, name);
+  const existing = await db('mcp_servers')
+    .where({ user_id: user.id, name })
+    .select('id')
+    .first();
   if (existing) {
     res.status(409).json({ error: 'A server with this name already exists' });
     return;
   }
 
   const id = randomUUID();
-  db.prepare(`
-    INSERT INTO mcp_servers (id, user_id, name, server_type, command, args, env, url, headers, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, user.id, name, serverType, command, JSON.stringify(args), JSON.stringify(env), url, JSON.stringify(headers), enabled ? 1 : 0);
+  await db('mcp_servers').insert({
+    id,
+    user_id: user.id,
+    name,
+    server_type: serverType,
+    command,
+    args: JSON.stringify(args),
+    env: JSON.stringify(env),
+    url,
+    headers: JSON.stringify(headers),
+    enabled: enabled ? 1 : 0,
+  });
 
-  const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as McpServerRow;
-  syncToClaudeSettings(user.id);
+  const row = await db('mcp_servers').where({ id }).first() as McpServerRow;
+  await syncToClaudeSettings(user.id);
   log.info({ userId: user.id, name }, 'MCP server created');
   res.status(201).json({ server: rowToConfig(row) });
 });
@@ -235,104 +240,101 @@ router.put('/managed/:id', validate({
     headers: z.record(z.string()).optional(),
     enabled: z.boolean().optional(),
   }),
-}), (req, res) => {
+}), async (req, res) => {
   const user = (req as AuthRequest).user!;
   const { id } = req.params;
-  const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT * FROM mcp_servers WHERE id = ? AND user_id = ?',
-  ).get(id, user.id) as McpServerRow | undefined;
+  const existing = await db('mcp_servers')
+    .where({ id, user_id: user.id })
+    .first() as McpServerRow | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Server not found' });
     return;
   }
 
   const updates = req.body;
-  const sets: string[] = [];
-  const vals: unknown[] = [];
+  const sets: Record<string, unknown> = {};
 
   if (updates.name !== undefined) {
     // Check for duplicate name (excluding current)
-    const dup = db.prepare(
-      'SELECT id FROM mcp_servers WHERE user_id = ? AND name = ? AND id != ?',
-    ).get(user.id, updates.name, id);
+    const dup = await db('mcp_servers')
+      .where({ user_id: user.id, name: updates.name })
+      .whereNot({ id })
+      .select('id')
+      .first();
     if (dup) {
       res.status(409).json({ error: 'A server with this name already exists' });
       return;
     }
-    sets.push('name = ?'); vals.push(updates.name);
+    sets.name = updates.name;
   }
-  if (updates.serverType !== undefined) { sets.push('server_type = ?'); vals.push(updates.serverType); }
-  if (updates.command !== undefined) { sets.push('command = ?'); vals.push(updates.command); }
-  if (updates.args !== undefined) { sets.push('args = ?'); vals.push(JSON.stringify(updates.args)); }
-  if (updates.env !== undefined) { sets.push('env = ?'); vals.push(JSON.stringify(updates.env)); }
-  if (updates.url !== undefined) { sets.push('url = ?'); vals.push(updates.url); }
-  if (updates.headers !== undefined) { sets.push('headers = ?'); vals.push(JSON.stringify(updates.headers)); }
-  if (updates.enabled !== undefined) { sets.push('enabled = ?'); vals.push(updates.enabled ? 1 : 0); }
+  if (updates.serverType !== undefined) sets.server_type = updates.serverType;
+  if (updates.command !== undefined) sets.command = updates.command;
+  if (updates.args !== undefined) sets.args = JSON.stringify(updates.args);
+  if (updates.env !== undefined) sets.env = JSON.stringify(updates.env);
+  if (updates.url !== undefined) sets.url = updates.url;
+  if (updates.headers !== undefined) sets.headers = JSON.stringify(updates.headers);
+  if (updates.enabled !== undefined) sets.enabled = updates.enabled ? 1 : 0;
 
-  if (sets.length > 0) {
-    sets.push('updated_at = CURRENT_TIMESTAMP');
-    db.prepare(`UPDATE mcp_servers SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+  if (Object.keys(sets).length > 0) {
+    sets.updated_at = db.fn.now();
+    await db('mcp_servers').where({ id }).update(sets);
   }
 
-  const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as McpServerRow;
-  syncToClaudeSettings(user.id);
+  const row = await db('mcp_servers').where({ id }).first() as McpServerRow;
+  await syncToClaudeSettings(user.id);
   log.info({ userId: user.id, id, name: row.name }, 'MCP server updated');
   res.json({ server: rowToConfig(row) });
 });
 
 // DELETE /api/mcp/managed/:id — delete a managed MCP server
-router.delete('/managed/:id', (req, res) => {
+router.delete('/managed/:id', async (req, res) => {
   const user = (req as AuthRequest).user!;
   const { id } = req.params;
-  const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT * FROM mcp_servers WHERE id = ? AND user_id = ?',
-  ).get(id, user.id) as McpServerRow | undefined;
+  const existing = await db('mcp_servers')
+    .where({ id, user_id: user.id })
+    .first() as McpServerRow | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Server not found' });
     return;
   }
 
-  db.prepare('DELETE FROM mcp_servers WHERE id = ?').run(id);
-  syncToClaudeSettings(user.id);
+  await db('mcp_servers').where({ id }).delete();
+  await syncToClaudeSettings(user.id);
   log.info({ userId: user.id, id, name: existing.name }, 'MCP server deleted');
   res.json({ ok: true });
 });
 
 // PATCH /api/mcp/managed/:id/toggle — toggle enabled/disabled
-router.patch('/managed/:id/toggle', (req, res) => {
+router.patch('/managed/:id/toggle', async (req, res) => {
   const user = (req as AuthRequest).user!;
   const { id } = req.params;
-  const db = getDb();
 
-  const existing = db.prepare(
-    'SELECT * FROM mcp_servers WHERE id = ? AND user_id = ?',
-  ).get(id, user.id) as McpServerRow | undefined;
+  const existing = await db('mcp_servers')
+    .where({ id, user_id: user.id })
+    .first() as McpServerRow | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Server not found' });
     return;
   }
 
   const newEnabled = existing.enabled === 1 ? 0 : 1;
-  db.prepare('UPDATE mcp_servers SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newEnabled, id);
+  await db('mcp_servers').where({ id }).update({ enabled: newEnabled, updated_at: db.fn.now() });
 
-  const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as McpServerRow;
-  syncToClaudeSettings(user.id);
+  const row = await db('mcp_servers').where({ id }).first() as McpServerRow;
+  await syncToClaudeSettings(user.id);
   res.json({ server: rowToConfig(row) });
 });
 
 // POST /api/mcp/managed/:id/test — test an MCP server connection
-router.post('/managed/:id/test', (req, res) => {
+router.post('/managed/:id/test', async (req, res) => {
   const user = (req as AuthRequest).user!;
   const { id } = req.params;
-  const db = getDb();
 
-  const row = db.prepare(
-    'SELECT * FROM mcp_servers WHERE id = ? AND user_id = ?',
-  ).get(id, user.id) as McpServerRow | undefined;
+  const row = await db('mcp_servers')
+    .where({ id, user_id: user.id })
+    .first() as McpServerRow | undefined;
   if (!row) {
     res.status(404).json({ error: 'Server not found' });
     return;

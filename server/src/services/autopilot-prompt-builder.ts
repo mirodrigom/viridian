@@ -4,32 +4,30 @@
  * Handles Agent A and Agent B prompt construction, goal and context synthesis.
  */
 
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { type AutopilotRunConfig, type AutopilotContext } from './autopilot-run-manager.js';
 
 // ─── Agent A Prompt Builder ──────────────────────────────────────────────
 
-export function buildAgentAPrompt(
+export async function buildAgentAPrompt(
   ctx: AutopilotContext,
   config: AutopilotRunConfig,
   cycleNumber: number,
-): string {
+): Promise<string> {
   if (cycleNumber === 0) {
     return `## Goal\n${config.goalPrompt}\n\n## Instructions\nAnalyze the project and suggest the first improvement to achieve this goal. Focus on ONE specific, actionable suggestion.`;
   }
 
   // Get last cycle's Agent B response from DB
-  const db = getDb();
-  const lastCycle = db.prepare(`
-    SELECT agent_b_response, commit_message, files_changed
-    FROM autopilot_cycles
-    WHERE run_id = ? AND cycle_number = ?
-    ORDER BY cycle_number DESC LIMIT 1
-  `).get(ctx.runId, cycleNumber - 1) as {
-    agent_b_response: string;
-    commit_message: string | null;
-    files_changed: string | null;
-  } | undefined;
+  const lastCycle = await db('autopilot_cycles')
+    .where({ run_id: ctx.runId, cycle_number: cycleNumber - 1 })
+    .orderBy('cycle_number', 'desc')
+    .select('agent_b_response', 'commit_message', 'files_changed')
+    .first() as {
+      agent_b_response: string;
+      commit_message: string | null;
+      files_changed: string | null;
+    } | undefined;
 
   const context = lastCycle
     ? `## Previous Cycle Results\n${lastCycle.commit_message ? `Commit: ${lastCycle.commit_message}` : 'No commit made'}\n${lastCycle.files_changed ? `Files changed: ${lastCycle.files_changed}` : ''}\n\nExecutor's response:\n${lastCycle.agent_b_response?.slice(0, 2000) || 'No response'}`

@@ -10,7 +10,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, basename } from 'path';
 import { randomUUID } from 'crypto';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -204,85 +204,88 @@ export function discoverServices(projectPath: string): DiscoveredService[] {
 
 // ─── Registration ────────────────────────────────────────────────────────────
 
-export function registerDiscoveries(
+export async function registerDiscoveries(
   userId: number,
   projectPath: string,
   scripts: DiscoveredScript[],
   services: DiscoveredService[],
-): { scriptsAdded: number; scriptsExisting: number; servicesAdded: number; servicesExisting: number } {
-  const db = getDb();
+): Promise<{ scriptsAdded: number; scriptsExisting: number; servicesAdded: number; servicesExisting: number }> {
   let scriptsAdded = 0;
   let scriptsExisting = 0;
   let servicesAdded = 0;
   let servicesExisting = 0;
 
   // Register scripts (skip duplicates by command + project_path)
-  const existingScripts = db.prepare(
-    'SELECT command FROM management_scripts WHERE user_id = ? AND project_path = ?',
-  ).all(userId, projectPath) as { command: string }[];
-  const existingScriptCmds = new Set(existingScripts.map(s => s.command));
+  const existingScriptRows = await db('management_scripts')
+    .where({ user_id: userId, project_path: projectPath })
+    .select('command') as { command: string }[];
+  const existingScriptCmds = new Set(existingScriptRows.map(s => s.command));
 
-  const scriptMaxOrder = (db.prepare(
-    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_scripts WHERE user_id = ?',
-  ).get(userId) as { next: number }).next;
+  const scriptMaxRow = await db('management_scripts')
+    .where({ user_id: userId })
+    .max('sort_order as maxOrder')
+    .first() as { maxOrder: number | null };
+  let scriptOrder = (scriptMaxRow?.maxOrder ?? -1) + 1;
 
-  const insertScript = db.prepare(
-    'INSERT INTO management_scripts (id, user_id, name, command, cwd, project_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  );
-
-  const scriptTx = db.transaction(() => {
-    let order = scriptMaxOrder;
-    for (const s of scripts) {
-      if (existingScriptCmds.has(s.command)) {
-        scriptsExisting++;
-        continue;
-      }
-      insertScript.run(randomUUID(), userId, s.name, s.command, projectPath, projectPath, order++);
-      existingScriptCmds.add(s.command);
-      scriptsAdded++;
+  for (const s of scripts) {
+    if (existingScriptCmds.has(s.command)) {
+      scriptsExisting++;
+      continue;
     }
-  });
-  scriptTx();
+    await db('management_scripts').insert({
+      id: randomUUID(),
+      user_id: userId,
+      name: s.name,
+      command: s.command,
+      cwd: projectPath,
+      project_path: projectPath,
+      sort_order: scriptOrder++,
+    });
+    existingScriptCmds.add(s.command);
+    scriptsAdded++;
+  }
 
   // Register services (skip duplicates by command + project_path)
-  const existingServices = db.prepare(
-    'SELECT command FROM management_services WHERE user_id = ? AND project_path = ?',
-  ).all(userId, projectPath) as { command: string }[];
-  const existingServiceCmds = new Set(existingServices.map(s => s.command));
+  const existingServiceRows = await db('management_services')
+    .where({ user_id: userId, project_path: projectPath })
+    .select('command') as { command: string }[];
+  const existingServiceCmds = new Set(existingServiceRows.map(s => s.command));
 
-  const serviceMaxOrder = (db.prepare(
-    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_services WHERE user_id = ?',
-  ).get(userId) as { next: number }).next;
+  const serviceMaxRow = await db('management_services')
+    .where({ user_id: userId })
+    .max('sort_order as maxOrder')
+    .first() as { maxOrder: number | null };
+  let serviceOrder = (serviceMaxRow?.maxOrder ?? -1) + 1;
 
-  const insertService = db.prepare(
-    'INSERT INTO management_services (id, user_id, name, command, cwd, project_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  );
-
-  const serviceTx = db.transaction(() => {
-    let order = serviceMaxOrder;
-    for (const s of services) {
-      if (existingServiceCmds.has(s.command)) {
-        servicesExisting++;
-        continue;
-      }
-      insertService.run(randomUUID(), userId, s.name, s.command, s.cwd || projectPath, projectPath, order++);
-      existingServiceCmds.add(s.command);
-      servicesAdded++;
+  for (const s of services) {
+    if (existingServiceCmds.has(s.command)) {
+      servicesExisting++;
+      continue;
     }
-  });
-  serviceTx();
+    await db('management_services').insert({
+      id: randomUUID(),
+      user_id: userId,
+      name: s.name,
+      command: s.command,
+      cwd: s.cwd || projectPath,
+      project_path: projectPath,
+      sort_order: serviceOrder++,
+    });
+    existingServiceCmds.add(s.command);
+    servicesAdded++;
+  }
 
   return { scriptsAdded, scriptsExisting, servicesAdded, servicesExisting };
 }
 
 // ─── Main bootstrap function ─────────────────────────────────────────────────
 
-export function bootstrapProject(userId: number, projectPath: string): BootstrapResult {
+export async function bootstrapProject(userId: number, projectPath: string): Promise<BootstrapResult> {
   const scripts = discoverScripts(projectPath);
   const envFiles = discoverEnvFiles(projectPath);
   const services = discoverServices(projectPath);
 
-  const counts = registerDiscoveries(userId, projectPath, scripts, services);
+  const counts = await registerDiscoveries(userId, projectPath, scripts, services);
 
   return {
     scripts: {

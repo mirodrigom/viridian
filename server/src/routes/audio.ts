@@ -56,7 +56,7 @@ router.post('/providers/:id/configure', validate({
   body: z.object({
     apiKey: z.string().min(1),
   }),
-}), (req, res) => {
+}), async (req, res) => {
   try {
     const provider = getAudioProvider(req.params.id as AudioProviderId);
     const envVarName = provider.info.envVarName;
@@ -66,7 +66,7 @@ router.post('/providers/:id/configure', validate({
     }
 
     const { apiKey } = req.body as { apiKey: string };
-    saveProviderConfig(provider.info.id, { [envVarName]: apiKey.trim() });
+    await saveProviderConfig(provider.info.id, { [envVarName]: apiKey.trim() });
     res.json({ success: true });
   } catch {
     res.status(404).json({ error: `Audio provider "${req.params.id}" not found` });
@@ -74,8 +74,8 @@ router.post('/providers/:id/configure', validate({
 });
 
 /** GET /api/audio/providers/:id/config — Return masked API key. */
-router.get('/providers/:id/config', (req, res) => {
-  const config = getProviderConfig(req.params.id as AudioProviderId);
+router.get('/providers/:id/config', async (req, res) => {
+  const config = await getProviderConfig(req.params.id as AudioProviderId);
   const masked: Record<string, string> = {};
   for (const [key, value] of Object.entries(config)) {
     if (value) {
@@ -88,7 +88,7 @@ router.get('/providers/:id/config', (req, res) => {
 });
 
 /** DELETE /api/audio/providers/:id/config — Remove stored API key. */
-router.delete('/providers/:id/config', (req, res) => {
+router.delete('/providers/:id/config', async (req, res) => {
   try {
     const provider = getAudioProvider(req.params.id as AudioProviderId);
     const envVarName = provider.info.envVarName;
@@ -96,7 +96,7 @@ router.delete('/providers/:id/config', (req, res) => {
       res.status(400).json({ error: 'This provider has no API key to delete.' });
       return;
     }
-    deleteProviderEnvVar(provider.info.id, envVarName);
+    await deleteProviderEnvVar(provider.info.id, envVarName);
     res.json({ success: true });
   } catch {
     res.status(404).json({ error: `Audio provider "${req.params.id}" not found` });

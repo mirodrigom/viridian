@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { getProvider } from '../providers/registry.js';
 import type { ProviderId } from '../providers/types.js';
 import { createLogger } from '../logger.js';
@@ -74,22 +74,21 @@ function rowToSummary(row: ManualRow) {
 }
 
 // GET / — list manuals for a project
-router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }) }), async (req: AuthRequest, res) => {
   const { project } = req.query;
 
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM manuals WHERE user_id = ? AND project_path = ? ORDER BY updated_at DESC',
-  ).all(req.user!.id, project) as ManualRow[];
+  const rows = await db('manuals')
+    .where({ user_id: req.user!.id, project_path: project })
+    .orderBy('updated_at', 'desc')
+    .select() as ManualRow[];
   res.json({ manuals: rows.map(rowToSummary) });
 });
 
 // GET /:id — get single manual
-router.get('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT * FROM manuals WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as ManualRow | undefined;
+router.get('/:id', async (req: AuthRequest, res) => {
+  const row = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ManualRow | undefined;
 
   if (!row) {
     res.status(404).json({ error: 'Manual not found' });
@@ -100,35 +99,30 @@ router.get('/:id', (req: AuthRequest, res) => {
 });
 
 // POST / — create manual
-router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
+router.post('/', validate({ body: z.object({ project: z.string().min(1) }).passthrough() }), async (req: AuthRequest, res) => {
   const { title, project, prompt, logo1Data, logo2Data } = req.body;
 
-  const db = getDb();
   const id = randomUUID();
 
-  db.prepare(`
-    INSERT INTO manuals (id, user_id, project_path, title, prompt, logo1_data, logo2_data)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  await db('manuals').insert({
     id,
-    req.user!.id,
-    project,
-    title || 'Untitled Manual',
-    prompt || '',
-    logo1Data || '',
-    logo2Data || '',
-  );
+    user_id: req.user!.id,
+    project_path: project,
+    title: title || 'Untitled Manual',
+    prompt: prompt || '',
+    logo1_data: logo1Data || '',
+    logo2_data: logo2Data || '',
+  });
 
-  const row = db.prepare('SELECT * FROM manuals WHERE id = ?').get(id) as ManualRow;
+  const row = await db('manuals').where({ id }).first() as ManualRow;
   res.status(201).json(rowToManual(row));
 });
 
 // PUT /:id — update manual
-router.put('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare(
-    'SELECT * FROM manuals WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as ManualRow | undefined;
+router.put('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ManualRow | undefined;
 
   if (!existing) {
     res.status(404).json({ error: 'Manual not found' });
@@ -137,56 +131,52 @@ router.put('/:id', (req: AuthRequest, res) => {
 
   const { title, prompt, content, logo1Data, logo2Data, logo1Position, logo2Position, brandColors, pdfData, mode, status } = req.body;
 
-  const updates: string[] = [];
-  const params: unknown[] = [];
+  const updates: Record<string, unknown> = {};
 
-  if (title !== undefined) { updates.push('title = ?'); params.push(title); }
-  if (prompt !== undefined) { updates.push('prompt = ?'); params.push(prompt); }
-  if (content !== undefined) { updates.push('content = ?'); params.push(content); }
-  if (logo1Data !== undefined) { updates.push('logo1_data = ?'); params.push(logo1Data); }
-  if (logo2Data !== undefined) { updates.push('logo2_data = ?'); params.push(logo2Data); }
-  if (logo1Position !== undefined) { updates.push('logo1_position = ?'); params.push(JSON.stringify(logo1Position)); }
-  if (logo2Position !== undefined) { updates.push('logo2_position = ?'); params.push(JSON.stringify(logo2Position)); }
-  if (brandColors !== undefined) { updates.push('brand_colors = ?'); params.push(JSON.stringify(brandColors)); }
-  if (pdfData !== undefined) { updates.push('pdf_data = ?'); params.push(pdfData); }
-  if (mode !== undefined) { updates.push('mode = ?'); params.push(mode); }
-  if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+  if (title !== undefined) updates['title'] = title;
+  if (prompt !== undefined) updates['prompt'] = prompt;
+  if (content !== undefined) updates['content'] = content;
+  if (logo1Data !== undefined) updates['logo1_data'] = logo1Data;
+  if (logo2Data !== undefined) updates['logo2_data'] = logo2Data;
+  if (logo1Position !== undefined) updates['logo1_position'] = JSON.stringify(logo1Position);
+  if (logo2Position !== undefined) updates['logo2_position'] = JSON.stringify(logo2Position);
+  if (brandColors !== undefined) updates['brand_colors'] = JSON.stringify(brandColors);
+  if (pdfData !== undefined) updates['pdf_data'] = pdfData;
+  if (mode !== undefined) updates['mode'] = mode;
+  if (status !== undefined) updates['status'] = status;
 
-  if (updates.length === 0) {
+  if (Object.keys(updates).length === 0) {
     res.json(rowToManual(existing));
     return;
   }
 
-  updates.push('updated_at = CURRENT_TIMESTAMP');
-  params.push(req.params.id, req.user!.id);
-
-  db.prepare(`UPDATE manuals SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
-  const row = db.prepare('SELECT * FROM manuals WHERE id = ?').get(req.params.id) as ManualRow;
+  updates['updated_at'] = db.fn.now();
+  await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .update(updates);
+  const row = await db('manuals').where({ id: req.params.id }).first() as ManualRow;
   res.json(rowToManual(row));
 });
 
 // DELETE /:id — delete manual
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare(
-    'SELECT id FROM manuals WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id);
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const deleted = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .delete();
 
-  if (!existing) {
+  if (deleted === 0) {
     res.status(404).json({ error: 'Manual not found' });
     return;
   }
 
-  db.prepare('DELETE FROM manuals WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
   res.json({ ok: true });
 });
 
 // POST /:id/generate — generate manual content via Claude (plain async POST, no SSE)
 router.post('/:id/generate', async (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT * FROM manuals WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as ManualRow | undefined;
+  const row = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ManualRow | undefined;
 
   if (!row) {
     res.status(404).json({ error: 'Manual not found' });
@@ -486,14 +476,14 @@ ${logoInstructions}`;
 
     // Save previous content as a version before overwriting
     if (row.content && row.content.trim().length > 0) {
-      db.prepare('INSERT INTO manual_versions (id, manual_id, content) VALUES (?, ?, ?)')
-        .run(randomUUID(), req.params.id, row.content);
+      await db('manual_versions').insert({ id: randomUUID(), manual_id: req.params.id, content: row.content });
     }
 
-    db.prepare(`UPDATE manuals SET content = ?, status = 'generated', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`)
-      .run(finalHtml, req.params.id, req.user!.id);
+    await db('manuals')
+      .where({ id: req.params.id, user_id: req.user!.id })
+      .update({ content: finalHtml, status: 'generated', updated_at: db.fn.now() });
 
-    const updated = db.prepare('SELECT * FROM manuals WHERE id = ?').get(req.params.id) as ManualRow;
+    const updated = await db('manuals').where({ id: req.params.id }).first() as ManualRow;
     sendEvent('done', { manual: rowToManual(updated) });
     res.end();
   } catch (err) {
@@ -510,9 +500,10 @@ ${logoInstructions}`;
 
 // POST /:id/export-pdf — render HTML to PDF via headless Chromium
 router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare('SELECT content, title FROM manuals WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id) as { content: string; title: string } | undefined;
+  const row = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('content', 'title')
+    .first() as { content: string; title: string } | undefined;
   if (!row || !row.content) {
     res.status(404).json({ error: 'Manual not found or has no content' });
     return;
@@ -547,52 +538,58 @@ router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
 });
 
 // GET /:id/versions — list version history (no content, just metadata)
-router.get('/:id/versions', (req: AuthRequest, res) => {
-  const db = getDb();
-  const manual = db.prepare('SELECT id FROM manuals WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.get('/:id/versions', async (req: AuthRequest, res) => {
+  const manual = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!manual) { res.status(404).json({ error: 'Manual not found' }); return; }
 
-  const versions = db.prepare(
-    'SELECT id, created_at FROM manual_versions WHERE manual_id = ? ORDER BY created_at DESC',
-  ).all(req.params.id) as { id: string; created_at: string }[];
+  const versions = await db('manual_versions')
+    .where({ manual_id: req.params.id })
+    .orderBy('created_at', 'desc')
+    .select('id', 'created_at') as { id: string; created_at: string }[];
   res.json({ versions });
 });
 
 // GET /:id/versions/:versionId — get version content
-router.get('/:id/versions/:versionId', (req: AuthRequest, res) => {
-  const db = getDb();
-  const manual = db.prepare('SELECT id FROM manuals WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.get('/:id/versions/:versionId', async (req: AuthRequest, res) => {
+  const manual = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!manual) { res.status(404).json({ error: 'Manual not found' }); return; }
 
-  const version = db.prepare(
-    'SELECT id, content, created_at FROM manual_versions WHERE id = ? AND manual_id = ?',
-  ).get(req.params.versionId, req.params.id) as { id: string; content: string; created_at: string } | undefined;
+  const version = await db('manual_versions')
+    .where({ id: req.params.versionId, manual_id: req.params.id })
+    .select('id', 'content', 'created_at')
+    .first() as { id: string; content: string; created_at: string } | undefined;
   if (!version) { res.status(404).json({ error: 'Version not found' }); return; }
 
   res.json(version);
 });
 
 // POST /:id/versions/:versionId/restore — restore a version
-router.post('/:id/versions/:versionId/restore', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM manuals WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as ManualRow | undefined;
+router.post('/:id/versions/:versionId/restore', async (req: AuthRequest, res) => {
+  const existing = await db('manuals')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ManualRow | undefined;
   if (!existing) { res.status(404).json({ error: 'Manual not found' }); return; }
 
-  const version = db.prepare(
-    'SELECT content FROM manual_versions WHERE id = ? AND manual_id = ?',
-  ).get(req.params.versionId, req.params.id) as { content: string } | undefined;
+  const version = await db('manual_versions')
+    .where({ id: req.params.versionId, manual_id: req.params.id })
+    .select('content')
+    .first() as { content: string } | undefined;
   if (!version) { res.status(404).json({ error: 'Version not found' }); return; }
 
   // Save current content as a version before restoring
   if (existing.content && existing.content.trim().length > 0) {
-    db.prepare('INSERT INTO manual_versions (id, manual_id, content) VALUES (?, ?, ?)')
-      .run(randomUUID(), req.params.id, existing.content);
+    await db('manual_versions').insert({ id: randomUUID(), manual_id: req.params.id, content: existing.content });
   }
 
-  db.prepare(`UPDATE manuals SET content = ?, status = 'generated', updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .run(version.content, req.params.id);
+  await db('manuals')
+    .where({ id: req.params.id })
+    .update({ content: version.content, status: 'generated', updated_at: db.fn.now() });
 
-  const updated = db.prepare('SELECT * FROM manuals WHERE id = ?').get(req.params.id) as ManualRow;
+  const updated = await db('manuals').where({ id: req.params.id }).first() as ManualRow;
   res.json(rowToManual(updated));
 });
 

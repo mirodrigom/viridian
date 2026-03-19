@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomBytes, createHash } from 'crypto';
 import { z } from 'zod';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { createLogger } from '../logger.js';
 import { validate } from '../middleware/validate.js';
@@ -17,17 +17,17 @@ function hashKey(key: string): string {
 }
 
 // GET /api/keys — list all API keys for current user
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const authReq = req as AuthRequest;
-  const db = getDb();
-  const keys = db.prepare(
-    'SELECT id, name, key_prefix, created_at, last_used_at, revoked FROM api_keys WHERE user_id = ? ORDER BY created_at DESC',
-  ).all(authReq.user!.id);
+  const keys = await db('api_keys')
+    .where({ user_id: authReq.user!.id })
+    .select('id', 'name', 'key_prefix', 'created_at', 'last_used_at', 'revoked')
+    .orderBy('created_at', 'desc');
   res.json({ keys });
 });
 
 // POST /api/keys — create a new API key
-router.post('/', validate({ body: z.object({ name: z.string().min(1) }) }), (req, res) => {
+router.post('/', validate({ body: z.object({ name: z.string().min(1) }) }), async (req, res) => {
   const authReq = req as AuthRequest;
   const { name } = req.body;
 
@@ -35,14 +35,16 @@ router.post('/', validate({ body: z.object({ name: z.string().min(1) }) }), (req
   const prefix = rawKey.slice(0, 12) + '...';
   const hash = hashKey(rawKey);
 
-  const db = getDb();
-  const result = db.prepare(
-    'INSERT INTO api_keys (user_id, name, key_prefix, key_hash) VALUES (?, ?, ?, ?)',
-  ).run(authReq.user!.id, name.trim(), prefix, hash);
+  const [id] = await db('api_keys').insert({
+    user_id: authReq.user!.id,
+    name: name.trim(),
+    key_prefix: prefix,
+    key_hash: hash,
+  });
 
   // Return the full key only once — it won't be shown again
   res.status(201).json({
-    id: result.lastInsertRowid,
+    id,
     name: name.trim(),
     key: rawKey,
     key_prefix: prefix,
@@ -51,10 +53,9 @@ router.post('/', validate({ body: z.object({ name: z.string().min(1) }) }), (req
 });
 
 // DELETE /api/keys/:id — revoke an API key
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const authReq = req as AuthRequest;
   const { id } = req.params;
-  const db = getDb();
 
   const numId = Number(id);
   if (Number.isNaN(numId)) {
@@ -62,15 +63,16 @@ router.delete('/:id', (req, res) => {
     return;
   }
 
-  const key = db.prepare('SELECT id FROM api_keys WHERE id = ? AND user_id = ?').get(
-    numId, authReq.user!.id,
-  );
+  const key = await db('api_keys')
+    .where({ id: numId, user_id: authReq.user!.id })
+    .select('id')
+    .first();
   if (!key) {
     res.status(404).json({ error: 'Key not found' });
     return;
   }
 
-  db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(numId);
+  await db('api_keys').where({ id: numId }).update({ revoked: 1 });
   res.json({ ok: true });
 });
 

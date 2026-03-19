@@ -43,10 +43,8 @@ import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
 import { destroyAllTerminals } from './services/terminal.js';
-import { loadProviderConfigs } from './db/database.js';
-
-// Load saved provider API keys into process.env before any provider is invoked
-loadProviderConfigs();
+import { runMigrations } from './db/knex.js';
+import { loadProviderConfigs, seedAllUsers } from './db/database.js';
 
 const app: Express = express();
 const server = createServer(app);
@@ -144,12 +142,19 @@ setupTracesWs(server);
 
 const log = createLogger('server');
 
-server.listen(config.port, config.host, () => {
-  log.info({ host: config.host, port: config.port }, 'Server started');
-  cleanupZombieRuns();
-  startScheduler();
-  startTaskScheduler();
-});
+// Initialize database, run migrations, seed data, then start listening
+(async () => {
+  await runMigrations();
+  await loadProviderConfigs();
+  await seedAllUsers();
+
+  server.listen(config.port, config.host, () => {
+    log.info({ host: config.host, port: config.port }, 'Server started');
+    cleanupZombieRuns().catch((err) => log.warn({ err }, 'Failed to clean up zombie runs'));
+    startScheduler().catch((err) => log.warn({ err }, 'Failed to start autopilot scheduler'));
+    startTaskScheduler().catch((err) => log.warn({ err }, 'Failed to start task scheduler'));
+  });
+})();
 
 function shutdown() {
   log.info('Shutting down...');

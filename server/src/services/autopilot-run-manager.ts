@@ -8,7 +8,7 @@ import { EventEmitter } from 'events';
 import { v4 as uuid } from 'uuid';
 import { getProfile, type AutopilotProfile } from './autopilot-profiles.js';
 import { createAutopilotBranch, pushAndCreatePR } from './autopilot-git.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { executeCycle } from './autopilot-cycle-executor.js';
 import { executeTestCycle } from './autopilot-test-verifier.js';
@@ -98,26 +98,25 @@ const activeRuns = new Map<string, AutopilotContext>();
 // ─── Startup Cleanup ────────────────────────────────────────────────────────
 
 /** Mark any runs left in active states as failed (zombie cleanup after server restart). */
-export function cleanupZombieRuns(): void {
-  const db = getDb();
-  const result = db.prepare(`
-    UPDATE autopilot_runs
-    SET status = 'failed',
-        error = 'Server restarted — run was interrupted',
-        completed_at = CURRENT_TIMESTAMP
-    WHERE status IN ('running', 'paused', 'rate_limited')
-  `).run();
-  if (result.changes > 0) {
-    log.info({ count: result.changes }, 'Cleaned up zombie run(s) from previous session');
+export async function cleanupZombieRuns(): Promise<void> {
+  const count = await db('autopilot_runs')
+    .whereIn('status', ['running', 'paused', 'rate_limited'])
+    .update({
+      status: 'failed',
+      error: 'Server restarted — run was interrupted',
+      completed_at: db.fn.now(),
+    });
+  if (count > 0) {
+    log.info({ count }, 'Cleaned up zombie run(s) from previous session');
   }
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /** Start an autopilot run. Returns the context immediately; run executes async. */
-export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext {
-  const agentAProfile = getProfile(config.agentAProfileId);
-  const agentBProfile = getProfile(config.agentBProfileId);
+export async function startAutopilotRun(config: AutopilotRunConfig): Promise<AutopilotContext> {
+  const agentAProfile = await getProfile(config.agentAProfileId);
+  const agentBProfile = await getProfile(config.agentBProfileId);
   if (!agentAProfile) throw new Error(`Profile not found: ${config.agentAProfileId}`);
   if (!agentBProfile) throw new Error(`Profile not found: ${config.agentBProfileId}`);
 
@@ -155,11 +154,18 @@ export function startAutopilotRun(config: AutopilotRunConfig): AutopilotContext 
   activeRuns.set(ctx.runId, ctx);
 
   // Persist run record
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO autopilot_runs (id, config_id, user_id, project_path, status, agent_a_profile_id, agent_b_profile_id, goal_prompt, agent_a_provider, agent_b_provider)
-    VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
-  `).run(ctx.runId, ctx.configId, config.userId, config.projectPath, config.agentAProfileId, config.agentBProfileId, config.goalPrompt, ctx.agentAProvider, ctx.agentBProvider);
+  await db('autopilot_runs').insert({
+    id: ctx.runId,
+    config_id: ctx.configId,
+    user_id: config.userId,
+    project_path: config.projectPath,
+    status: 'running',
+    agent_a_profile_id: config.agentAProfileId,
+    agent_b_profile_id: config.agentBProfileId,
+    goal_prompt: config.goalPrompt,
+    agent_a_provider: ctx.agentAProvider,
+    agent_b_provider: ctx.agentBProvider,
+  });
 
   // Start the async loop (fire and forget — events communicate progress)
   runLoop(ctx, config).catch((err) => {
@@ -218,10 +224,8 @@ export function abortRun(runId: string): boolean {
 }
 
 /** Resume a failed/aborted run from where it left off. Reconstructs context from DB. */
-export function resumeFailedRun(runId: string, userId: number): AutopilotContext {
+export async function resumeFailedRun(runId: string, userId: number): Promise<AutopilotContext> {
   if (activeRuns.has(runId)) throw new Error('Run is already active');
-
-  const db = getDb();
 
   interface RunRow {
     id: string; config_id: string | null; user_id: number;
@@ -235,17 +239,15 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
     goal_prompt: string;
   }
 
-  const row = db.prepare(
-    'SELECT * FROM autopilot_runs WHERE id = ? AND user_id = ?',
-  ).get(runId, userId) as RunRow | undefined;
+  const row = await db('autopilot_runs').where({ id: runId, user_id: userId }).first() as RunRow | undefined;
 
   if (!row) throw new Error('Run not found');
   if (!['failed', 'aborted'].includes(row.status)) {
     throw new Error(`Cannot resume run with status "${row.status}"`);
   }
 
-  const agentAProfile = getProfile(row.agent_a_profile_id || '');
-  const agentBProfile = getProfile(row.agent_b_profile_id || '');
+  const agentAProfile = await getProfile(row.agent_a_profile_id || '');
+  const agentBProfile = await getProfile(row.agent_b_profile_id || '');
   if (!agentAProfile || !agentBProfile) throw new Error('Agent profile not found');
 
   // Determine models and providers from config if available, else profile, else default
@@ -259,8 +261,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
   let runTestVerification = true;
 
   if (row.config_id) {
-    const cfg = db.prepare('SELECT * FROM autopilot_configs WHERE id = ?')
-      .get(row.config_id) as Record<string, unknown> | undefined;
+    const cfg = await db('autopilot_configs').where({ id: row.config_id }).first() as Record<string, unknown> | undefined;
     if (cfg) {
       agentAModel = (cfg.agent_a_model as string) || agentAModel;
       agentBModel = (cfg.agent_b_model as string) || agentBModel;
@@ -309,9 +310,7 @@ export function resumeFailedRun(runId: string, userId: number): AutopilotContext
   activeRuns.set(runId, ctx);
 
   // Update DB status
-  db.prepare(
-    'UPDATE autopilot_runs SET status = ?, error = NULL, completed_at = NULL WHERE id = ?',
-  ).run('running', runId);
+  await db('autopilot_runs').where({ id: runId }).update({ status: 'running', error: null, completed_at: null });
 
   // Build config for the loop
   const config: AutopilotRunConfig = {
@@ -360,8 +359,7 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
     try {
       log.info({ cwd: ctx.cwd }, 'Creating branch');
       ctx.branchName = await createAutopilotBranch(ctx.cwd);
-      const db = getDb();
-      db.prepare('UPDATE autopilot_runs SET branch_name = ? WHERE id = ?').run(ctx.branchName, runId);
+      await db('autopilot_runs').where({ id: runId }).update({ branch_name: ctx.branchName });
     } catch (err) {
       throw new Error(`Failed to create autopilot branch in ${ctx.cwd}: ${err}`);
     }
@@ -420,11 +418,10 @@ async function runLoop(ctx: AutopilotContext, config: AutopilotRunConfig): Promi
       }
 
       // Non-rate-limit error: mark cycle as failed, continue to next cycle
-      const db = getDb();
-      db.prepare(`
-        UPDATE autopilot_cycles SET status = 'failed', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(cycleId);
+      await db('autopilot_cycles').where({ id: cycleId }).update({
+        status: 'failed',
+        completed_at: db.fn.now(),
+      });
 
       emitter.emit('cycle_completed', {
         runId,
@@ -519,17 +516,15 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 function updateRunStatus(runId: string, status: string, error?: string): void {
-  const db = getDb();
+  let updateData: Record<string, unknown>;
   if (error) {
-    db.prepare('UPDATE autopilot_runs SET status = ?, error = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(status, error, runId);
+    updateData = { status, error, completed_at: db.fn.now() };
   } else if (status === 'completed' || status === 'aborted') {
-    db.prepare('UPDATE autopilot_runs SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(status, runId);
+    updateData = { status, completed_at: db.fn.now() };
   } else if (status === 'paused') {
-    db.prepare('UPDATE autopilot_runs SET status = ?, paused_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(status, runId);
+    updateData = { status, paused_at: db.fn.now() };
   } else {
-    db.prepare('UPDATE autopilot_runs SET status = ? WHERE id = ?').run(status, runId);
+    updateData = { status };
   }
+  db('autopilot_runs').where({ id: runId }).update(updateData).catch(() => { /* ignore */ });
 }

@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import {
   startService,
   stopService,
@@ -77,17 +77,16 @@ function rowToScript(s: ScriptRow) {
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
-router.get('/services', (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/services', async (req: AuthRequest, res) => {
   const project = req.query.project as string | undefined;
-  let rows: ServiceRow[];
+  let query = db('management_services')
+    .where({ user_id: req.user!.id })
+    .orderBy('sort_order', 'asc')
+    .orderBy('created_at', 'asc');
   if (project) {
-    rows = db.prepare('SELECT * FROM management_services WHERE user_id = ? AND project_path = ? ORDER BY sort_order ASC, created_at ASC')
-      .all(req.user!.id, project) as ServiceRow[];
-  } else {
-    rows = db.prepare('SELECT * FROM management_services WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC')
-      .all(req.user!.id) as ServiceRow[];
+    query = query.andWhere({ project_path: project });
   }
+  const rows = await query.select() as ServiceRow[];
   res.json({ services: rows.map(rowToService) });
 });
 
@@ -98,58 +97,69 @@ router.post('/services', validate({
     cwd: z.string().optional(),
     projectPath: z.string().optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { name, command, cwd, projectPath } = req.body as { name: string; command: string; cwd?: string; projectPath?: string };
 
-  const db = getDb();
-  const maxOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_services WHERE user_id = ?').get(req.user!.id) as { next: number }).next;
+  const maxRow = await db('management_services')
+    .where({ user_id: req.user!.id })
+    .max('sort_order as max_sort')
+    .first();
+  const maxOrder = (((maxRow as any)?.max_sort) ?? -1) + 1;
   const id = randomUUID();
-  db.prepare('INSERT INTO management_services (id, user_id, name, command, cwd, project_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user!.id, name, command, cwd || '', projectPath || '', maxOrder);
+  await db('management_services').insert({
+    id, user_id: req.user!.id, name, command,
+    cwd: cwd || '', project_path: projectPath || '', sort_order: maxOrder,
+  });
 
-  const row = db.prepare('SELECT * FROM management_services WHERE id = ?').get(id) as ServiceRow;
+  const row = await db('management_services').where({ id }).first() as ServiceRow;
   res.status(201).json({ service: rowToService(row) });
 });
 
-router.put('/services/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM management_services WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.put('/services/:id', async (req: AuthRequest, res) => {
+  const existing = await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!existing) { res.status(404).json({ error: 'Service not found' }); return; }
 
   const { name, command, cwd } = req.body as { name?: string; command?: string; cwd?: string };
-  const updates: string[] = [];
-  const params: unknown[] = [];
-  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (command !== undefined) { updates.push('command = ?'); params.push(command); }
-  if (cwd !== undefined) { updates.push('cwd = ?'); params.push(cwd); }
-  if (updates.length === 0) { res.json({ ok: true }); return; }
-  params.push(req.params.id, req.user!.id);
-  db.prepare(`UPDATE management_services SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates['name'] = name;
+  if (command !== undefined) updates['command'] = command;
+  if (cwd !== undefined) updates['cwd'] = cwd;
+  if (Object.keys(updates).length === 0) { res.json({ ok: true }); return; }
+  await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .update(updates);
 
-  const row = db.prepare('SELECT * FROM management_services WHERE id = ?').get(req.params.id) as ServiceRow;
+  const row = await db('management_services').where({ id: req.params.id }).first() as ServiceRow;
   res.json({ service: rowToService(row) });
 });
 
-router.delete('/services/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM management_services WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.delete('/services/:id', async (req: AuthRequest, res) => {
+  const existing = await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!existing) { res.status(404).json({ error: 'Service not found' }); return; }
   stopService(req.params.id);
-  db.prepare('DELETE FROM management_services WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .delete();
   res.json({ ok: true });
 });
 
-router.post('/services/:id/start', (req: AuthRequest, res) => {
-  const db = getDb();
-  const s = db.prepare('SELECT * FROM management_services WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as ServiceRow | undefined;
+router.post('/services/:id/start', async (req: AuthRequest, res) => {
+  const s = await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ServiceRow | undefined;
   if (!s) { res.status(404).json({ error: 'Service not found' }); return; }
   startService(s.id, '__management__', s.command, s.cwd || process.cwd());
   res.json({ ok: true });
 });
 
-router.post('/services/:id/stop', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM management_services WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.post('/services/:id/stop', async (req: AuthRequest, res) => {
+  const existing = await db('management_services')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!existing) { res.status(404).json({ error: 'Service not found' }); return; }
   stopService(req.params.id);
   res.json({ ok: true });
@@ -157,28 +167,30 @@ router.post('/services/:id/stop', (req: AuthRequest, res) => {
 
 router.post('/services/reorder', validate({
   body: z.object({ ids: z.array(z.string()) }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { ids } = req.body as { ids: string[] };
-  const db = getDb();
-  const stmt = db.prepare('UPDATE management_services SET sort_order = ? WHERE id = ? AND user_id = ?');
-  const tx = db.transaction(() => { ids.forEach((id, i) => stmt.run(i, id, req.user!.id)); });
-  tx();
+  await db.transaction(async (trx) => {
+    for (let i = 0; i < ids.length; i++) {
+      await trx('management_services')
+        .where({ id: ids[i], user_id: req.user!.id })
+        .update({ sort_order: i });
+    }
+  });
   res.json({ ok: true });
 });
 
 // ─── Scripts ──────────────────────────────────────────────────────────────────
 
-router.get('/scripts', (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/scripts', async (req: AuthRequest, res) => {
   const project = req.query.project as string | undefined;
-  let rows: ScriptRow[];
+  let query = db('management_scripts')
+    .where({ user_id: req.user!.id })
+    .orderBy('sort_order', 'asc')
+    .orderBy('created_at', 'asc');
   if (project) {
-    rows = db.prepare('SELECT * FROM management_scripts WHERE user_id = ? AND project_path = ? ORDER BY sort_order ASC, created_at ASC')
-      .all(req.user!.id, project) as ScriptRow[];
-  } else {
-    rows = db.prepare('SELECT * FROM management_scripts WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC')
-      .all(req.user!.id) as ScriptRow[];
+    query = query.andWhere({ project_path: project });
   }
+  const rows = await query.select() as ScriptRow[];
   res.json({ scripts: rows.map(rowToScript) });
 });
 
@@ -189,27 +201,34 @@ router.post('/scripts', validate({
     cwd: z.string().optional(),
     projectPath: z.string().optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { name, command, cwd, projectPath } = req.body as { name: string; command: string; cwd?: string; projectPath?: string };
-  const db = getDb();
-  const maxOrder = (db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM management_scripts WHERE user_id = ?').get(req.user!.id) as { next: number }).next;
+  const maxRow = await db('management_scripts')
+    .where({ user_id: req.user!.id })
+    .max('sort_order as max_sort')
+    .first();
+  const maxOrder = (((maxRow as any)?.max_sort) ?? -1) + 1;
   const id = randomUUID();
-  db.prepare('INSERT INTO management_scripts (id, user_id, name, command, cwd, project_path, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user!.id, name, command, cwd || '', projectPath || '', maxOrder);
-  const row = db.prepare('SELECT * FROM management_scripts WHERE id = ?').get(id) as ScriptRow;
+  await db('management_scripts').insert({
+    id, user_id: req.user!.id, name, command,
+    cwd: cwd || '', project_path: projectPath || '', sort_order: maxOrder,
+  });
+  const row = await db('management_scripts').where({ id }).first() as ScriptRow;
   res.status(201).json({ script: rowToScript(row) });
 });
 
-router.delete('/scripts/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM management_scripts WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+router.delete('/scripts/:id', async (req: AuthRequest, res) => {
+  await db('management_scripts')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .delete();
   res.json({ ok: true });
 });
 
 // POST /scripts/:id/run — execute script, stream output via SSE
-router.post('/scripts/:id/run', (req: AuthRequest, res) => {
-  const db = getDb();
-  const s = db.prepare('SELECT * FROM management_scripts WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as ScriptRow | undefined;
+router.post('/scripts/:id/run', async (req: AuthRequest, res) => {
+  const s = await db('management_scripts')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ScriptRow | undefined;
   if (!s) { res.status(404).json({ error: 'Script not found' }); return; }
 
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
@@ -268,10 +287,10 @@ router.put('/env', validate({
 
 router.post('/bootstrap', validate({
   body: z.object({ projectPath: z.string().min(1) }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { projectPath } = req.body as { projectPath: string };
   try {
-    const result = bootstrapProject(req.user!.id, projectPath);
+    const result = await bootstrapProject(req.user!.id, projectPath);
     res.json(result);
   } catch (err) {
     log.error({ err, projectPath }, 'Bootstrap failed');
@@ -281,15 +300,13 @@ router.post('/bootstrap', validate({
 
 // ─── Running processes ────────────────────────────────────────────────────────
 
-router.get('/processes', (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/processes', async (req: AuthRequest, res) => {
   const project = req.query.project as string | undefined;
-  let serviceRows: ServiceRow[];
+  let query = db('management_services').where({ user_id: req.user!.id });
   if (project) {
-    serviceRows = db.prepare('SELECT * FROM management_services WHERE user_id = ? AND project_path = ?').all(req.user!.id, project) as ServiceRow[];
-  } else {
-    serviceRows = db.prepare('SELECT * FROM management_services WHERE user_id = ?').all(req.user!.id) as ServiceRow[];
+    query = query.andWhere({ project_path: project });
   }
+  const serviceRows = await query.select() as ServiceRow[];
   const processes = serviceRows
     .map(s => {
       const entry = getRunningEntry(s.id);

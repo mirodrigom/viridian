@@ -190,14 +190,18 @@ export async function executeSinglePass(
           if (msg.sessionId) {
             ctx.sessionIds.set(nodeId, msg.sessionId);
             addGraphRunnerSessionId(msg.sessionId);
-            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId);
+            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId).catch(
+              (err: unknown) => { /* best-effort */ void err; },
+            );
           }
           break;
         case 'result':
           if (msg.sessionId) {
             ctx.sessionIds.set(nodeId, msg.sessionId);
             addGraphRunnerSessionId(msg.sessionId);
-            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId);
+            markSessionInternal(cwdToHash(ctx.cwd), msg.sessionId).catch(
+              (err: unknown) => { /* best-effort */ void err; },
+            );
           }
           break;
         case 'error':

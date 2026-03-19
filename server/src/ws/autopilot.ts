@@ -20,7 +20,7 @@ import {
   type AutopilotRunConfig,
 } from '../services/autopilot.js';
 import { getProfile } from '../services/autopilot-profiles.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 
 export function setupAutopilotWs(server: Server) {
@@ -120,14 +120,13 @@ export function setupAutopilotWs(server: Server) {
             runTestVerification: runTestVerification !== false,
           };
 
-          try {
-            const ctx = startAutopilotRun(config);
+          startAutopilotRun(config).then((ctx) => {
             activeCtx = ctx;
             if (cleanupListeners) cleanupListeners();
             cleanupListeners = wireAutopilotEvents(ws, ctx);
-          } catch (err) {
+          }).catch((err: unknown) => {
             safeSend(ws, { type: 'error', error: String(err) });
-          }
+          });
           break;
         }
 
@@ -139,42 +138,44 @@ export function setupAutopilotWs(server: Server) {
           }
 
           // Load config from DB
-          const db = getDb();
-          const row = db.prepare(
-            'SELECT * FROM autopilot_configs WHERE id = ? AND user_id = ?',
-          ).get(configId, user.id) as Record<string, unknown> | undefined;
+          db('autopilot_configs')
+            .where({ id: configId, user_id: user.id })
+            .first()
+            .then((row: Record<string, unknown> | undefined) => {
+              if (!row) {
+                safeSend(ws, { type: 'error', error: 'Config not found' });
+                return;
+              }
 
-          if (!row) {
-            safeSend(ws, { type: 'error', error: 'Config not found' });
-            return;
-          }
+              const config: AutopilotRunConfig = {
+                configId: row.id as string,
+                userId: user.id,
+                projectPath: row.project_path as string,
+                cwd: cwd as string,
+                goalPrompt: row.goal_prompt as string,
+                agentAProfileId: row.agent_a_profile as string,
+                agentBProfileId: row.agent_b_profile as string,
+                agentAModel: row.agent_a_model as string,
+                agentBModel: row.agent_b_model as string,
+                agentAProvider: (row.agent_a_provider as AutopilotRunConfig['agentAProvider']) || undefined,
+                agentBProvider: (row.agent_b_provider as AutopilotRunConfig['agentBProvider']) || undefined,
+                allowedPaths: safeJsonParse<string[]>(row.allowed_paths as string, []),
+                maxIterations: row.max_iterations as number,
+                maxTokensPerSession: row.max_tokens_per_session as number,
+                runTestVerification: (row.run_test_verification as number) !== 0,
+              };
 
-          const config: AutopilotRunConfig = {
-            configId: row.id as string,
-            userId: user.id,
-            projectPath: row.project_path as string,
-            cwd: cwd as string,
-            goalPrompt: row.goal_prompt as string,
-            agentAProfileId: row.agent_a_profile as string,
-            agentBProfileId: row.agent_b_profile as string,
-            agentAModel: row.agent_a_model as string,
-            agentBModel: row.agent_b_model as string,
-            agentAProvider: (row.agent_a_provider as AutopilotRunConfig['agentAProvider']) || undefined,
-            agentBProvider: (row.agent_b_provider as AutopilotRunConfig['agentBProvider']) || undefined,
-            allowedPaths: safeJsonParse<string[]>(row.allowed_paths as string, []),
-            maxIterations: row.max_iterations as number,
-            maxTokensPerSession: row.max_tokens_per_session as number,
-            runTestVerification: (row.run_test_verification as number) !== 0,
-          };
-
-          try {
-            const ctx = startAutopilotRun(config);
-            activeCtx = ctx;
-            if (cleanupListeners) cleanupListeners();
-            cleanupListeners = wireAutopilotEvents(ws, ctx);
-          } catch (err) {
-            safeSend(ws, { type: 'error', error: String(err) });
-          }
+              startAutopilotRun(config).then((ctx) => {
+                activeCtx = ctx;
+                if (cleanupListeners) cleanupListeners();
+                cleanupListeners = wireAutopilotEvents(ws, ctx);
+              }).catch((err: unknown) => {
+                safeSend(ws, { type: 'error', error: String(err) });
+              });
+            })
+            .catch((err: unknown) => {
+              safeSend(ws, { type: 'error', error: String(err) });
+            });
           break;
         }
 
@@ -194,29 +195,35 @@ export function setupAutopilotWs(server: Server) {
           if (!ctx) { safeSend(ws, { type: 'error', error: 'Run not found or not paused' }); return; }
 
           // Load original config
-          const db = getDb();
-          const runRow = db.prepare('SELECT * FROM autopilot_runs WHERE id = ?').get(runId) as Record<string, unknown>;
-          let goalPrompt = '';
-          if (runRow?.config_id) {
-            const cfgRow = db.prepare('SELECT goal_prompt FROM autopilot_configs WHERE id = ?')
-              .get(runRow.config_id) as { goal_prompt: string } | undefined;
-            goalPrompt = cfgRow?.goal_prompt || '';
-          }
+          db('autopilot_runs').where({ id: runId }).first()
+            .then(async (runRow: Record<string, unknown> | undefined) => {
+              let goalPrompt = '';
+              if (runRow?.config_id) {
+                const cfgRow = await db('autopilot_configs')
+                  .where({ id: runRow.config_id })
+                  .select('goal_prompt')
+                  .first() as { goal_prompt: string } | undefined;
+                goalPrompt = cfgRow?.goal_prompt || '';
+              }
 
-          const resumeConfig: AutopilotRunConfig = {
-            userId: user.id,
-            projectPath: runRow?.project_path as string || ctx.cwd,
-            cwd: ctx.cwd,
-            goalPrompt,
-            agentAProfileId: ctx.agentAProfile.id,
-            agentBProfileId: ctx.agentBProfile.id,
-            allowedPaths: ctx.allowedPaths,
-            maxIterations: ctx.maxIterations,
-          };
+              const resumeConfig: AutopilotRunConfig = {
+                userId: user.id,
+                projectPath: (runRow?.project_path as string) || ctx.cwd,
+                cwd: ctx.cwd,
+                goalPrompt,
+                agentAProfileId: ctx.agentAProfile.id,
+                agentBProfileId: ctx.agentBProfile.id,
+                allowedPaths: ctx.allowedPaths,
+                maxIterations: ctx.maxIterations,
+              };
 
-          resumeRun(runId, resumeConfig);
-          if (cleanupListeners) cleanupListeners();
-          cleanupListeners = wireAutopilotEvents(ws, ctx);
+              resumeRun(runId, resumeConfig);
+              if (cleanupListeners) cleanupListeners();
+              cleanupListeners = wireAutopilotEvents(ws, ctx);
+            })
+            .catch((err: unknown) => {
+              safeSend(ws, { type: 'error', error: String(err) });
+            });
           break;
         }
 
@@ -231,14 +238,13 @@ export function setupAutopilotWs(server: Server) {
           const runId = data.runId as string;
           if (!runId) { safeSend(ws, { type: 'error', error: 'Missing runId' }); return; }
 
-          try {
-            const ctx = resumeFailedRun(runId, user.id);
+          resumeFailedRun(runId, user.id).then((ctx) => {
             activeCtx = ctx;
             if (cleanupListeners) cleanupListeners();
             cleanupListeners = wireAutopilotEvents(ws, ctx);
-          } catch (err) {
+          }).catch((err: unknown) => {
             safeSend(ws, { type: 'error', error: String(err) });
-          }
+          });
           break;
         }
 

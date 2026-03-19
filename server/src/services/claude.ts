@@ -295,7 +295,9 @@ function buildEmitEvent(session: ProviderSession, msg: SDKMessage): { event: str
       // Persist provider → session mapping so historical messages show the correct logo
       if (session.claudeSessionId) {
         const projectDir = cwdToHash(session.cwd);
-        upsertSessionProvider(projectDir, session.claudeSessionId, session.providerId);
+        upsertSessionProvider(projectDir, session.claudeSessionId, session.providerId).catch(
+          (err: unknown) => log.error({ err }, 'Failed to upsert session provider'),
+        );
       }
       return {
         event: 'stream_end',

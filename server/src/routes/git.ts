@@ -25,8 +25,9 @@ const router: ReturnType<typeof Router> = Router();
 // also persisted to DB so they survive server restarts.
 const internalSessionIds = new Set<string>();
 
-export function isInternalSession(claudeSessionId: string): boolean {
-  return internalSessionIds.has(claudeSessionId) || isSessionInternal(claudeSessionId);
+export async function isInternalSession(claudeSessionId: string): Promise<boolean> {
+  if (internalSessionIds.has(claudeSessionId)) return true;
+  return isSessionInternal(claudeSessionId);
 }
 
 router.use(authMiddleware);
@@ -316,11 +317,11 @@ ${truncatedDiff}`;
         })) {
           if (msg.type === 'system' && msg.sessionId) {
             internalSessionIds.add(msg.sessionId);
-            markSessionInternal(cwdToHash(cwd), msg.sessionId);
+            await markSessionInternal(cwdToHash(cwd), msg.sessionId);
           }
           if (msg.type === 'result' && msg.sessionId) {
             internalSessionIds.add(msg.sessionId);
-            markSessionInternal(cwdToHash(cwd), msg.sessionId);
+            await markSessionInternal(cwdToHash(cwd), msg.sessionId);
           }
           if (msg.type === 'text_delta') {
             res.write(`event: delta\ndata: ${JSON.stringify({ text: msg.text })}\n\n`);

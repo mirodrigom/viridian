@@ -5,7 +5,7 @@
  */
 
 import { getProvider } from '../providers/registry.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { type AutopilotContext } from './autopilot-run-manager.js';
 import { isOverTokenBudget } from './autopilot-validators.js';
 
@@ -158,14 +158,16 @@ export async function runAgent(
         if (msg.sessionId && provider.capabilities.supportsResume) {
           if (agent === 'a') {
             ctx.agentASessionId = msg.sessionId;
-            const db = getDb();
-            db.prepare('UPDATE autopilot_runs SET agent_a_claude_session_id = ?, agent_a_provider_session_id = ? WHERE id = ?')
-              .run(msg.sessionId, msg.sessionId, ctx.runId);
+            await db('autopilot_runs').where({ id: ctx.runId }).update({
+              agent_a_claude_session_id: msg.sessionId,
+              agent_a_provider_session_id: msg.sessionId,
+            });
           } else {
             ctx.agentBSessionId = msg.sessionId;
-            const db = getDb();
-            db.prepare('UPDATE autopilot_runs SET agent_b_claude_session_id = ?, agent_b_provider_session_id = ? WHERE id = ?')
-              .run(msg.sessionId, msg.sessionId, ctx.runId);
+            await db('autopilot_runs').where({ id: ctx.runId }).update({
+              agent_b_claude_session_id: msg.sessionId,
+              agent_b_provider_session_id: msg.sessionId,
+            });
           }
         }
         break;

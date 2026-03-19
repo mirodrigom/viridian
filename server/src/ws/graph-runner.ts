@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { runGraph, previewGraph, type RunContext } from '../services/graph-runner.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('graph-runner-ws');
@@ -159,7 +159,6 @@ function wireRunPersistence(
   projectPath: string,
 ): () => void {
   const { emitter, runId } = ctx;
-  const db = getDb();
   const listeners: Array<{ event: string; handler: (...args: unknown[]) => void }> = [];
 
   function on(event: string, handler: (...args: unknown[]) => void) {
@@ -173,9 +172,14 @@ function wireRunPersistence(
   let totalOutputTokens = 0;
 
   // Insert initial row
-  db.prepare(
-    'INSERT INTO graph_runs (id, graph_id, user_id, project_path, prompt, status) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(runId, graphId, userId, projectPath, prompt, 'running');
+  db('graph_runs').insert({
+    id: runId,
+    graph_id: graphId,
+    user_id: userId,
+    project_path: projectPath,
+    prompt,
+    status: 'running',
+  }).catch((err: unknown) => log.error({ err }, 'Failed to insert graph_run'));
 
   function addTimeline(type: string, nodeId: string, nodeLabel: string, detail: string, meta?: PersistedTimelineEntry['meta']) {
     timeline.push({ timestamp: Date.now(), type, nodeId, nodeLabel, detail, ...(meta ? { meta } : {}) });
@@ -287,33 +291,31 @@ function wireRunPersistence(
   });
 
   // Terminal events — persist final state
-  const updateFinal = db.prepare(`
-    UPDATE graph_runs
-    SET status = ?, final_output = ?, error = ?,
-        timeline = ?, executions = ?,
-        total_input_tokens = ?, total_output_tokens = ?,
-        completed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
+  function updateFinal(status: string, finalOutput: string | null, error: string | null) {
+    db('graph_runs').where({ id: runId }).update({
+      status,
+      final_output: finalOutput,
+      error,
+      timeline: JSON.stringify(timeline),
+      executions: JSON.stringify(executions),
+      total_input_tokens: totalInputTokens,
+      total_output_tokens: totalOutputTokens,
+      completed_at: db.fn.now(),
+    }).catch((err: unknown) => log.error({ err }, 'Failed to update graph_run'));
+  }
 
   on('run_completed', (d: unknown) => {
     const e = d as { runId: string; finalOutput: string };
-    updateFinal.run('completed', e.finalOutput, null,
-      JSON.stringify(timeline), JSON.stringify(executions),
-      totalInputTokens, totalOutputTokens, runId);
+    updateFinal('completed', e.finalOutput, null);
   });
 
   on('run_failed', (d: unknown) => {
     const e = d as { runId: string; error: string };
-    updateFinal.run('failed', null, e.error,
-      JSON.stringify(timeline), JSON.stringify(executions),
-      totalInputTokens, totalOutputTokens, runId);
+    updateFinal('failed', null, e.error);
   });
 
   on('run_aborted', () => {
-    updateFinal.run('aborted', null, null,
-      JSON.stringify(timeline), JSON.stringify(executions),
-      totalInputTokens, totalOutputTokens, runId);
+    updateFinal('aborted', null, null);
   });
 
   return () => {

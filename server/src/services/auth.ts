@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { getDb, seedDefaultServicesForNewUser } from '../db/database.js';
+import { db, seedDefaultServicesForNewUser } from '../db/database.js';
 import { config } from '../config.js';
 import { createLogger } from '../logger.js';
 
@@ -15,22 +15,19 @@ interface User {
 }
 
 export async function createUser(username: string, password: string): Promise<{ id: number; username: string }> {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  const existing = await db('users').where({ username }).first();
   if (existing) {
     throw new Error('Username already exists');
   }
   const hash = await bcrypt.hash(password, SALT_ROUNDS);
-  const result = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(username, hash);
-  const userId = result.lastInsertRowid as number;
-  seedDefaultServicesForNewUser(userId);
+  const [userId] = await db('users').insert({ username, password_hash: hash });
+  await seedDefaultServicesForNewUser(userId);
   log.info({ userId, username }, 'User created');
   return { id: userId, username };
 }
 
 export async function authenticateUser(username: string, password: string): Promise<string> {
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as User | undefined;
+  const user = await db('users').where({ username }).first() as User | undefined;
   if (!user) {
     throw new Error('Invalid credentials');
   }
@@ -49,8 +46,7 @@ export function verifyToken(token: string): { id: number; username: string } {
   return jwt.verify(token, config.jwtSecret) as { id: number; username: string };
 }
 
-export function getUserCount(): number {
-  const db = getDb();
-  const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-  return row.count;
+export async function getUserCount(): Promise<number> {
+  const row = await db('users').count('* as count').first() as { count: number | string };
+  return Number(row.count);
 }

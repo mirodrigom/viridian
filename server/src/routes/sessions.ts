@@ -6,7 +6,7 @@ import { createReadStream } from 'fs';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
 import { createInterface } from 'readline';
 import { decodeUnicodeEscapes } from '../services/claude-sdk.js';
-import { getDb, getSessionPreferences, upsertSessionPreferences } from '../db/database.js';
+import { db, getSessionPreferences, upsertSessionPreferences } from '../db/database.js';
 import { getStreamingClaudeSessionIds } from '../services/claude.js';
 import { isGraphRunnerSession } from '../services/graph-runner.js';
 import { isInternalSession } from './git.js';
@@ -144,8 +144,6 @@ router.get('/', async (req, res) => {
       return;
     }
 
-    const db = getDb();
-
     // List all project directories
     let projectDirs: string[];
     try {
@@ -168,20 +166,6 @@ router.get('/', async (req, res) => {
     }
 
     const sessions: SessionInfo[] = [];
-    const getCached = db.prepare(
-      'SELECT * FROM session_cache WHERE project_dir = ? AND id = ?',
-    );
-    // ON CONFLICT preserves the `provider` column set during streaming
-    const upsertCache = db.prepare(`
-      INSERT INTO session_cache (id, project_dir, title, project_path, message_count, last_active, file_mtime)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(project_dir, id) DO UPDATE SET
-        title = excluded.title,
-        project_path = excluded.project_path,
-        message_count = excluded.message_count,
-        last_active = excluded.last_active,
-        file_mtime = excluded.file_mtime
-    `);
 
     for (const dir of projectDirs) {
       const dirPath = join(CLAUDE_DIR, dir);
@@ -198,10 +182,10 @@ router.get('/', async (req, res) => {
         const sessionId = file.replace('.jsonl', '');
 
         // Skip sessions created by graph runner executions
-        if (isGraphRunnerSession(sessionId)) continue;
+        if (await isGraphRunnerSession(sessionId)) continue;
 
         // Skip sessions created by internal utility queries (commit message generation, etc.)
-        if (isInternalSession(sessionId)) continue;
+        if (await isInternalSession(sessionId)) continue;
 
         const filePath = join(dirPath, file);
 
@@ -214,11 +198,13 @@ router.get('/', async (req, res) => {
         }
 
         // Check cache
-        const cached = getCached.get(dir, sessionId) as {
-          title: string; project_path: string; message_count: number;
-          last_active: number; file_mtime: number; provider?: string;
-          is_internal?: number;
-        } | undefined;
+        const cached = await db('session_cache')
+          .where({ project_dir: dir, id: sessionId })
+          .first() as {
+            title: string; project_path: string; message_count: number;
+            last_active: number; file_mtime: number; provider?: string;
+            is_internal?: number;
+          } | undefined;
 
         // Skip sessions marked as internal in the DB (persisted across restarts)
         if (cached?.is_internal) continue;
@@ -242,8 +228,19 @@ router.get('/', async (req, res) => {
 
         const projectPath = meta.cwd || ('/' + dir.replace(/^-/, '').replace(/-/g, '/'));
 
-        // Update cache
-        upsertCache.run(sessionId, dir, meta.title, projectPath, meta.messageCount, mtimeMs, Math.floor(mtimeMs));
+        // Update cache — ON CONFLICT preserves the `provider` column set during streaming
+        await db('session_cache')
+          .insert({
+            id: sessionId,
+            project_dir: dir,
+            title: meta.title,
+            project_path: projectPath,
+            message_count: meta.messageCount,
+            last_active: mtimeMs,
+            file_mtime: Math.floor(mtimeMs),
+          })
+          .onConflict(['project_dir', 'id'])
+          .merge(['title', 'project_path', 'message_count', 'last_active', 'file_mtime']);
 
         sessions.push({
           id: sessionId,
@@ -523,10 +520,10 @@ router.get('/:id/messages', validate({
     const isStreaming = streamingIds.has(sessionId);
 
     // Look up provider and preferences from cache
-    const db2 = getDb();
-    const cachedRow = db2.prepare(
-      'SELECT provider, preferences FROM session_cache WHERE id = ?',
-    ).get(sessionId) as { provider?: string; preferences?: string } | undefined;
+    const cachedRow = await db('session_cache')
+      .where({ id: sessionId })
+      .select('provider', 'preferences')
+      .first() as { provider?: string; preferences?: string } | undefined;
     const sessionProvider = cachedRow?.provider || 'claude';
     let sessionPreferences: Record<string, unknown> = {};
     try {
@@ -562,7 +559,7 @@ router.delete('/:id', validate({
 
     unlinkSync(filePath);
     // Clean up cache
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(projectDir, sessionId); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
+    try { await db('session_cache').where({ project_dir: projectDir, id: sessionId }).delete(); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
     res.json({ success: true });
   } catch (err) {
     log.error({ err }, 'Failed to delete session');
@@ -595,7 +592,7 @@ router.delete('/project/:dir', validate({
     }
 
     // Clean up cache for this project
-    try { getDb().prepare('DELETE FROM session_cache WHERE project_dir = ?').run(projectDir); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
+    try { await db('session_cache').where({ project_dir: projectDir }).delete(); } catch (e) { log.warn({ err: e }, 'Cache cleanup failed'); }
 
     // Remove the directory if empty
     try {
@@ -662,24 +659,24 @@ router.post('/:id/fork', validate({
     writeFileSync(destPath, linesToCopy.join('\n') + (linesToCopy.length ? '\n' : ''), 'utf-8');
 
     // Seed cache entry with "Fork: " prefix
-    const db = getDb();
-    const srcCache = db.prepare('SELECT * FROM session_cache WHERE project_dir = ? AND id = ?')
-      .get(projectDir, sessionId) as { title?: string; project_path?: string; provider?: string; preferences?: string } | undefined;
+    const srcCache = await db('session_cache')
+      .where({ project_dir: projectDir, id: sessionId })
+      .first() as { title?: string; project_path?: string; provider?: string; preferences?: string } | undefined;
 
-    db.prepare(`
-      INSERT OR REPLACE INTO session_cache (project_dir, id, title, project_path, message_count, last_active, file_mtime, provider, preferences)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      projectDir,
-      newSessionId,
-      `Fork: ${srcCache?.title || sessionId.slice(0, 8)}`,
-      srcCache?.project_path || '',
-      linesToCopy.length,
-      Date.now(),
-      statSync(destPath).mtimeMs,
-      srcCache?.provider || 'claude',
-      srcCache?.preferences || '{}',
-    );
+    await db('session_cache')
+      .insert({
+        project_dir: projectDir,
+        id: newSessionId,
+        title: `Fork: ${srcCache?.title || sessionId.slice(0, 8)}`,
+        project_path: srcCache?.project_path || '',
+        message_count: linesToCopy.length,
+        last_active: Date.now(),
+        file_mtime: statSync(destPath).mtimeMs,
+        provider: srcCache?.provider || 'claude',
+        preferences: srcCache?.preferences || '{}',
+      })
+      .onConflict(['project_dir', 'id'])
+      .merge();
 
     log.info({ from: sessionId, to: newSessionId, lines: linesToCopy.length, cutoff: forkBeforeUuid || 'end' }, 'Forked session');
     res.json({ newSessionId, projectDir });

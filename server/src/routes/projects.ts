@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import {
   startService,
   stopService,
@@ -66,33 +66,34 @@ function rowToProject(row: ProjectRow, services: ServiceRow[]) {
 }
 
 // GET / — list all projects for user
-router.get('/', (req: AuthRequest, res) => {
-  const db = getDb();
-  const projects = db
-    .prepare('SELECT * FROM projects WHERE user_id = ? ORDER BY created_at DESC')
-    .all(req.user!.id) as ProjectRow[];
+router.get('/', async (req: AuthRequest, res) => {
+  const projects = await db('projects')
+    .where({ user_id: req.user!.id })
+    .orderBy('created_at', 'desc')
+    .select() as ProjectRow[];
 
-  const result = projects.map(p => {
-    const services = db
-      .prepare('SELECT * FROM project_services WHERE project_id = ? ORDER BY sort_order ASC')
-      .all(p.id) as ServiceRow[];
+  const result = await Promise.all(projects.map(async p => {
+    const services = await db('project_services')
+      .where({ project_id: p.id })
+      .orderBy('sort_order', 'asc')
+      .select() as ServiceRow[];
     return rowToProject(p, services);
-  });
+  }));
 
   res.json({ projects: result });
 });
 
 // GET /:id — get single project
-router.get('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id) as ProjectRow | undefined;
+router.get('/:id', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ProjectRow | undefined;
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  const services = db
-    .prepare('SELECT * FROM project_services WHERE project_id = ? ORDER BY sort_order ASC')
-    .all(p.id) as ServiceRow[];
+  const services = await db('project_services')
+    .where({ project_id: p.id })
+    .orderBy('sort_order', 'asc')
+    .select() as ServiceRow[];
   res.json({ project: rowToProject(p, services) });
 });
 
@@ -104,7 +105,7 @@ router.post('/', validate({
     description: z.string().optional(),
     services: z.array(z.object({ name: z.string(), command: z.string() })).optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { name, path, description, services } = req.body as {
     name: string;
     path: string;
@@ -116,118 +117,130 @@ router.post('/', validate({
     return;
   }
 
-  const db = getDb();
   const id = randomUUID();
-  db.prepare('INSERT INTO projects (id, user_id, name, path, description) VALUES (?, ?, ?, ?, ?)')
-    .run(id, req.user!.id, name, path, description || '');
+  await db('projects').insert({ id, user_id: req.user!.id, name, path, description: description || '' });
 
   if (Array.isArray(services) && services.length > 0) {
-    const insertService = db.prepare(
-      'INSERT INTO project_services (id, project_id, name, command, sort_order) VALUES (?, ?, ?, ?, ?)',
+    await db('project_services').insert(
+      services.map((s, i) => ({
+        id: randomUUID(),
+        project_id: id,
+        name: s.name,
+        command: s.command,
+        sort_order: i,
+      })),
     );
-    services.forEach((s, i) => {
-      insertService.run(randomUUID(), id, s.name, s.command, i);
-    });
   }
 
-  const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow;
-  const svcs = db
-    .prepare('SELECT * FROM project_services WHERE project_id = ? ORDER BY sort_order ASC')
-    .all(id) as ServiceRow[];
+  const p = await db('projects').where({ id }).first() as ProjectRow;
+  const svcs = await db('project_services')
+    .where({ project_id: id })
+    .orderBy('sort_order', 'asc')
+    .select() as ServiceRow[];
   res.status(201).json({ project: rowToProject(p, svcs) });
 });
 
 // PUT /:id — update project metadata
-router.put('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id) as ProjectRow | undefined;
+router.put('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ProjectRow | undefined;
   if (!existing) { res.status(404).json({ error: 'Project not found' }); return; }
 
   const { name, description } = req.body as { name?: string; description?: string };
-  const updates: string[] = [];
-  const params: unknown[] = [];
-  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (description !== undefined) { updates.push('description = ?'); params.push(description); }
-  if (updates.length === 0) {
-    const svcs = db.prepare('SELECT * FROM project_services WHERE project_id = ? ORDER BY sort_order ASC').all(existing.id) as ServiceRow[];
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+
+  if (Object.keys(updates).length === 0) {
+    const svcs = await db('project_services')
+      .where({ project_id: existing.id })
+      .orderBy('sort_order', 'asc')
+      .select() as ServiceRow[];
     res.json({ project: rowToProject(existing, svcs) });
     return;
   }
 
-  updates.push('updated_at = CURRENT_TIMESTAMP');
-  params.push(req.params.id, req.user!.id);
-  db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
+  updates.updated_at = db.fn.now();
+  await db('projects').where({ id: req.params.id, user_id: req.user!.id }).update(updates);
 
-  const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as ProjectRow;
-  const svcs = db.prepare('SELECT * FROM project_services WHERE project_id = ? ORDER BY sort_order ASC').all(p.id) as ServiceRow[];
+  const p = await db('projects').where({ id: req.params.id }).first() as ProjectRow;
+  const svcs = await db('project_services')
+    .where({ project_id: p.id })
+    .orderBy('sort_order', 'asc')
+    .select() as ServiceRow[];
   res.json({ project: rowToProject(p, svcs) });
 });
 
 // DELETE /:id — delete project + stop all its services
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id);
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!existing) { res.status(404).json({ error: 'Project not found' }); return; }
 
   stopAllForProject(req.params.id);
   deactivateAgent(req.params.id);
-  db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  await db('projects').where({ id: req.params.id, user_id: req.user!.id }).delete();
   res.json({ ok: true });
 });
 
 // POST /:id/services — add a service to a project
-router.post('/:id/services', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id);
+router.post('/:id/services', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
   const { name, command } = req.body as { name: string; command: string };
   if (!name || !command) { res.status(400).json({ error: 'name and command are required' }); return; }
 
-  const maxOrder = (
-    db.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM project_services WHERE project_id = ?')
-      .get(req.params.id) as { next: number }
-  ).next;
+  const maxOrderRow = await db('project_services')
+    .where({ project_id: req.params.id })
+    .max('sort_order as maxOrder')
+    .first() as { maxOrder: number | null };
+  const nextOrder = (maxOrderRow.maxOrder ?? -1) + 1;
 
   const sid = randomUUID();
-  db.prepare('INSERT INTO project_services (id, project_id, name, command, sort_order) VALUES (?, ?, ?, ?, ?)')
-    .run(sid, req.params.id, name, command, maxOrder);
+  await db('project_services').insert({
+    id: sid,
+    project_id: req.params.id,
+    name,
+    command,
+    sort_order: nextOrder,
+  });
 
-  const s = db.prepare('SELECT * FROM project_services WHERE id = ?').get(sid) as ServiceRow;
+  const s = await db('project_services').where({ id: sid }).first() as ServiceRow;
   res.status(201).json({ service: rowToService(s) });
 });
 
 // DELETE /:id/services/:sid — remove a service
-router.delete('/:id/services/:sid', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id);
+router.delete('/:id/services/:sid', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
   stopService(req.params.sid);
-  db.prepare('DELETE FROM project_services WHERE id = ? AND project_id = ?')
-    .run(req.params.sid, req.params.id);
+  await db('project_services')
+    .where({ id: req.params.sid, project_id: req.params.id })
+    .delete();
   res.json({ ok: true });
 });
 
 // POST /:id/services/:sid/start — start a service
-router.post('/:id/services/:sid/start', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id) as ProjectRow | undefined;
+router.post('/:id/services/:sid/start', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ProjectRow | undefined;
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  const s = db
-    .prepare('SELECT * FROM project_services WHERE id = ? AND project_id = ?')
-    .get(req.params.sid, req.params.id) as ServiceRow | undefined;
+  const s = await db('project_services')
+    .where({ id: req.params.sid, project_id: req.params.id })
+    .first() as ServiceRow | undefined;
   if (!s) { res.status(404).json({ error: 'Service not found' }); return; }
 
   startService(s.id, p.id, s.command, p.path);
@@ -235,11 +248,11 @@ router.post('/:id/services/:sid/start', (req: AuthRequest, res) => {
 });
 
 // POST /:id/services/:sid/stop — stop a service
-router.post('/:id/services/:sid/stop', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id);
+router.post('/:id/services/:sid/stop', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
   stopService(req.params.sid);
@@ -247,28 +260,26 @@ router.post('/:id/services/:sid/stop', (req: AuthRequest, res) => {
 });
 
 // POST /:id/agent/activate — create a chat session scoped to the project path
-router.post('/:id/agent/activate', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id) as ProjectRow | undefined;
+router.post('/:id/agent/activate', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as ProjectRow | undefined;
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
   // Create a session record so the chat tab can resume it
   const sessionId = randomUUID();
-  db.prepare('INSERT INTO sessions (id, user_id, project_path) VALUES (?, ?, ?)')
-    .run(sessionId, req.user!.id, p.path);
+  await db('sessions').insert({ id: sessionId, user_id: req.user!.id, project_path: p.path });
 
   activateAgent(p.id, sessionId);
   res.json({ sessionId });
 });
 
 // POST /:id/agent/deactivate — remove agent association (session stays in history)
-router.post('/:id/agent/deactivate', (req: AuthRequest, res) => {
-  const db = getDb();
-  const p = db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?')
-    .get(req.params.id, req.user!.id);
+router.post('/:id/agent/deactivate', async (req: AuthRequest, res) => {
+  const p = await db('projects')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
   deactivateAgent(req.params.id);

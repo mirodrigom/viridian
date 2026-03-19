@@ -1,0 +1,11 @@
+node_modules
+.git
+server/data
+server/logs
+docs
+.env
+*.log
+.DS_Store
+e2e
+playwright.config.ts
+.claude

@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { validate } from '../middleware/validate.js';
 import { createLogger } from '../logger.js';
 
@@ -47,10 +47,10 @@ function rowToPersona(row: PersonaRow) {
 router.get('/', async (req, res) => {
   try {
     const user = (req as AuthRequest).user!;
-    const db = getDb();
-    const rows = db.prepare(
-      'SELECT * FROM personas WHERE user_id = ? ORDER BY is_builtin DESC, name ASC',
-    ).all(user.id) as PersonaRow[];
+    const rows = await db('personas')
+      .where({ user_id: user.id })
+      .orderByRaw('is_builtin DESC, name ASC')
+      .select() as PersonaRow[];
     res.json({ personas: rows.map(rowToPersona) });
   } catch (err) {
     log.error({ err }, 'Failed to list personas');
@@ -65,10 +65,9 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const user = (req as AuthRequest).user!;
-    const db = getDb();
-    const row = db.prepare(
-      'SELECT * FROM personas WHERE id = ? AND user_id = ?',
-    ).get(req.params.id, user.id) as PersonaRow | undefined;
+    const row = await db('personas')
+      .where({ id: req.params.id, user_id: user.id })
+      .first() as PersonaRow | undefined;
     if (!row) {
       res.status(404).json({ error: 'Persona not found' });
       return;
@@ -96,17 +95,23 @@ router.post('/', validate({
 }), async (req, res) => {
   try {
     const user = (req as AuthRequest).user!;
-    const db = getDb();
     const { name, description, icon, color, systemPrompt, suggestedTools } = req.body as {
       name: string; description: string; icon: string; color: string;
       systemPrompt: string; suggestedTools: string[];
     };
     const id = randomUUID();
-    db.prepare(`
-      INSERT INTO personas (id, user_id, name, description, icon, color, system_prompt, suggested_tools, is_builtin)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
-    `).run(id, user.id, name, description, icon, color, systemPrompt, JSON.stringify(suggestedTools));
-    const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(id) as PersonaRow;
+    await db('personas').insert({
+      id,
+      user_id: user.id,
+      name,
+      description,
+      icon,
+      color,
+      system_prompt: systemPrompt,
+      suggested_tools: JSON.stringify(suggestedTools),
+      is_builtin: 0,
+    });
+    const row = await db('personas').where({ id }).first() as PersonaRow;
     res.status(201).json({ persona: rowToPersona(row) });
   } catch (err) {
     log.error({ err }, 'Failed to create persona');
@@ -131,10 +136,9 @@ router.patch('/:id', validate({
 }), async (req, res) => {
   try {
     const user = (req as AuthRequest).user!;
-    const db = getDb();
-    const existing = db.prepare(
-      'SELECT * FROM personas WHERE id = ? AND user_id = ?',
-    ).get(req.params.id, user.id) as PersonaRow | undefined;
+    const existing = await db('personas')
+      .where({ id: req.params.id, user_id: user.id })
+      .first() as PersonaRow | undefined;
     if (!existing) {
       res.status(404).json({ error: 'Persona not found' });
       return;
@@ -143,26 +147,20 @@ router.patch('/:id', validate({
       name?: string; description?: string; icon?: string; color?: string;
       systemPrompt?: string; suggestedTools?: string[];
     };
-    db.prepare(`
-      UPDATE personas SET
-        name = COALESCE(?, name),
-        description = COALESCE(?, description),
-        icon = COALESCE(?, icon),
-        color = COALESCE(?, color),
-        system_prompt = COALESCE(?, system_prompt),
-        suggested_tools = COALESCE(?, suggested_tools)
-      WHERE id = ? AND user_id = ?
-    `).run(
-      name ?? null,
-      description ?? null,
-      icon ?? null,
-      color ?? null,
-      systemPrompt ?? null,
-      suggestedTools ? JSON.stringify(suggestedTools) : null,
-      req.params.id,
-      user.id,
-    );
-    const row = db.prepare('SELECT * FROM personas WHERE id = ?').get(req.params.id) as PersonaRow;
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (icon !== undefined) updates.icon = icon;
+    if (color !== undefined) updates.color = color;
+    if (systemPrompt !== undefined) updates.system_prompt = systemPrompt;
+    if (suggestedTools !== undefined) updates.suggested_tools = JSON.stringify(suggestedTools);
+
+    if (Object.keys(updates).length > 0) {
+      await db('personas')
+        .where({ id: req.params.id, user_id: user.id })
+        .update(updates);
+    }
+    const row = await db('personas').where({ id: req.params.id }).first() as PersonaRow;
     res.json({ persona: rowToPersona(row) });
   } catch (err) {
     log.error({ err }, 'Failed to update persona');
@@ -179,10 +177,9 @@ router.delete('/:id', validate({
 }), async (req, res) => {
   try {
     const user = (req as AuthRequest).user!;
-    const db = getDb();
-    const existing = db.prepare(
-      'SELECT * FROM personas WHERE id = ? AND user_id = ?',
-    ).get(req.params.id, user.id) as PersonaRow | undefined;
+    const existing = await db('personas')
+      .where({ id: req.params.id, user_id: user.id })
+      .first() as PersonaRow | undefined;
     if (!existing) {
       res.status(404).json({ error: 'Persona not found' });
       return;
@@ -191,7 +188,7 @@ router.delete('/:id', validate({
       res.status(400).json({ error: 'Cannot delete built-in personas' });
       return;
     }
-    db.prepare('DELETE FROM personas WHERE id = ? AND user_id = ?').run(req.params.id, user.id);
+    await db('personas').where({ id: req.params.id, user_id: user.id }).delete();
     res.json({ success: true });
   } catch (err) {
     log.error({ err }, 'Failed to delete persona');

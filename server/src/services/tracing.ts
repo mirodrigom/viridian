@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 
 // Emits 'trace:started' and 'trace:ended' for real-time WS push
 export const traceEmitter = new EventEmitter();
@@ -69,34 +69,36 @@ export function startTrace(params: {
   /** Optional role label (e.g. "chat", "autopilot:orchestrator"). */
   role?: string;
 }) {
-  const db = getDb();
   const traceId = randomUUID();
   const generationId = randomUUID();
   const name = params.role || 'chat';
   const startTime = now();
 
-  db.prepare(`
-    INSERT INTO traces (id, name, user_id, session_id, metadata, tags, input, status, start_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
-  `).run(
-    traceId,
+  db('traces').insert({
+    id: traceId,
     name,
-    params.claudeSessionId || params.sessionId,
-    params.sessionId,
-    JSON.stringify({
+    user_id: params.claudeSessionId || params.sessionId,
+    session_id: params.sessionId,
+    metadata: JSON.stringify({
       claudeSessionId: params.claudeSessionId,
       sessionId: params.sessionId,
       providerId: params.providerId,
     }),
-    JSON.stringify([params.providerId, name]),
-    params.prompt,
-    startTime,
-  );
+    tags: JSON.stringify([params.providerId, name]),
+    input: params.prompt,
+    status: 'active',
+    start_time: startTime,
+  }).catch(() => { /* fire-and-forget; errors are non-fatal for tracing */ });
 
-  db.prepare(`
-    INSERT INTO observations (id, trace_id, type, name, model, input, start_time)
-    VALUES (?, ?, 'GENERATION', 'response', ?, ?, ?)
-  `).run(generationId, traceId, params.model || 'claude-sonnet-4-6', params.prompt, startTime);
+  db('observations').insert({
+    id: generationId,
+    trace_id: traceId,
+    type: 'GENERATION',
+    name: 'response',
+    model: params.model || 'claude-sonnet-4-6',
+    input: params.prompt,
+    start_time: startTime,
+  }).catch(() => { /* ignore */ });
 
   activeTraces.set(params.sessionId, {
     traceId,
@@ -127,7 +129,6 @@ export function recordToolUse(
   const at = activeTraces.get(sessionId);
   if (!at) return;
 
-  const db = getDb();
   const obsId = randomUUID();
 
   // Determine parent observation
@@ -139,10 +140,16 @@ export function recordToolUse(
     ? { requestId, toolName, isAgent: true }
     : { requestId, isSubagent: !!parentToolUseId };
 
-  db.prepare(`
-    INSERT INTO observations (id, trace_id, parent_observation_id, type, name, input, metadata, start_time)
-    VALUES (?, ?, ?, 'SPAN', ?, ?, ?, ?)
-  `).run(obsId, at.traceId, parentObsId, spanName, safeJson(input), JSON.stringify(metadata), now());
+  db('observations').insert({
+    id: obsId,
+    trace_id: at.traceId,
+    parent_observation_id: parentObsId,
+    type: 'SPAN',
+    name: spanName,
+    input: safeJson(input),
+    metadata: JSON.stringify(metadata),
+    start_time: now(),
+  }).catch(() => { /* ignore */ });
 
   at.toolSpans.set(requestId, obsId);
 }
@@ -154,7 +161,7 @@ export function updateToolInput(sessionId: string, requestId: string, input: Rec
   const obsId = at.toolSpans.get(requestId);
   if (!obsId) return;
 
-  getDb().prepare('UPDATE observations SET input = ? WHERE id = ?').run(safeJson(input), obsId);
+  db('observations').where({ id: obsId }).update({ input: safeJson(input) }).catch(() => { /* ignore */ });
 }
 
 /** Record tool result and close the corresponding span. */
@@ -165,8 +172,7 @@ export function recordToolResult(sessionId: string, requestId: string, output: u
   const obsId = at.toolSpans.get(requestId);
   if (!obsId) return;
 
-  getDb().prepare('UPDATE observations SET output = ?, end_time = ? WHERE id = ?')
-    .run(safeJson(output), now(), obsId);
+  db('observations').where({ id: obsId }).update({ output: safeJson(output), end_time: now() }).catch(() => { /* ignore */ });
   at.toolSpans.delete(requestId);
 }
 
@@ -174,7 +180,7 @@ export function recordToolResult(sessionId: string, requestId: string, output: u
 export function updateTraceUser(sessionId: string, claudeSessionId: string) {
   const at = activeTraces.get(sessionId);
   if (!at) return;
-  getDb().prepare('UPDATE traces SET user_id = ? WHERE id = ?').run(claudeSessionId, at.traceId);
+  db('traces').where({ id: at.traceId }).update({ user_id: claudeSessionId }).catch(() => { /* ignore */ });
 }
 
 /** Append streaming text to the accumulated output for this turn. */
@@ -189,30 +195,33 @@ export function endTrace(sessionId: string, usage: { inputTokens: number; output
   const at = activeTraces.get(sessionId);
   if (!at) return;
 
-  const db = getDb();
   const endTime = now();
 
   // Close any tool spans that never got a result
   for (const obsId of at.toolSpans.values()) {
-    try {
-      db.prepare('UPDATE observations SET end_time = ? WHERE id = ? AND end_time IS NULL')
-        .run(endTime, obsId);
-    } catch { /* ignore */ }
+    db('observations')
+      .where({ id: obsId })
+      .whereNull('end_time')
+      .update({ end_time: endTime })
+      .catch(() => { /* ignore */ });
   }
 
   // Finalize generation
-  db.prepare(`
-    UPDATE observations
-    SET output = ?, end_time = ?, input_tokens = ?, output_tokens = ?
-    WHERE id = ?
-  `).run(at.accumulatedOutput, endTime, usage.inputTokens, usage.outputTokens, at.generationId);
+  db('observations').where({ id: at.generationId }).update({
+    output: at.accumulatedOutput,
+    end_time: endTime,
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+  }).catch(() => { /* ignore */ });
 
   // Finalize trace
-  db.prepare(`
-    UPDATE traces
-    SET output = ?, end_time = ?, status = 'completed', input_tokens = ?, output_tokens = ?
-    WHERE id = ?
-  `).run(at.accumulatedOutput, endTime, usage.inputTokens, usage.outputTokens, at.traceId);
+  db('traces').where({ id: at.traceId }).update({
+    output: at.accumulatedOutput,
+    end_time: endTime,
+    status: 'completed',
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+  }).catch(() => { /* ignore */ });
 
   activeTraces.delete(sessionId);
 
@@ -224,11 +233,13 @@ export function recordError(sessionId: string, error: string) {
   const at = activeTraces.get(sessionId);
   if (!at) return;
 
-  getDb().prepare('UPDATE observations SET status_message = ?, level = ? WHERE id = ?')
-    .run(error, 'ERROR', at.generationId);
+  db('observations').where({ id: at.generationId }).update({
+    status_message: error,
+    level: 'ERROR',
+  }).catch(() => { /* ignore */ });
 }
 
-/** No-op — writes are synchronous with SQLite. Kept for API compatibility. */
+/** No-op — kept for API compatibility. */
 export async function flush() {
-  // No-op: better-sqlite3 writes are synchronous
+  // No-op: Knex writes are async and self-managed
 }

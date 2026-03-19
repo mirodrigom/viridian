@@ -4,7 +4,7 @@
  */
 
 import { Router } from 'express';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 
 const router: ReturnType<typeof Router> = Router();
 
@@ -73,8 +73,7 @@ router.get('/status', (_req, res) => {
 });
 
 // GET /api/traces?page=1&limit=30&userId=X
-router.get('/', (req, res) => {
-  const db = getDb();
+router.get('/', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 30, 200);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const offset = (page - 1) * limit;
@@ -82,28 +81,25 @@ router.get('/', (req, res) => {
 
   try {
     // Fetch traces
-    let traceRows: TraceRow[];
+    let traceQuery = db('traces').orderBy('start_time', 'desc').limit(limit).offset(offset);
     if (userId) {
-      traceRows = db.prepare(
-        'SELECT * FROM traces WHERE user_id = ? ORDER BY start_time DESC LIMIT ? OFFSET ?',
-      ).all(userId, limit, offset) as TraceRow[];
-    } else {
-      traceRows = db.prepare(
-        'SELECT * FROM traces ORDER BY start_time DESC LIMIT ? OFFSET ?',
-      ).all(limit, offset) as TraceRow[];
+      traceQuery = traceQuery.where({ user_id: userId });
     }
+    const traceRows = await traceQuery.select() as TraceRow[];
 
     // Fetch summary observations for each trace (no input/output blobs for list perf)
-    const getSummaryObs = db.prepare(
-      `SELECT id, trace_id, parent_observation_id, type, name, '' as input, '' as output,
-              model, metadata, start_time, end_time, input_tokens, output_tokens, level, status_message
-       FROM observations WHERE trace_id = ? ORDER BY start_time`,
-    );
-
-    const data = traceRows.map(t => {
-      const obs = getSummaryObs.all(t.id) as ObservationRow[];
+    const data = await Promise.all(traceRows.map(async t => {
+      const obs = await db('observations')
+        .where({ trace_id: t.id })
+        .orderBy('start_time')
+        .select(
+          'id', 'trace_id', 'parent_observation_id', 'type', 'name',
+          db.raw("'' as input"), db.raw("'' as output"),
+          'model', 'metadata', 'start_time', 'end_time',
+          'input_tokens', 'output_tokens', 'level', 'status_message',
+        ) as ObservationRow[];
       return mapTrace(t, obs);
-    });
+    }));
 
     res.json({ configured: true, data });
   } catch (err) {
@@ -113,16 +109,15 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/traces/:id — full trace detail with all observations
-router.get('/:id', (req, res) => {
-  const db = getDb();
-
+router.get('/:id', async (req, res) => {
   try {
-    const traceRow = db.prepare('SELECT * FROM traces WHERE id = ?').get(req.params.id) as TraceRow | undefined;
+    const traceRow = await db('traces').where({ id: req.params.id }).first() as TraceRow | undefined;
     if (!traceRow) { res.status(404).json({ error: 'Trace not found' }); return; }
 
-    const obsRows = db.prepare(
-      'SELECT * FROM observations WHERE trace_id = ? ORDER BY start_time',
-    ).all(req.params.id) as ObservationRow[];
+    const obsRows = await db('observations')
+      .where({ trace_id: req.params.id })
+      .orderBy('start_time')
+      .select() as ObservationRow[];
 
     res.json(mapTrace(traceRow, obsRows));
   } catch (err) {

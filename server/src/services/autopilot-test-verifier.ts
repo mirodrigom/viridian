@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import { type AutopilotRunConfig, type AutopilotContext } from './autopilot-run-manager.js';
 import { buildTestVerificationPrompt } from './autopilot-prompt-builder.js';
@@ -18,12 +18,11 @@ export async function executeTestCycle(
   config: AutopilotRunConfig,
 ): Promise<void> {
   const { emitter, runId } = ctx;
-  const db = getDb();
   const cycleNumber = ctx.cycleCount;
   const cycleId = uuid();
 
   // Collect all files changed across ALL cycles in this run
-  const changedFiles = collectChangedFiles(runId);
+  const changedFiles = await collectChangedFiles(runId);
 
   if (changedFiles.length === 0) {
     emitter.emit('cycle_completed', {
@@ -47,18 +46,17 @@ export async function executeTestCycle(
   });
 
   // Update run counters for test verification
-  updateRunCountersForTest(ctx, runId);
+  await updateRunCountersForTest(ctx, runId);
 }
 
 // ─── Changed Files Collection ──────────────────────────────────────────────
 
-function collectChangedFiles(runId: string): string[] {
-  const db = getDb();
-
-  const allCycles = db.prepare(`
-    SELECT files_changed FROM autopilot_cycles
-    WHERE run_id = ? AND files_changed IS NOT NULL AND files_changed != '[]'
-  `).all(runId) as { files_changed: string }[];
+async function collectChangedFiles(runId: string): Promise<string[]> {
+  const allCycles = await db('autopilot_cycles')
+    .where({ run_id: runId })
+    .whereNotNull('files_changed')
+    .whereNot('files_changed', '[]')
+    .select('files_changed') as { files_changed: string }[];
 
   const changedFiles = new Set<string>();
 
@@ -235,18 +233,11 @@ export function detectTestRunner(cwd: string): {
 
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
-function updateRunCountersForTest(ctx: AutopilotContext, runId: string): void {
-  const db = getDb();
-  db.prepare(`
-    UPDATE autopilot_runs
-    SET commit_count = ?, cycle_count = ?,
-        agent_b_input_tokens = ?, agent_b_output_tokens = ?
-    WHERE id = ?
-  `).run(
-    ctx.commitCount,
-    ctx.cycleCount + 1,
-    ctx.totalTokens.agentB.inputTokens,
-    ctx.totalTokens.agentB.outputTokens,
-    runId,
-  );
+async function updateRunCountersForTest(ctx: AutopilotContext, runId: string): Promise<void> {
+  await db('autopilot_runs').where({ id: runId }).update({
+    commit_count: ctx.commitCount,
+    cycle_count: ctx.cycleCount + 1,
+    agent_b_input_tokens: ctx.totalTokens.agentB.inputTokens,
+    agent_b_output_tokens: ctx.totalTokens.agentB.outputTokens,
+  });
 }

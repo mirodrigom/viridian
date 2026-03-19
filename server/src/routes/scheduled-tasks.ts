@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import cron from 'node-cron';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { validate } from '../middleware/validate.js';
 import {
   scheduleTask,
@@ -77,9 +77,8 @@ function executionToDto(row: ExecutionRow) {
 
 // ─── GET / — list all scheduled tasks ──────────────────────────────────────
 
-router.get('/', (_req: AuthRequest, res) => {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC').all() as ScheduledTaskRow[];
+router.get('/', async (_req: AuthRequest, res) => {
+  const rows = await db('scheduled_tasks').orderBy('created_at', 'desc').select() as ScheduledTaskRow[];
   res.json({ tasks: rows.map(rowToDto) });
 });
 
@@ -94,7 +93,7 @@ router.post('/', validate({
     projectDir: z.string().min(1),
     enabled: z.boolean().optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { name, description, prompt, schedule, projectDir, enabled } = req.body;
 
   if (!cron.validate(schedule)) {
@@ -102,22 +101,27 @@ router.post('/', validate({
     return;
   }
 
-  const db = getDb();
   const id = randomUUID();
   const isEnabled = enabled !== false ? 1 : 0;
 
-  db.prepare(`
-    INSERT INTO scheduled_tasks (id, name, description, prompt, schedule, project_dir, enabled, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'idle')
-  `).run(id, name, description || '', prompt, schedule, projectDir, isEnabled);
+  await db('scheduled_tasks').insert({
+    id,
+    name,
+    description: description || '',
+    prompt,
+    schedule,
+    project_dir: projectDir,
+    enabled: isEnabled,
+    status: 'idle',
+  });
 
-  const row = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as ScheduledTaskRow;
+  const row = await db('scheduled_tasks').where({ id }).first() as ScheduledTaskRow;
 
   // Schedule it if enabled
   if (isEnabled) {
     scheduleTask(row as unknown as ScheduledTask);
     // Re-read to get updated nextRunAt
-    const updated = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as ScheduledTaskRow;
+    const updated = await db('scheduled_tasks').where({ id }).first() as ScheduledTaskRow;
     res.status(201).json(rowToDto(updated));
     return;
   }
@@ -127,9 +131,8 @@ router.post('/', validate({
 
 // ─── PATCH /:id — update a scheduled task ──────────────────────────────────
 
-router.patch('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(req.params.id) as ScheduledTaskRow | undefined;
+router.patch('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('scheduled_tasks').where({ id: req.params.id }).first() as ScheduledTaskRow | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Scheduled task not found' });
     return;
@@ -143,51 +146,46 @@ router.patch('/:id', (req: AuthRequest, res) => {
     return;
   }
 
-  const updates: string[] = [];
-  const params: unknown[] = [];
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+  if (prompt !== undefined) updates.prompt = prompt;
+  if (schedule !== undefined) updates.schedule = schedule;
+  if (projectDir !== undefined) updates.project_dir = projectDir;
+  if (enabled !== undefined) updates.enabled = enabled ? 1 : 0;
 
-  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
-  if (description !== undefined) { updates.push('description = ?'); params.push(description); }
-  if (prompt !== undefined) { updates.push('prompt = ?'); params.push(prompt); }
-  if (schedule !== undefined) { updates.push('schedule = ?'); params.push(schedule); }
-  if (projectDir !== undefined) { updates.push('project_dir = ?'); params.push(projectDir); }
-  if (enabled !== undefined) { updates.push('enabled = ?'); params.push(enabled ? 1 : 0); }
-
-  if (updates.length === 0) {
+  if (Object.keys(updates).length === 0) {
     res.json(rowToDto(existing));
     return;
   }
 
-  params.push(req.params.id);
-  db.prepare(`UPDATE scheduled_tasks SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  await db('scheduled_tasks').where({ id: req.params.id }).update(updates);
 
   // Refresh the cron job
-  refreshTask(req.params.id as string);
+  await refreshTask(req.params.id as string);
 
-  const row = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(req.params.id) as ScheduledTaskRow;
+  const row = await db('scheduled_tasks').where({ id: req.params.id }).first() as ScheduledTaskRow;
   res.json(rowToDto(row));
 });
 
 // ─── DELETE /:id — delete a scheduled task ─────────────────────────────────
 
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM scheduled_tasks WHERE id = ?').get(req.params.id);
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('scheduled_tasks').where({ id: req.params.id }).select('id').first();
   if (!existing) {
     res.status(404).json({ error: 'Scheduled task not found' });
     return;
   }
 
   unscheduleTask(req.params.id as string);
-  db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(req.params.id);
+  await db('scheduled_tasks').where({ id: req.params.id }).delete();
   res.json({ ok: true });
 });
 
 // ─── POST /:id/run — manually trigger a task ──────────────────────────────
 
-router.post('/:id/run', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(req.params.id) as ScheduledTaskRow | undefined;
+router.post('/:id/run', async (req: AuthRequest, res) => {
+  const existing = await db('scheduled_tasks').where({ id: req.params.id }).first() as ScheduledTaskRow | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Scheduled task not found' });
     return;
@@ -203,9 +201,8 @@ router.post('/:id/run', (req: AuthRequest, res) => {
 
 // ─── GET /:id/history — get execution history ─────────────────────────────
 
-router.get('/:id/history', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM scheduled_tasks WHERE id = ?').get(req.params.id);
+router.get('/:id/history', async (req: AuthRequest, res) => {
+  const existing = await db('scheduled_tasks').where({ id: req.params.id }).select('id').first();
   if (!existing) {
     res.status(404).json({ error: 'Scheduled task not found' });
     return;
@@ -214,15 +211,19 @@ router.get('/:id/history', (req: AuthRequest, res) => {
   const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
   const offset = parseInt(req.query.offset as string, 10) || 0;
 
-  const rows = db.prepare(
-    'SELECT * FROM scheduled_task_executions WHERE task_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?',
-  ).all(req.params.id, limit, offset) as ExecutionRow[];
+  const rows = await db('scheduled_task_executions')
+    .where({ task_id: req.params.id })
+    .orderBy('started_at', 'desc')
+    .limit(limit)
+    .offset(offset)
+    .select() as ExecutionRow[];
 
-  const total = (db.prepare(
-    'SELECT COUNT(*) as count FROM scheduled_task_executions WHERE task_id = ?',
-  ).get(req.params.id) as { count: number }).count;
+  const totalRow = await db('scheduled_task_executions')
+    .where({ task_id: req.params.id })
+    .count('* as count')
+    .first() as { count: number };
 
-  res.json({ executions: rows.map(executionToDto), total });
+  res.json({ executions: rows.map(executionToDto), total: totalRow.count });
 });
 
 export default router;

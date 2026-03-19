@@ -33,8 +33,9 @@ export function debugLog(msg: string) {
 const graphRunnerSessionIds = new Set<string>();
 
 /** Check if a Claude session ID belongs to a graph runner execution. */
-export function isGraphRunnerSession(claudeSessionId: string): boolean {
-  return graphRunnerSessionIds.has(claudeSessionId) || isSessionInternal(claudeSessionId);
+export async function isGraphRunnerSession(claudeSessionId: string): Promise<boolean> {
+  if (graphRunnerSessionIds.has(claudeSessionId)) return true;
+  return isSessionInternal(claudeSessionId);
 }
 
 /** Add a session ID to the graph runner tracking set. Used by graph-execution. */

@@ -5,7 +5,7 @@ import { join } from 'path';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { safeJsonParse } from '../lib/safeJson.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { getProvider, getDefaultProvider } from '../providers/registry.js';
 import type { ProviderId } from '../providers/types.js';
 import { getHomeDir, cwdToHash } from '../utils/platform.js';
@@ -22,7 +22,7 @@ function normalizePath(p: string): string {
 }
 
 /** Delete the JSONL session file that Claude CLI creates, so it doesn't appear in the chat sidebar. */
-function cleanupClaudeSession(sessionId: string | undefined, projectPath: string) {
+async function cleanupClaudeSession(sessionId: string | undefined, projectPath: string) {
   if (!sessionId) return;
   try {
     const encodedCwd = cwdToHash(projectPath);
@@ -30,9 +30,8 @@ function cleanupClaudeSession(sessionId: string | undefined, projectPath: string
     unlinkSync(jsonlPath);
   } catch { /* ignore if file doesn't exist */ }
   try {
-    const db = getDb();
     const encodedCwd = cwdToHash(projectPath);
-    db.prepare('DELETE FROM session_cache WHERE project_dir = ? AND id = ?').run(encodedCwd, sessionId);
+    await db('session_cache').where({ project_dir: encodedCwd, id: sessionId }).delete();
   } catch { /* ignore */ }
 }
 
@@ -72,42 +71,42 @@ function rowToTask(row: TaskRow) {
 }
 
 // GET / — list tasks for a project
-router.get('/', validate({ query: z.object({ project: z.string().min(1) }).passthrough() }), (req: AuthRequest, res) => {
+router.get('/', validate({ query: z.object({ project: z.string().min(1) }).passthrough() }), async (req: AuthRequest, res) => {
   const { project, status, priority, parentId } = req.query;
 
-  const db = getDb();
-  let sql = 'SELECT * FROM tasks WHERE user_id = ? AND project_path = ?';
-  const params: unknown[] = [req.user!.id, normalizePath(project)];
+  let query = db('tasks')
+    .where({ user_id: req.user!.id, project_path: normalizePath(project as string) });
 
   if (status && typeof status === 'string') {
-    sql += ' AND status = ?';
-    params.push(status);
+    query = query.where({ status });
   }
   if (priority && typeof priority === 'string') {
-    sql += ' AND priority = ?';
-    params.push(priority);
+    query = query.where({ priority });
   }
   if (parentId === 'null') {
-    sql += ' AND parent_id IS NULL';
+    query = query.whereNull('parent_id');
   } else if (parentId && typeof parentId === 'string') {
-    sql += ' AND parent_id = ?';
-    params.push(parentId);
+    query = query.where({ parent_id: parentId });
   }
 
-  sql += ' ORDER BY sort_order ASC, created_at ASC';
+  query = query.orderBy('sort_order', 'asc').orderBy('created_at', 'asc');
 
-  const rows = db.prepare(sql).all(...params) as TaskRow[];
+  const rows = await query.select() as TaskRow[];
   res.json({ tasks: rows.map(rowToTask) });
 });
 
 // GET /:id — get single task
-router.get('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as TaskRow | undefined;
+router.get('/:id', async (req: AuthRequest, res) => {
+  const row = await db('tasks')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as TaskRow | undefined;
   if (!row) { res.status(404).json({ error: 'Task not found' }); return; }
 
   // Include subtasks
-  const subtasks = db.prepare('SELECT * FROM tasks WHERE parent_id = ? AND user_id = ? ORDER BY sort_order ASC').all(row.id, req.user!.id) as TaskRow[];
+  const subtasks = await db('tasks')
+    .where({ parent_id: row.id, user_id: req.user!.id })
+    .orderBy('sort_order', 'asc')
+    .select() as TaskRow[];
   res.json({ task: rowToTask(row), subtasks: subtasks.map(rowToTask) });
 });
 
@@ -122,74 +121,91 @@ router.post('/', validate({
     parentId: z.string().nullable().optional(),
     dependencyIds: z.array(z.string()).optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { title, description, details, project, priority, parentId, dependencyIds } = req.body;
 
-  const db = getDb();
   const id = randomUUID();
   const normalizedProject = normalizePath(project);
-  const maxOrder = db.prepare(
-    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM tasks WHERE user_id = ? AND project_path = ? AND parent_id IS ?',
-  ).get(req.user!.id, normalizedProject, parentId || null) as { next: number };
 
-  db.prepare(`
-    INSERT INTO tasks (id, user_id, project_path, title, description, details, priority, parent_id, dependency_ids, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, req.user!.id, normalizedProject, title, description || '', details || '', priority || 'medium', parentId || null, JSON.stringify(dependencyIds || []), maxOrder.next);
+  const maxOrderRow = await db('tasks')
+    .where({ user_id: req.user!.id, project_path: normalizedProject })
+    .where(function () {
+      if (parentId) {
+        this.where({ parent_id: parentId });
+      } else {
+        this.whereNull('parent_id');
+      }
+    })
+    .max('sort_order as next')
+    .first() as { next: number | null };
 
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow;
+  const nextOrder = (maxOrderRow?.next ?? -1) + 1;
+
+  await db('tasks').insert({
+    id,
+    user_id: req.user!.id,
+    project_path: normalizedProject,
+    title,
+    description: description || '',
+    details: details || '',
+    priority: priority || 'medium',
+    parent_id: parentId || null,
+    dependency_ids: JSON.stringify(dependencyIds || []),
+    sort_order: nextOrder,
+  });
+
+  const row = await db('tasks').where({ id }).first() as TaskRow;
   res.status(201).json(rowToTask(row));
 });
 
 // PUT /:id — update task
-router.put('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as TaskRow | undefined;
+router.put('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('tasks')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as TaskRow | undefined;
   if (!existing) { res.status(404).json({ error: 'Task not found' }); return; }
 
   const { title, description, details, status, priority, parentId, dependencyIds, sortOrder } = req.body;
 
-  const updates: string[] = [];
-  const params: unknown[] = [];
+  const updates: Record<string, unknown> = {};
 
-  if (title !== undefined) { updates.push('title = ?'); params.push(title); }
-  if (description !== undefined) { updates.push('description = ?'); params.push(description); }
-  if (details !== undefined) { updates.push('details = ?'); params.push(details); }
-  if (status !== undefined) { updates.push('status = ?'); params.push(status); }
-  if (priority !== undefined) { updates.push('priority = ?'); params.push(priority); }
-  if (parentId !== undefined) { updates.push('parent_id = ?'); params.push(parentId || null); }
-  if (dependencyIds !== undefined) { updates.push('dependency_ids = ?'); params.push(JSON.stringify(dependencyIds)); }
-  if (sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(sortOrder); }
+  if (title !== undefined) updates.title = title;
+  if (description !== undefined) updates.description = description;
+  if (details !== undefined) updates.details = details;
+  if (status !== undefined) updates.status = status;
+  if (priority !== undefined) updates.priority = priority;
+  if (parentId !== undefined) updates.parent_id = parentId || null;
+  if (dependencyIds !== undefined) updates.dependency_ids = JSON.stringify(dependencyIds);
+  if (sortOrder !== undefined) updates.sort_order = sortOrder;
 
-  if (updates.length === 0) { res.json({ task: rowToTask(existing), parentUpdate: null }); return; }
+  if (Object.keys(updates).length === 0) { res.json({ task: rowToTask(existing), parentUpdate: null }); return; }
 
-  updates.push("updated_at = CURRENT_TIMESTAMP");
-  params.push(req.params.id, req.user!.id);
+  updates.updated_at = db.fn.now();
 
-  db.prepare(`UPDATE tasks SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...params);
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as TaskRow;
+  await db('tasks').where({ id: req.params.id, user_id: req.user!.id }).update(updates);
+  const row = await db('tasks').where({ id: req.params.id }).first() as TaskRow;
 
   // Auto-sync parent status when a subtask's status changes
   let parentUpdate: ReturnType<typeof rowToTask> | null = null;
   if (status !== undefined && row.parent_id) {
-    const siblings = db.prepare(
-      'SELECT status FROM tasks WHERE parent_id = ? AND user_id = ?',
-    ).all(row.parent_id, req.user!.id) as { status: string }[];
+    const siblings = await db('tasks')
+      .where({ parent_id: row.parent_id, user_id: req.user!.id })
+      .select('status') as { status: string }[];
 
     const allDone = siblings.every(s => s.status === 'done');
     const allTodo = siblings.every(s => s.status === 'todo');
     const newParentStatus = allDone ? 'done' : allTodo ? 'todo' : 'in_progress';
 
-    const parent = db.prepare(
-      'SELECT * FROM tasks WHERE id = ? AND user_id = ?',
-    ).get(row.parent_id, req.user!.id) as TaskRow | undefined;
+    const parent = await db('tasks')
+      .where({ id: row.parent_id, user_id: req.user!.id })
+      .first() as TaskRow | undefined;
 
     if (parent && parent.status !== newParentStatus) {
-      db.prepare(
-        'UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      ).run(newParentStatus, parent.id);
+      await db('tasks')
+        .where({ id: parent.id })
+        .update({ status: newParentStatus, updated_at: db.fn.now() });
 
-      const updatedParent = db.prepare('SELECT * FROM tasks WHERE id = ?').get(parent.id) as TaskRow;
+      const updatedParent = await db('tasks').where({ id: parent.id }).first() as TaskRow;
       parentUpdate = rowToTask(updatedParent);
     }
   }
@@ -198,30 +214,31 @@ router.put('/:id', (req: AuthRequest, res) => {
 });
 
 // DELETE /:id — delete task (cascades to subtasks)
-router.delete('/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id);
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const existing = await db('tasks')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
   if (!existing) { res.status(404).json({ error: 'Task not found' }); return; }
 
-  db.prepare('DELETE FROM tasks WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  await db('tasks').where({ id: req.params.id, user_id: req.user!.id }).delete();
   // Also delete subtasks
-  db.prepare('DELETE FROM tasks WHERE parent_id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  await db('tasks').where({ parent_id: req.params.id, user_id: req.user!.id }).delete();
   res.json({ ok: true });
 });
 
 // POST /reorder — reorder tasks
 router.post('/reorder', validate({
   body: z.object({ taskIds: z.array(z.string()) }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const { taskIds } = req.body;
-  const db = getDb();
-  const stmt = db.prepare('UPDATE tasks SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?');
-  const tx = db.transaction(() => {
-    taskIds.forEach((id: string, index: number) => {
-      stmt.run(index, id, req.user!.id);
-    });
+  await db.transaction(async (trx) => {
+    for (let index = 0; index < taskIds.length; index++) {
+      await trx('tasks')
+        .where({ id: taskIds[index], user_id: req.user!.id })
+        .update({ sort_order: index, updated_at: trx.fn.now() });
+    }
   });
-  tx();
   res.json({ ok: true });
 });
 
@@ -234,7 +251,7 @@ type ParsedTask = {
 };
 
 /** Parse JSON task lines from Claude output and save them to the DB. */
-function saveTasksToDb(fullText: string, prdSnippet: string, userId: number, project: string): ReturnType<typeof rowToTask>[] {
+async function saveTasksToDb(fullText: string, prdSnippet: string, userId: number, project: string): Promise<ReturnType<typeof rowToTask>[]> {
   project = normalizePath(project);
   const parsedTasks: ParsedTask[] = [];
   for (const line of fullText.split('\n')) {
@@ -247,49 +264,62 @@ function saveTasksToDb(fullText: string, prdSnippet: string, userId: number, pro
   }
   if (parsedTasks.length === 0) return [];
 
-  const db = getDb();
   const allIds: string[] = [];
   const titleToId = new Map<string, string>();
 
-  const insertParentStmt = db.prepare(`
-    INSERT INTO tasks (id, user_id, project_path, title, description, priority, prd_source, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertSubStmt = db.prepare(`
-    INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, prd_source, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const updateDeps = db.prepare('UPDATE tasks SET dependency_ids = ? WHERE id = ?');
-
-  const tx = db.transaction(() => {
-    parsedTasks.forEach((t, i) => {
+  await db.transaction(async (trx) => {
+    for (let i = 0; i < parsedTasks.length; i++) {
+      const t = parsedTasks[i];
       const id = randomUUID();
       titleToId.set(t.title, id);
       allIds.push(id);
-      insertParentStmt.run(id, userId, project, t.title, t.description || '', t.priority || 'medium', prdSnippet, i);
-    });
+      await trx('tasks').insert({
+        id,
+        user_id: userId,
+        project_path: project,
+        title: t.title,
+        description: t.description || '',
+        priority: t.priority || 'medium',
+        prd_source: prdSnippet,
+        sort_order: i,
+      });
+    }
+
     for (const t of parsedTasks) {
       const parentId = titleToId.get(t.title);
       if (!parentId || !t.subtasks) continue;
-      t.subtasks.forEach((st, j) => {
+      for (let j = 0; j < t.subtasks.length; j++) {
+        const st = t.subtasks[j];
         const subId = randomUUID();
         allIds.push(subId);
-        insertSubStmt.run(subId, userId, project, st.title, st.description || '', st.priority || 'medium', parentId, prdSnippet, j);
-      });
+        await trx('tasks').insert({
+          id: subId,
+          user_id: userId,
+          project_path: project,
+          title: st.title,
+          description: st.description || '',
+          priority: st.priority || 'medium',
+          parent_id: parentId,
+          prd_source: prdSnippet,
+          sort_order: j,
+        });
+      }
     }
+
     for (const t of parsedTasks) {
       const id = titleToId.get(t.title);
       if (!id) continue;
       const depIds = (t.dependencyTitles || []).map((title: string) => titleToId.get(title)).filter(Boolean);
-      if (depIds.length > 0) updateDeps.run(JSON.stringify(depIds), id);
+      if (depIds.length > 0) {
+        await trx('tasks').where({ id }).update({ dependency_ids: JSON.stringify(depIds) });
+      }
     }
   });
-  tx();
 
-  const placeholders = allIds.map(() => '?').join(',');
-  const allRows = db.prepare(
-    `SELECT * FROM tasks WHERE id IN (${placeholders}) ORDER BY parent_id IS NOT NULL, sort_order ASC`,
-  ).all(...allIds) as TaskRow[];
+  const allRows = await db('tasks')
+    .whereIn('id', allIds)
+    .orderByRaw('parent_id IS NOT NULL, sort_order ASC')
+    .select() as TaskRow[];
   return allRows.map(rowToTask);
 }
 
@@ -357,7 +387,7 @@ ${prd}`;
         if (msg.type === 'result' && msg.sessionId) claudeSessionId = msg.sessionId;
       }
 
-      const savedTasks = saveTasksToDb(fullText, prd.substring(0, 500), req.user!.id, project);
+      const savedTasks = await saveTasksToDb(fullText, prd.substring(0, 500), req.user!.id, project);
 
       clearTimeout(timeout);
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
@@ -493,7 +523,7 @@ router.post('/prd-finalize', validate({
         if (msg.type === 'result' && msg.sessionId) finalSessionId = msg.sessionId;
       }
 
-      const savedTasks = saveTasksToDb(fullText, (prd || '').substring(0, 500), req.user!.id, project);
+      const savedTasks = await saveTasksToDb(fullText, (prd || '').substring(0, 500), req.user!.id, project);
 
       clearTimeout(timeout);
       res.write(`event: done\ndata: ${JSON.stringify({ tasks: savedTasks })}\n\n`);
@@ -509,9 +539,10 @@ router.post('/prd-finalize', validate({
 });
 
 // POST /:id/expand — use AI to break a task into subtasks (SSE stream)
-router.post('/:id/expand', (req: AuthRequest, res) => {
-  const db = getDb();
-  const task = db.prepare('SELECT * FROM tasks WHERE id = ? AND user_id = ?').get(req.params.id, req.user!.id) as TaskRow | undefined;
+router.post('/:id/expand', async (req: AuthRequest, res) => {
+  const task = await db('tasks')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as TaskRow | undefined;
   if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
   const provider = req.body?.providerId ? getProvider(req.body.providerId as ProviderId) : getDefaultProvider();
 
@@ -577,24 +608,30 @@ Output ONLY the JSON objects, one per line. No markdown, no explanations.`;
       const userId = req.user!.id;
       const saved: ReturnType<typeof rowToTask>[] = [];
 
-      // Delete existing subtasks before inserting new ones
-      db.prepare('DELETE FROM tasks WHERE parent_id = ? AND user_id = ?').run(task.id, userId);
+      await db.transaction(async (trx) => {
+        // Delete existing subtasks before inserting new ones
+        await trx('tasks').where({ parent_id: task.id, user_id: userId }).delete();
 
-      const insertStmt = db.prepare(`
-        INSERT INTO tasks (id, user_id, project_path, title, description, priority, parent_id, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      const tx = db.transaction(() => {
-        subtasks.forEach((st, i) => {
+        for (let i = 0; i < subtasks.length; i++) {
+          const st = subtasks[i];
           const id = randomUUID();
-          insertStmt.run(id, userId, task.project_path, st.title, st.description || '', st.priority || 'medium', task.id, i);
-        });
+          await trx('tasks').insert({
+            id,
+            user_id: userId,
+            project_path: task.project_path,
+            title: st.title,
+            description: st.description || '',
+            priority: st.priority || 'medium',
+            parent_id: task.id,
+            sort_order: i,
+          });
+        }
       });
-      tx();
 
-      const rows = db.prepare('SELECT * FROM tasks WHERE parent_id = ? AND user_id = ? ORDER BY sort_order ASC')
-        .all(task.id, userId) as TaskRow[];
+      const rows = await db('tasks')
+        .where({ parent_id: task.id, user_id: userId })
+        .orderBy('sort_order', 'asc')
+        .select() as TaskRow[];
       for (const row of rows) saved.push(rowToTask(row));
 
       clearTimeout(expandTimeout);

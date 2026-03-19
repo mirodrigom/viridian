@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
-import { getDb } from '../db/database.js';
+import { db } from '../db/database.js';
 import { safeJsonParse } from '../lib/safeJson.js';
 import {
   getProfiles,
@@ -22,18 +22,18 @@ router.use(authMiddleware);
 
 // Seed built-in profiles on first load
 let seeded = false;
-function ensureSeeded() {
+async function ensureSeeded() {
   if (!seeded) {
-    seedBuiltinProfiles();
+    await seedBuiltinProfiles();
     seeded = true;
   }
 }
 
 // ─── Profiles ───────────────────────────────────────────────────────────
 
-router.get('/profiles', (req: AuthRequest, res) => {
-  ensureSeeded();
-  const profiles = getProfiles(req.user!.id);
+router.get('/profiles', async (req: AuthRequest, res) => {
+  await ensureSeeded();
+  const profiles = await getProfiles(req.user!.id);
   res.json({ profiles });
 });
 
@@ -56,14 +56,14 @@ router.post('/profiles', validate({
     icon: z.string().nullable().optional(),
     difficulty: z.string().nullable().optional(),
   }),
-}), (req: AuthRequest, res) => {
-  ensureSeeded();
+}), async (req: AuthRequest, res) => {
+  await ensureSeeded();
   const {
     name, role, description, systemPrompt, allowedTools, disallowedTools, model,
     category, tags, subagents, mcpServers, appendSystemPrompt, maxTurns,
     permissionMode, icon, difficulty,
   } = req.body;
-  const profile = createProfile(req.user!.id, {
+  const profile = await createProfile(req.user!.id, {
     name,
     role: role || 'custom',
     description: description || '',
@@ -84,8 +84,8 @@ router.post('/profiles', validate({
   res.status(201).json(profile);
 });
 
-router.put('/profiles/:id', (req: AuthRequest, res) => {
-  const profile = updateProfile(req.params.id, req.body);
+router.put('/profiles/:id', async (req: AuthRequest, res) => {
+  const profile = await updateProfile(req.params.id, req.body);
   if (!profile) {
     res.status(404).json({ error: 'Profile not found or is built-in' });
     return;
@@ -93,8 +93,8 @@ router.put('/profiles/:id', (req: AuthRequest, res) => {
   res.json(profile);
 });
 
-router.delete('/profiles/:id', (req: AuthRequest, res) => {
-  const ok = deleteProfile(req.params.id);
+router.delete('/profiles/:id', async (req: AuthRequest, res) => {
+  const ok = await deleteProfile(req.params.id);
   if (!ok) {
     res.status(404).json({ error: 'Profile not found or is built-in' });
     return;
@@ -151,12 +151,12 @@ function rowToConfig(row: ConfigRow) {
   };
 }
 
-router.get('/configs', validate({ query: z.object({ project: z.string().min(1) }) }), (req: AuthRequest, res) => {
+router.get('/configs', validate({ query: z.object({ project: z.string().min(1) }) }), async (req: AuthRequest, res) => {
   const { project } = req.query;
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM autopilot_configs WHERE user_id = ? AND project_path = ? ORDER BY updated_at DESC',
-  ).all(req.user!.id, project) as ConfigRow[];
+  const rows = await db('autopilot_configs')
+    .where({ user_id: req.user!.id, project_path: project })
+    .orderBy('updated_at', 'desc')
+    .select() as ConfigRow[];
   res.json({ configs: rows.map(rowToConfig) });
 });
 
@@ -179,7 +179,7 @@ router.post('/configs', validate({
     goalPrompt: z.string().optional(),
     runTestVerification: z.boolean().optional(),
   }),
-}), (req: AuthRequest, res) => {
+}), async (req: AuthRequest, res) => {
   const {
     project, name, agentAProfile, agentBProfile, allowedPaths,
     agentAModel, agentBModel, maxIterations, maxTokensPerSession,
@@ -187,43 +187,37 @@ router.post('/configs', validate({
     scheduleTimezone, goalPrompt, runTestVerification,
   } = req.body;
 
-  const db = getDb();
   const id = randomUUID();
 
-  db.prepare(`
-    INSERT INTO autopilot_configs
-      (id, user_id, project_path, name, agent_a_profile, agent_b_profile,
-       allowed_paths, agent_a_model, agent_b_model, max_iterations, max_tokens_per_session,
-       schedule_enabled, schedule_start_time, schedule_end_time, schedule_days,
-       schedule_timezone, goal_prompt, run_test_verification)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, req.user!.id, project,
-    name || 'Autopilot Session',
-    agentAProfile, agentBProfile,
-    JSON.stringify(allowedPaths || []),
-    agentAModel || 'claude-sonnet-4-6',
-    agentBModel || 'claude-sonnet-4-6',
-    maxIterations || 50,
-    maxTokensPerSession || 500000,
-    scheduleEnabled ? 1 : 0,
-    scheduleStartTime || null,
-    scheduleEndTime || null,
-    JSON.stringify(scheduleDays || [1, 2, 3, 4, 5]),
-    scheduleTimezone || 'UTC',
-    goalPrompt || '',
-    runTestVerification !== false ? 1 : 0,
-  );
+  await db('autopilot_configs').insert({
+    id,
+    user_id: req.user!.id,
+    project_path: project,
+    name: name || 'Autopilot Session',
+    agent_a_profile: agentAProfile,
+    agent_b_profile: agentBProfile,
+    allowed_paths: JSON.stringify(allowedPaths || []),
+    agent_a_model: agentAModel || 'claude-sonnet-4-6',
+    agent_b_model: agentBModel || 'claude-sonnet-4-6',
+    max_iterations: maxIterations || 50,
+    max_tokens_per_session: maxTokensPerSession || 500000,
+    schedule_enabled: scheduleEnabled ? 1 : 0,
+    schedule_start_time: scheduleStartTime || null,
+    schedule_end_time: scheduleEndTime || null,
+    schedule_days: JSON.stringify(scheduleDays || [1, 2, 3, 4, 5]),
+    schedule_timezone: scheduleTimezone || 'UTC',
+    goal_prompt: goalPrompt || '',
+    run_test_verification: runTestVerification !== false ? 1 : 0,
+  });
 
-  const row = db.prepare('SELECT * FROM autopilot_configs WHERE id = ?').get(id) as ConfigRow;
+  const row = await db('autopilot_configs').where({ id }).first() as ConfigRow;
   res.status(201).json(rowToConfig(row));
 });
 
-router.put('/configs/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const existing = db.prepare(
-    'SELECT id FROM autopilot_configs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id);
+router.put('/configs/:id', async (req: AuthRequest, res) => {
+  const existing = await db('autopilot_configs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!existing) { res.status(404).json({ error: 'Config not found' }); return; }
 
   const fields: Record<string, string> = {
@@ -234,48 +228,43 @@ router.put('/configs/:id', (req: AuthRequest, res) => {
     scheduleTimezone: 'schedule_timezone', goalPrompt: 'goal_prompt',
   };
 
-  const sets: string[] = [];
-  const vals: unknown[] = [];
+  const updates: Record<string, unknown> = {};
 
   for (const [key, col] of Object.entries(fields)) {
     if (req.body[key] !== undefined) {
-      sets.push(`${col} = ?`);
-      vals.push(req.body[key]);
+      updates[col] = req.body[key];
     }
   }
   // JSON fields
   if (req.body.allowedPaths !== undefined) {
-    sets.push('allowed_paths = ?');
-    vals.push(JSON.stringify(req.body.allowedPaths));
+    updates['allowed_paths'] = JSON.stringify(req.body.allowedPaths);
   }
   if (req.body.scheduleDays !== undefined) {
-    sets.push('schedule_days = ?');
-    vals.push(JSON.stringify(req.body.scheduleDays));
+    updates['schedule_days'] = JSON.stringify(req.body.scheduleDays);
   }
   if (req.body.scheduleEnabled !== undefined) {
-    sets.push('schedule_enabled = ?');
-    vals.push(req.body.scheduleEnabled ? 1 : 0);
+    updates['schedule_enabled'] = req.body.scheduleEnabled ? 1 : 0;
   }
   if (req.body.runTestVerification !== undefined) {
-    sets.push('run_test_verification = ?');
-    vals.push(req.body.runTestVerification ? 1 : 0);
+    updates['run_test_verification'] = req.body.runTestVerification ? 1 : 0;
   }
 
-  if (sets.length > 0) {
-    sets.push('updated_at = CURRENT_TIMESTAMP');
-    vals.push(req.params.id, req.user!.id);
-    db.prepare(`UPDATE autopilot_configs SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...vals);
+  if (Object.keys(updates).length > 0) {
+    updates['updated_at'] = db.fn.now();
+    await db('autopilot_configs')
+      .where({ id: req.params.id, user_id: req.user!.id })
+      .update(updates);
   }
 
-  const row = db.prepare('SELECT * FROM autopilot_configs WHERE id = ?').get(req.params.id) as ConfigRow;
+  const row = await db('autopilot_configs').where({ id: req.params.id }).first() as ConfigRow;
   res.json(rowToConfig(row));
 });
 
-router.delete('/configs/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const result = db.prepare('DELETE FROM autopilot_configs WHERE id = ? AND user_id = ?')
-    .run(req.params.id, req.user!.id);
-  if (result.changes === 0) {
+router.delete('/configs/:id', async (req: AuthRequest, res) => {
+  const deleted = await db('autopilot_configs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .delete();
+  if (deleted === 0) {
     res.status(404).json({ error: 'Config not found' });
     return;
   }
@@ -326,54 +315,47 @@ function rowToRun(row: RunRow) {
   };
 }
 
-router.get('/runs', (req: AuthRequest, res) => {
+router.get('/runs', async (req: AuthRequest, res) => {
   const { project, limit, offset } = req.query;
-  const db = getDb();
 
-  let query = 'SELECT * FROM autopilot_runs WHERE user_id = ?';
-  const params: unknown[] = [req.user!.id];
+  let query = db('autopilot_runs')
+    .where({ user_id: req.user!.id })
+    .orderBy('started_at', 'desc');
 
   if (project && typeof project === 'string') {
-    query += ' AND project_path = ?';
-    params.push(project);
+    query = query.andWhere({ project_path: project });
   }
-
-  query += ' ORDER BY started_at DESC';
 
   if (limit) {
     const n = Number(limit);
     if (!Number.isNaN(n) && n > 0) {
-      query += ' LIMIT ?';
-      params.push(n);
+      query = query.limit(n);
     }
   }
   if (offset) {
     const n = Number(offset);
     if (!Number.isNaN(n) && n >= 0) {
-      query += ' OFFSET ?';
-      params.push(n);
+      query = query.offset(n);
     }
   }
 
-  const rows = db.prepare(query).all(...params) as RunRow[];
+  const rows = await query.select() as RunRow[];
   res.json({ runs: rows.map(rowToRun) });
 });
 
-router.get('/runs/:id', (req: AuthRequest, res) => {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT * FROM autopilot_runs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id) as RunRow | undefined;
+router.get('/runs/:id', async (req: AuthRequest, res) => {
+  const row = await db('autopilot_runs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first() as RunRow | undefined;
   if (!row) { res.status(404).json({ error: 'Run not found' }); return; }
   res.json(rowToRun(row));
 });
 
-router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/runs/:id/cycles', async (req: AuthRequest, res) => {
   // Verify ownership
-  const run = db.prepare(
-    'SELECT id FROM autopilot_runs WHERE id = ? AND user_id = ?',
-  ).get(req.params.id, req.user!.id);
+  const run = await db('autopilot_runs')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .first();
   if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
 
   interface CycleRow {
@@ -396,9 +378,10 @@ router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
     completed_at: string | null;
   }
 
-  const rows = db.prepare(
-    'SELECT * FROM autopilot_cycles WHERE run_id = ? ORDER BY cycle_number ASC',
-  ).all(req.params.id) as CycleRow[];
+  const rows = await db('autopilot_cycles')
+    .where({ run_id: req.params.id })
+    .orderBy('cycle_number', 'asc')
+    .select() as CycleRow[];
 
   res.json({
     cycles: rows.map((r) => ({
@@ -429,10 +412,9 @@ router.get('/runs/:id/cycles', (req: AuthRequest, res) => {
 
 router.get('/runs/:id/diff/:cycleNumber', async (req: AuthRequest, res) => {
   try {
-    const db = getDb();
-    const run = db.prepare(
-      'SELECT * FROM autopilot_runs WHERE id = ? AND user_id = ?',
-    ).get(req.params.id, req.user!.id) as RunRow | undefined;
+    const run = await db('autopilot_runs')
+      .where({ id: req.params.id, user_id: req.user!.id })
+      .first() as RunRow | undefined;
     if (!run) { res.status(404).json({ error: 'Run not found' }); return; }
 
     const cycleNum = Number(req.params.cycleNumber);
@@ -441,9 +423,10 @@ router.get('/runs/:id/diff/:cycleNumber', async (req: AuthRequest, res) => {
       return;
     }
 
-    const cycle = db.prepare(
-      'SELECT commit_hash FROM autopilot_cycles WHERE run_id = ? AND cycle_number = ?',
-    ).get(req.params.id, cycleNum) as { commit_hash: string | null } | undefined;
+    const cycle = await db('autopilot_cycles')
+      .where({ run_id: req.params.id, cycle_number: cycleNum })
+      .select('commit_hash')
+      .first() as { commit_hash: string | null } | undefined;
 
     if (!cycle?.commit_hash) {
       res.status(404).json({ error: 'No commit for this cycle' });
