@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useAuthStore } from '@/stores/auth';
 import { useChatStore } from '@/stores/chat';
 import { resolveWsUrl } from '@/lib/serverUrl';
+import RemoteBrowser from './RemoteBrowser.vue';
 import '@xterm/xterm/css/xterm.css';
 
 const terminalRef = ref<HTMLElement | null>(null);
@@ -17,6 +18,7 @@ let ws: WebSocket | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let authDismissTimer: ReturnType<typeof setTimeout> | null = null;
 let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
+const showRemoteBrowser = ref(false);
 
 // Patterns that indicate an auth/login URL
 const AUTH_URL_PATTERN = /https?:\/\/[^\s"'<>]+(?:\/(?:auth|login|oauth|authorize|device|callback|verify|confirm|activate)[^\s"'<>]*|[?&](?:code|token|state)=[^\s"'<>]*)/i;
@@ -41,6 +43,14 @@ function copyAuthUrl() {
 }
 
 function dismissAuthUrl() {
+  detectedAuthUrl.value = null;
+}
+
+function authenticateUrl() {
+  showRemoteBrowser.value = true;
+}
+
+function onAuthComplete() {
   detectedAuthUrl.value = null;
 }
 
@@ -193,6 +203,10 @@ onUnmounted(() => {
         <div class="flex gap-2">
           <button
             class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            @click="authenticateUrl"
+          >Authenticate</button>
+          <button
+            class="rounded-md border border-border px-3 py-1 text-xs text-foreground hover:bg-accent"
             @click="openAuthUrl"
           >Open in Browser</button>
           <button
@@ -206,5 +220,13 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Remote browser for OAuth authentication -->
+    <RemoteBrowser
+      v-if="detectedAuthUrl"
+      v-model:open="showRemoteBrowser"
+      :url="detectedAuthUrl"
+      @auth-complete="onAuthComplete"
+    />
   </div>
 </template>
