@@ -1,7 +1,10 @@
 node_modules
 dist
 *.db
+*.db-shm
+*.db-wal
 server/data
+docs/.vitepress/cache/
 .env
 .env.local
 docs/--host/
