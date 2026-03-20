@@ -40,6 +40,7 @@ import { setupAutopilotWs } from './ws/autopilot.js';
 import { setupManagementWs } from './ws/management.js';
 import { setupTracesWs } from './ws/traces.js';
 import { setupAuthBrowserWs } from './ws/auth-browser.js';
+import { setupCliAuthWs } from './ws/cli-auth.js';
 import { startScheduler, stopScheduler } from './services/autopilot-scheduler.js';
 import { startTaskScheduler, stopTaskScheduler } from './services/task-scheduler.js';
 import { cleanupZombieRuns } from './services/autopilot.js';
@@ -141,6 +142,7 @@ setupAutopilotWs(server);
 setupManagementWs(server);
 setupTracesWs(server);
 setupAuthBrowserWs(server);
+setupCliAuthWs(server);
 
 const log = createLogger('server');
 

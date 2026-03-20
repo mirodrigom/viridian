@@ -96,6 +96,8 @@ function openToolsSettings() {
 
 // Provide so deeply nested components (ChatView → SessionSidebar) can open settings
 provide('openToolsSettings', openToolsSettings);
+provide('openTerminal', () => { showTerminal.value = true; });
+provide('openSettingsProviders', () => { settingsSection.value = 'providers'; showSettings.value = true; });
 const isMobile = ref(false);
 
 useKeyboardShortcuts(showCommandPalette);

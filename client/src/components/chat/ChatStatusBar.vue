@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import {
   Zap, Shield, FileEdit, ClipboardList, Brain, FileDown, Cpu,
-  ChevronsDown, ChevronsUpDown,
+  ChevronsDown, ChevronsUpDown, CircleAlert, CheckCircle2,
 } from 'lucide-vue-next';
 import { exportSession } from '@/composables/useKeyboardShortcuts';
 import { useProviderLogo } from '@/composables/useProviderLogo';
@@ -39,35 +39,57 @@ const effectivePermissionIcon = computed(() =>
 );
 
 const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
+
+/** Is the active provider ready to use? */
+const isActiveReady = computed(() => {
+  const p = providerStore.activeProvider;
+  return p.available && p.configured && !providerStore.failedProviderIds.has(p.id);
+});
+
+function providerStatus(p: { id: string; available: boolean; configured: boolean }) {
+  if (!p.available) return 'unavailable';
+  if (!p.configured || providerStore.failedProviderIds.has(p.id as any)) return 'unconfigured';
+  return 'ready';
+}
 </script>
 
 <template>
   <TooltipProvider :delay-duration="300">
     <div class="mb-1 sm:mb-2 flex flex-wrap items-center justify-center gap-0.5 sm:gap-1 md:gap-2">
-      <!-- Provider selector (only shown when multiple configured providers are available) -->
+      <!-- Provider selector — always visible, shows all available providers with status -->
       <Select
-        v-if="providerStore.configuredProviders.length > 1"
+        v-if="providerStore.availableProviders.length > 0"
         :model-value="providerStore.activeProviderId"
         @update:model-value="(v: any) => providerStore.setDefaultProvider(v)"
       >
         <SelectTrigger
-          class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
-          :title="`Provider: ${providerStore.activeProvider.name}`"
+          class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none px-2 text-[11px] shrink-0 transition-colors"
+          :class="isActiveReady
+            ? 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+            : 'bg-red-500/15 text-red-400 hover:bg-red-500/25'"
+          :title="`Provider: ${providerStore.activeProvider.name}${isActiveReady ? '' : ' (not authenticated)'}`"
         >
           <component :is="activeLogo" class="h-3 w-3" />
           <span class="hidden sm:inline">{{ providerStore.activeProvider.name }}</span>
+          <CircleAlert v-if="!isActiveReady" class="h-3 w-3 text-red-400" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem
-            v-for="p in providerStore.configuredProviders"
+            v-for="p in providerStore.availableProviders"
             :key="p.id"
             :value="p.id"
           >
             <div class="flex items-center gap-2">
               <component :is="getLogoComponent(p.icon)" :size="14" class="shrink-0" />
-              <div>
-                <div class="text-sm">{{ p.name }}</div>
-                <div class="text-xs text-muted-foreground">{{ p.description }}</div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm flex items-center gap-1.5">
+                  {{ p.name }}
+                  <CheckCircle2 v-if="providerStatus(p) === 'ready'" class="h-3 w-3 text-green-500" />
+                  <CircleAlert v-else-if="providerStatus(p) === 'unconfigured'" class="h-3 w-3 text-amber-500" />
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {{ providerStatus(p) === 'ready' ? p.description : providerStatus(p) === 'unconfigured' ? 'Not authenticated' : 'Not installed' }}
+                </div>
               </div>
             </div>
           </SelectItem>
@@ -75,11 +97,11 @@ const permissionColorClass = 'bg-primary/15 text-primary hover:bg-primary/25';
       </Select>
 
       <!-- Model selector -->
-      <Select :model-value="settings.model" :disabled="!providerStore.supportsModelSelection" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
+      <Select :model-value="settings.model" :disabled="!isActiveReady || !providerStore.supportsModelSelection" @update:model-value="(v: any) => { settings.model = v; settings.save(); }">
         <SelectTrigger
           class="h-8 sm:h-6 w-auto gap-1 rounded-md border-none bg-muted/60 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground shrink-0"
-          :class="{ 'opacity-50 cursor-not-allowed': !providerStore.supportsModelSelection }"
-          :title="providerStore.supportsModelSelection ? settings.modelLabel : settings.modelLabel + ' (model selection not available for this provider)'"
+          :class="{ 'opacity-50 cursor-not-allowed': !isActiveReady || !providerStore.supportsModelSelection }"
+          :title="!isActiveReady ? 'Sign in first' : providerStore.supportsModelSelection ? settings.modelLabel : settings.modelLabel + ' (model selection not available for this provider)'"
         >
           <Cpu class="h-3 w-3 sm:hidden" />
           <span class="hidden sm:inline">{{ settings.modelLabel }}</span>

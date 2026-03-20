@@ -9,4 +9,9 @@ if [ -z "$CORS_ORIGIN" ] && [ -n "$CLOUDFRONT_URL" ]; then
   export CORS_ORIGIN="$CLOUDFRONT_URL"
 fi
 
+# Start Xvfb virtual display for Puppeteer headless:false mode
+# This makes Chrome indistinguishable from a real browser (bypasses Cloudflare Turnstile)
+Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp &
+sleep 0.5
+
 exec node server/dist/index.js

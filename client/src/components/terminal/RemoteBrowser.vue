@@ -18,7 +18,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean];
-  'auth-complete': [];
+  'auth-complete': [code?: string];
 }>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -33,6 +33,10 @@ let frameImage: HTMLImageElement | null = null;
 
 const VIEWPORT_W = 1024;
 const VIEWPORT_H = 768;
+
+// Actual page dimensions from the screencast metadata (for coordinate mapping)
+let pageWidth = VIEWPORT_W;
+let pageHeight = VIEWPORT_H;
 
 const remainingTime = computed(() => {
   const m = Math.floor(remainingSeconds.value / 60);
@@ -59,6 +63,8 @@ function connect() {
           break;
 
         case 'frame':
+          if (msg.pageWidth) pageWidth = msg.pageWidth;
+          if (msg.pageHeight) pageHeight = msg.pageHeight;
           renderFrame(msg.data);
           break;
 
@@ -69,6 +75,13 @@ function connect() {
         case 'auth_complete':
           authCompleted.value = true;
           emit('auth-complete');
+          setTimeout(() => close(), 2000);
+          break;
+
+        case 'auth_code':
+          // Code extracted from OAuth callback page — auto-paste into terminal
+          authCompleted.value = true;
+          emit('auth-complete', msg.code);
           setTimeout(() => close(), 2000);
           break;
 
@@ -102,6 +115,8 @@ function renderFrame(base64: string) {
   if (!frameImage) {
     frameImage = new Image();
     frameImage.onload = () => {
+      // Always draw scaled to fill the fixed canvas
+      ctx.clearRect(0, 0, VIEWPORT_W, VIEWPORT_H);
       ctx.drawImage(frameImage!, 0, 0, VIEWPORT_W, VIEWPORT_H);
     };
   }
@@ -112,11 +127,12 @@ function getScaledCoords(e: MouseEvent): { x: number; y: number } {
   const canvas = canvasRef.value;
   if (!canvas) return { x: 0, y: 0 };
   const rect = canvas.getBoundingClientRect();
-  const scaleX = VIEWPORT_W / rect.width;
-  const scaleY = VIEWPORT_H / rect.height;
+  // Map from display coordinates to actual page coordinates
+  // The canvas displays a stretched version of the page, so we need
+  // to map to the real page dimensions (e.g. 500x600 popup), not canvas size (1024x768)
   return {
-    x: Math.round((e.clientX - rect.left) * scaleX),
-    y: Math.round((e.clientY - rect.top) * scaleY),
+    x: Math.round((e.clientX - rect.left) / rect.width * pageWidth),
+    y: Math.round((e.clientY - rect.top) / rect.height * pageHeight),
   };
 }
 
@@ -201,6 +217,8 @@ function disconnect() {
   connected.value = false;
   authCompleted.value = false;
   frameImage = null;
+  pageWidth = VIEWPORT_W;
+  pageHeight = VIEWPORT_H;
 }
 
 watch(() => props.open, (isOpen) => {
@@ -218,7 +236,7 @@ onUnmounted(() => {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-[1080px]" :show-close-button="true">
+    <DialogContent class="!max-w-[min(1080px,90vw)] !p-4" :show-close-button="true">
       <DialogHeader>
         <DialogTitle>Authenticate</DialogTitle>
         <DialogDescription>
@@ -227,18 +245,18 @@ onUnmounted(() => {
       </DialogHeader>
 
       <!-- URL bar -->
-      <div class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5">
-        <div class="h-2 w-2 rounded-full" :class="connected ? 'bg-green-500' : 'bg-yellow-500'" />
-        <span class="flex-1 truncate font-mono text-xs text-muted-foreground">{{ currentUrl }}</span>
+      <div class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 min-w-0">
+        <div class="h-2 w-2 shrink-0 rounded-full" :class="connected ? 'bg-green-500' : 'bg-yellow-500'" />
+        <span class="truncate font-mono text-xs text-muted-foreground">{{ currentUrl }}</span>
       </div>
 
-      <!-- Browser canvas -->
-      <div class="relative overflow-hidden rounded-md border border-border">
+      <!-- Browser canvas — fixed 4:3 aspect ratio, never resizes -->
+      <div class="relative w-full overflow-hidden rounded-md border border-border" style="aspect-ratio: 4/3">
         <canvas
           ref="canvasRef"
           :width="VIEWPORT_W"
           :height="VIEWPORT_H"
-          class="w-full cursor-default"
+          class="absolute inset-0 h-full w-full cursor-default"
           tabindex="0"
           @click="onClick"
           @mousedown="onMouseDown"

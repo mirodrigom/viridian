@@ -1,5 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { getDefaultShell } from '../utils/platform.js';
+import { getDefaultShell, getHomeDir } from '../utils/platform.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('terminal');
@@ -32,11 +32,26 @@ export async function createTerminal(cwd: string, cols = 80, rows = 24): Promise
   const shell = getDefaultShell();
   const id = uuid();
 
+  // Validate cwd exists, fall back to home directory or /tmp
+  let safeCwd = cwd;
+  try {
+    const { statSync } = await import('fs');
+    statSync(safeCwd);
+  } catch {
+    safeCwd = getHomeDir();
+    try {
+      const { statSync } = await import('fs');
+      statSync(safeCwd);
+    } catch {
+      safeCwd = '/tmp';
+    }
+  }
+
   const ptyProcess = mod.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd,
+    cwd: safeCwd,
     env: process.env as Record<string, string>,
   });
 

@@ -76,12 +76,13 @@ const claudeProvider: IProvider = {
   },
 
   isConfigured() {
-    // Claude stores auth in ~/.claude/ after running `claude` for the first time
+    // Claude stores OAuth credentials in ~/.claude/.credentials.json after authentication.
+    // The ~/.claude/ directory alone is not enough — npm install creates it without auth.
     const home = getHomeDir();
-    if (existsSync(join(home, '.claude'))) return { configured: true };
+    if (existsSync(join(home, '.claude', '.credentials.json'))) return { configured: true };
     return {
       configured: false,
-      reason: 'Claude credentials not found. Run `claude` in your terminal to authenticate.',
+      reason: 'Claude is not authenticated. Open the terminal and run `claude` to sign in.',
     };
   },
 

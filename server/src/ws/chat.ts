@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
+import fs from 'fs';
 import type { Server } from 'http';
 import { verifyToken } from '../services/auth.js';
 import { getHomeDir } from '../utils/platform.js';
@@ -10,12 +11,13 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('chat-ws');
 
-/** Validate and normalize a cwd path — must be absolute with no traversal. */
+/** Validate and normalize a cwd path — must be absolute, no traversal, and must exist. */
 function validateCwd(cwd: unknown): string | null {
   if (typeof cwd !== 'string' || !cwd) return null;
   const normalized = path.resolve(cwd);
-  // Reject if it resolves differently (traversal attempt) or isn't absolute
   if (!path.isAbsolute(normalized)) return null;
+  // Verify directory exists — spawn() throws ENOENT if cwd doesn't exist
+  try { if (!fs.statSync(normalized).isDirectory()) return null; } catch { return null; }
   return normalized;
 }
 

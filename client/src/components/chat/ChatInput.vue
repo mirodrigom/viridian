@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onUnmounted, computed } from 'vue';
+import { ref, nextTick, watch, onMounted, onUnmounted, computed, inject } from 'vue';
 import { useChatStore } from '@/stores/chat';
 import { useSettingsStore, THINKING_OPTIONS, type ThinkingMode } from '@/stores/settings';
 import { useProviderStore } from '@/stores/provider';
+import { useAuthStore } from '@/stores/auth';
+import { resolveWsUrl } from '@/lib/serverUrl';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -11,7 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Send, Square, Zap, Shield, FileText, X, ImagePlus, Sparkles, Bug, Eye, Wrench,
-  FileCode, TestTube, Paperclip, Plus, Pencil, Trash2, Brain,
+  FileCode, TestTube, Paperclip, Plus, Pencil, Trash2, Brain, AlertTriangle, TerminalSquare,
+  Loader2,
 } from 'lucide-vue-next';
 import MicButton from './MicButton.vue';
 import ChatStatusBar from './ChatStatusBar.vue';
@@ -32,6 +35,124 @@ const ACCEPTED_FILE_TYPES = ['application/pdf', 'text/html', 'text/csv'];
 const chat = useChatStore();
 const settings = useSettingsStore();
 const providerStore = useProviderStore();
+const authStore = useAuthStore();
+const openTerminal = inject<() => void>('openTerminal', () => {});
+const openSettingsProviders = inject<() => void>('openSettingsProviders', () => {});
+const providerNotReady = computed(() => {
+  const p = providerStore.activeProvider;
+  if (!p.available) return { type: 'unavailable' as const, name: p.name };
+  if (!p.configured || providerStore.failedProviderIds.has(p.id))
+    return { type: 'unconfigured' as const, name: p.name, isCli: p.installCommand?.includes('npm') ?? false };
+  return null;
+});
+// --- CLI auth flow ---
+type AuthStep = 'idle' | 'connecting' | 'waiting-url' | 'waiting-code' | 'verifying' | 'complete' | 'error';
+const authStep = ref<AuthStep>('idle');
+const authUrl = ref('');
+const authCode = ref('');
+const authError = ref('');
+const authStatus = ref('');
+const authWs = ref<WebSocket | null>(null);
+const codeInputRef = ref<HTMLInputElement | null>(null);
+
+function closeAuthWs() {
+  if (authWs.value) {
+    authWs.value.onmessage = null;
+    authWs.value.onerror = null;
+    authWs.value.onclose = null;
+    authWs.value.close();
+    authWs.value = null;
+  }
+}
+
+function startCliAuth() {
+  const token = authStore.token;
+  if (!token) return;
+  const providerId = providerStore.activeProvider.id;
+  closeAuthWs();
+  authStep.value = 'connecting';
+  authCode.value = '';
+  authUrl.value = '';
+  authError.value = '';
+
+  const url = resolveWsUrl('/ws/cli-auth', token) + `&provider=${providerId}`;
+  const ws = new WebSocket(url);
+  authWs.value = ws;
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data as string);
+      if (msg.type === 'status') {
+        authStatus.value = msg.message as string;
+      } else if (msg.type === 'url') {
+        authUrl.value = msg.url as string;
+        // window.open inside a WS handler may be blocked by popup blocker —
+        // the template shows a clickable link as fallback.
+        try { window.open(msg.url as string, '_blank'); } catch { /* popup blocked */ }
+        authStep.value = 'waiting-code';
+        nextTick(() => codeInputRef.value?.focus());
+      } else if (msg.type === 'complete') {
+        authStep.value = 'complete';
+        closeAuthWs();
+        setTimeout(() => {
+          providerStore.fetchProviders();
+          authStep.value = 'idle';
+        }, 2000);
+      } else if (msg.type === 'error') {
+        authError.value = (msg.message as string) || 'Authentication failed.';
+        authStep.value = 'error';
+        closeAuthWs();
+      }
+    } catch {
+      // ignore parse errors
+    }
+  };
+
+  ws.onerror = () => {
+    authError.value = 'Connection error. Please try again.';
+    authStep.value = 'error';
+    closeAuthWs();
+  };
+
+  ws.onopen = () => {
+    authStep.value = 'waiting-url';
+  };
+
+  ws.onclose = (e) => {
+    if (authStep.value !== 'complete' && authStep.value !== 'error' && authStep.value !== 'idle') {
+      authError.value = e.reason || 'Connection closed unexpectedly.';
+      authStep.value = 'error';
+      authWs.value = null;
+    }
+  };
+}
+
+function submitAuthCode() {
+  const input = authCode.value.trim();
+  if (!input || !authWs.value) return;
+  // User may paste the full callback URL or just a code
+  const payload = input.startsWith('http')
+    ? { type: 'code', callbackUrl: input }
+    : { type: 'code', code: input };
+  authWs.value.send(JSON.stringify(payload));
+  authStep.value = 'verifying';
+}
+
+function handleAuthCodeKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitAuthCode();
+  }
+}
+
+function resetAuth() {
+  closeAuthWs();
+  authStep.value = 'idle';
+  authCode.value = '';
+  authUrl.value = '';
+  authError.value = '';
+}
+
 const input = ref('');
 const textarea = ref<HTMLTextAreaElement | null>(null);
 const showThinkingMenu = ref(false);
@@ -178,6 +299,7 @@ onMounted(() => {
 });
 onUnmounted(() => {
   document.removeEventListener('click', handleGlobalClick);
+  closeAuthWs();
 });
 
 // --- Watchers ---
@@ -543,6 +665,117 @@ function handleKeydown(e: KeyboardEvent) {
   >
     <ChatStatusBar />
 
+    <!-- Provider not configured banner -->
+    <div v-if="providerNotReady">
+
+      <!-- CLI auth: idle — Sign in prompt -->
+      <div
+        v-if="providerNotReady.isCli && authStep === 'idle'"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-amber-600/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2"
+      >
+        <AlertTriangle class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+        <p class="flex-1 text-xs text-amber-800 dark:text-amber-200">
+          <span class="font-medium">{{ providerNotReady.name }}</span> is not authenticated.
+        </p>
+        <button
+          class="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-green-600/80 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-600 transition-colors"
+          @click="startCliAuth"
+        >
+          Sign in
+        </button>
+      </div>
+
+      <!-- CLI auth: connecting / waiting-url — spinner -->
+      <div
+        v-else-if="providerNotReady.isCli && (authStep === 'connecting' || authStep === 'waiting-url')"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-amber-600/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2"
+      >
+        <Loader2 class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 animate-spin" />
+        <p class="flex-1 text-xs text-amber-800 dark:text-amber-200 truncate">{{ authStatus || `Setting up ${providerNotReady.name}...` }}</p>
+      </div>
+
+      <!-- CLI auth: waiting-code — paste code -->
+      <div
+        v-else-if="providerNotReady.isCli && authStep === 'waiting-code'"
+        class="mb-2 flex flex-col gap-1.5 rounded-lg border border-amber-600/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2"
+      >
+        <p v-if="authUrl" class="text-xs text-amber-700 dark:text-amber-300">
+          If the browser didn't open, <a :href="authUrl" target="_blank" rel="noopener" class="underline font-medium hover:text-amber-900 dark:hover:text-amber-100">click here to sign in</a>.
+        </p>
+        <p class="text-xs text-amber-700 dark:text-amber-300">
+          After signing in, copy the full URL from the error page and paste it below.
+        </p>
+        <div class="flex items-center gap-2">
+        <p class="shrink-0 text-xs text-amber-800 dark:text-amber-200 whitespace-nowrap">Callback URL:</p>
+        <input
+          ref="codeInputRef"
+          v-model="authCode"
+          type="text"
+          placeholder="Paste the localhost:xxxxx/callback?code=... URL"
+          class="flex-1 min-w-0 rounded-md border border-amber-600/30 dark:border-amber-500/30 bg-white dark:bg-amber-500/10 px-2 py-1 text-xs font-mono text-amber-900 dark:text-amber-100 placeholder:text-amber-400 dark:placeholder:text-amber-500/60 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+          @keydown="handleAuthCodeKeydown"
+        />
+        <button
+          class="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-green-600/80 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!authCode.trim()"
+          @click="submitAuthCode"
+        >
+          Continue
+        </button>
+        </div>
+      </div>
+
+      <!-- CLI auth: verifying — spinner -->
+      <div
+        v-else-if="providerNotReady.isCli && authStep === 'verifying'"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-amber-600/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2"
+      >
+        <Loader2 class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 animate-spin" />
+        <p class="flex-1 text-xs text-amber-800 dark:text-amber-200">Verifying...</p>
+      </div>
+
+      <!-- CLI auth: complete -->
+      <div
+        v-else-if="providerNotReady.isCli && authStep === 'complete'"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-green-600/40 bg-green-50 dark:bg-green-500/10 px-3 py-2"
+      >
+        <p class="flex-1 text-xs font-medium text-green-700 dark:text-green-400">Authenticated!</p>
+      </div>
+
+      <!-- CLI auth: error -->
+      <div
+        v-else-if="providerNotReady.isCli && authStep === 'error'"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-red-600/40 bg-red-50 dark:bg-red-500/10 px-3 py-2"
+      >
+        <AlertTriangle class="h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+        <p class="flex-1 text-xs text-red-700 dark:text-red-300">{{ authError || 'Authentication failed.' }}</p>
+        <button
+          class="shrink-0 rounded-md bg-red-200 dark:bg-red-500/20 px-2.5 py-1 text-xs font-medium text-red-800 dark:text-red-300 hover:bg-red-300 dark:hover:bg-red-500/30 transition-colors"
+          @click="resetAuth"
+        >
+          Try again
+        </button>
+      </div>
+
+      <!-- Non-CLI provider: settings prompt -->
+      <div
+        v-else-if="!providerNotReady.isCli"
+        class="mb-2 flex items-center gap-3 rounded-lg border border-amber-600/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2"
+      >
+        <AlertTriangle class="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+        <p class="flex-1 text-xs text-amber-800 dark:text-amber-200">
+          <span class="font-medium">{{ providerNotReady.name }}</span> is not configured. Configure your API key in settings.
+        </p>
+        <button
+          class="shrink-0 rounded-md bg-amber-200 dark:bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-300 dark:hover:bg-amber-500/30 transition-colors"
+          @click="openSettingsProviders"
+        >
+          Settings
+        </button>
+      </div>
+
+    </div>
+
     <!-- Slash command menu -->
     <Transition name="scale-fade">
     <div v-if="showCommandMenu && filteredCommands.length > 0" class="mb-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
@@ -744,14 +977,16 @@ function handleKeydown(e: KeyboardEvent) {
       <textarea
         ref="textarea"
         v-model="input"
-        :placeholder="(chat?.isPlanReviewActive ?? false)
-          ? 'Review the plan in the sidebar to continue...'
-          : (chat?.isRateLimited ?? false)
-            ? `Rate limited — resets in ${rateLimitCountdown}`
-            : isNavigatingHistory
-              ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
-              : 'Ask Claude to help with your code... (/ for commands)'"
-        :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
+        :placeholder="!!providerNotReady
+          ? 'Sign in to start chatting...'
+          : (chat?.isPlanReviewActive ?? false)
+            ? 'Review the plan in the sidebar to continue...'
+            : (chat?.isRateLimited ?? false)
+              ? `Rate limited — resets in ${rateLimitCountdown}`
+              : isNavigatingHistory
+                ? `History ${historyIndex + 1}/${messageHistory.length} (↑/↓ to navigate, Esc to return)`
+                : 'Ask Claude to help with your code... (/ for commands)'"
+        :disabled="!!providerNotReady || (chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false)"
         class="block w-full resize-none overflow-y-auto scrollbar-thin bg-transparent px-3 sm:px-4 pt-3 pb-10 pr-20 sm:pr-36 text-sm focus:outline-none"
         :class="(chat?.isPlanReviewActive ?? false)
           ? 'text-primary/40 placeholder:text-primary/50 cursor-not-allowed'
@@ -779,7 +1014,7 @@ function handleKeydown(e: KeyboardEvent) {
           v-if="!(chat?.isStreaming ?? false)"
           size="sm"
           class="h-10 w-10 sm:h-8 sm:w-8 rounded-lg p-0"
-          :disabled="(chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)"
+          :disabled="!!providerNotReady || (chat?.isRateLimited ?? false) || (chat?.isPlanReviewActive ?? false) || (!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0)"
           @click="handleSubmit"
         >
           <Send class="h-5 w-5 sm:h-4 sm:w-4" />

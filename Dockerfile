@@ -24,7 +24,7 @@ RUN test -f /app/server/dist/index.js
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-slim
 
-# System dependencies for node-pty, git operations, and CLI tools
+# System dependencies for node-pty, git operations, CLI tools, and Chromium (Puppeteer)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     python3 \
@@ -33,7 +33,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     ca-certificates \
     curl \
+    chromium \
+    xvfb \
   && rm -rf /var/lib/apt/lists/*
+
+# Use system Chromium instead of Puppeteer's bundled one (smaller image, already has deps)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Virtual display for headless: false mode (Xvfb)
+ENV DISPLAY=:99
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
 

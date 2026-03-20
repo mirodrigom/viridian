@@ -1,15 +1,20 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, Page, CDPSession } from 'puppeteer';
 import { verifyToken } from '../services/auth.js';
 import { createLogger } from '../logger.js';
+
+puppeteer.use(StealthPlugin());
 
 const log = createLogger('auth-browser-ws');
 
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const VIEWPORT = { width: 1024, height: 768 };
 const LOCALHOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//;
+// Claude CLI uses platform.claude.com/oauth/code/callback — the page shows a code the user must copy
+const CODE_CALLBACK_RE = /^https?:\/\/platform\.claude\.com\/oauth\/code\/callback/;
 
 // Private IP ranges — block to prevent SSRF
 const PRIVATE_IP_RE = /^https?:\/\/(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|127\.\d+\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0)/;
@@ -29,7 +34,9 @@ function validateUrl(raw: string): string | null {
     const url = new URL(raw);
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
     if (PRIVATE_IP_RE.test(raw)) return null;
-    return url.href;
+    // Return the ORIGINAL string, not url.href — href decodes %2F in query params
+    // which breaks nested URLs like redirect_uri=https%3A%2F%2F...
+    return raw;
   } catch {
     return null;
   }
@@ -104,11 +111,24 @@ export function setupAuthBrowserWs(server: Server) {
 
     try {
       browser = await puppeteer.launch({
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        headless: false, // Real Chrome + Xvfb — invisible to bot detection
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-blink-features=AutomationControlled',
+          `--window-size=${VIEWPORT.width},${VIEWPORT.height + 120}`,
+          '--disable-infobars',
+          '--force-device-scale-factor=1', // Prevent HiDPI scaling on Xvfb
+        ],
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        defaultViewport: null, // Let --window-size control the viewport
       });
 
-      page = await browser.newPage();
+      // Use the default page created by the browser (avoids blank tab)
+      const pages = await browser.pages();
+      page = pages[0] || await browser.newPage();
+      // Explicitly set the viewport to our target size
       await page.setViewport(VIEWPORT);
 
       cdp = await page.createCDPSession();
@@ -133,7 +153,7 @@ export function setupAuthBrowserWs(server: Server) {
 
     sessions.set(user.id, session);
 
-    // Handle popups — switch screencast to new page
+    // Handle popups (Google OAuth opens in a popup) — switch screencast to it
     browser.on('targetcreated', async (target) => {
       if (target.type() === 'page') {
         try {
@@ -141,22 +161,60 @@ export function setupAuthBrowserWs(server: Server) {
           if (newPage && newPage !== page) {
             log.info('Popup detected, switching screencast');
             await cdp.send('Page.stopScreencast').catch(() => {});
+
             session.page = newPage;
-            await newPage.setViewport(VIEWPORT);
-            session.cdp = await newPage.createCDPSession();
-            cdp = session.cdp;
+            const popupCdp = await newPage.createCDPSession();
+
+            session.cdp = popupCdp;
+            cdp = popupCdp;
             page = newPage;
             startScreencast();
             watchNavigation();
+
+            // When popup closes, wait for Chrome to settle then switch back
+            newPage.once('close', async () => {
+              log.info('Popup closed, waiting for Chrome to settle');
+              // Retry with backoff — Chrome destroys/recreates targets during OAuth completion
+              for (let attempt = 1; attempt <= 5; attempt++) {
+                await new Promise(r => setTimeout(r, attempt * 1000)); // 1s, 2s, 3s, 4s, 5s
+                try {
+                  const allPages = await browser.pages();
+                  const activePage = allPages.find(p => p !== newPage) || allPages[0];
+                  if (activePage) {
+                    session.page = activePage;
+                    session.cdp = await activePage.createCDPSession();
+                    cdp = session.cdp;
+                    page = activePage;
+                    startScreencast();
+                    watchNavigation();
+                    log.info({ url: activePage.url(), attempt }, 'Switched to active page');
+                    return;
+                  }
+                } catch (err) {
+                  log.warn({ err: (err as Error).message, attempt }, 'Retry switch to main page');
+                }
+              }
+              log.error('All retries exhausted — could not switch back to main page');
+            });
           }
-        } catch { /* ignore */ }
+        } catch (err) {
+          log.error({ err }, 'Error handling popup');
+        }
       }
     });
 
     // Stream frames to client
     function startScreencast() {
       cdp.on('Page.screencastFrame', (params) => {
-        safeSend(ws, { type: 'frame', data: params.data, sessionId: params.sessionId });
+        // Send actual page dimensions so the client can map click coordinates correctly
+        const meta = params.metadata || {};
+        safeSend(ws, {
+          type: 'frame',
+          data: params.data,
+          sessionId: params.sessionId,
+          pageWidth: meta.deviceWidth,
+          pageHeight: meta.deviceHeight,
+        });
         cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
       });
 
@@ -172,20 +230,47 @@ export function setupAuthBrowserWs(server: Server) {
       });
     }
 
-    // Watch for localhost callback (auth complete)
+    // Watch for auth completion — localhost callback or code display page
     function watchNavigation() {
-      page.on('framenavigated', (frame) => {
+      page.on('framenavigated', async (frame) => {
+        // Ignore sub-frame navigations (iframes from Google OAuth, Cloudflare, etc.)
+        if (frame !== page.mainFrame()) return;
+
         const frameUrl = frame.url();
+        log.info({ url: frameUrl }, 'Main frame navigated');
         safeSend(ws, { type: 'navigated', url: frameUrl });
 
         if (LOCALHOST_RE.test(frameUrl)) {
-          log.info({ userId: user.id, callbackUrl: frameUrl }, 'Auth callback detected');
+          log.info({ userId: user.id, callbackUrl: frameUrl }, 'Localhost callback detected');
           safeSend(ws, { type: 'auth_complete', url: frameUrl });
-          // Give the CLI callback server time to process
           setTimeout(async () => {
             await cleanup(session);
             ws.close();
-          }, 2000);
+          }, 5000);
+        } else if (CODE_CALLBACK_RE.test(frameUrl)) {
+          // Claude CLI code-based OAuth: the page shows a code the user must copy-paste
+          log.info({ userId: user.id, url: frameUrl }, 'Code callback page detected');
+          // Wait for the page to render the code
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            // Try to extract the code from the page
+            const code = await page.evaluate(() => {
+              // Look for the code in common patterns
+              const codeEl = document.querySelector('code, pre, [data-testid="code"], .code');
+              if (codeEl?.textContent) return codeEl.textContent.trim();
+              // Try to find it in any element that looks like a code
+              const allText = document.body.innerText;
+              const codeMatch = allText.match(/[A-Za-z0-9_-]{20,}/);
+              return codeMatch ? codeMatch[0] : null;
+            });
+            if (code) {
+              log.info({ userId: user.id, codeLength: code.length }, 'Extracted auth code from page');
+              safeSend(ws, { type: 'auth_code', code });
+            }
+          } catch (err) {
+            log.error({ err }, 'Failed to extract code from callback page');
+          }
+          // Don't auto-close — let the user see the page and copy the code if extraction failed
         }
       });
     }
