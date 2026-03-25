@@ -201,7 +201,7 @@ router.post('/sessions/:id', validate({
     disallowedTools: z.array(z.string()).optional(),
   }),
 }), (req, res) => {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const { prompt, model, permissionMode, maxOutputTokens, allowedTools, disallowedTools } = req.body;
 
   const session = getSession(id);

@@ -57,10 +57,10 @@ function removeRoutingRef(field: 'from' | 'to', ref: string) {
   emit('update', { ...meta.value, [field]: meta.value[field].filter(r => r !== ref) });
 }
 
-function onRoutingKeydown(e: KeyboardEvent, field: 'from' | 'to', inputRef: typeof fromInput) {
+function onRoutingKeydown(e: KeyboardEvent, field: 'from' | 'to', _inputValue: string) {
   if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault();
-    addRoutingRef(field, inputRef);
+    addRoutingRef(field, field === 'from' ? fromInput : toInput);
   }
 }
 
@@ -99,7 +99,7 @@ function removeCapability(id: string) {
     <!-- Domain -->
     <div class="space-y-1.5">
       <Label class="text-xs">Domain</Label>
-      <Select :model-value="meta.domain" @update:model-value="updateDomain">
+      <Select :model-value="meta.domain" @update:model-value="(v: any) => updateDomain(String(v ?? ''))">
         <SelectTrigger class="h-8 text-sm">
           <SelectValue placeholder="Select domain" />
         </SelectTrigger>

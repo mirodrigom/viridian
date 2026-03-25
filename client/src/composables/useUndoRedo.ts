@@ -55,7 +55,7 @@ export function useUndoRedo(options: UndoRedoOptions) {
     historyIndex.value--;
     _restoring = true;
     try {
-      options.restoreSnapshot(history.value[historyIndex.value]);
+      options.restoreSnapshot(history.value[historyIndex.value]!);
     } finally {
       _restoring = false;
     }
@@ -66,7 +66,7 @@ export function useUndoRedo(options: UndoRedoOptions) {
     historyIndex.value++;
     _restoring = true;
     try {
-      options.restoreSnapshot(history.value[historyIndex.value]);
+      options.restoreSnapshot(history.value[historyIndex.value]!);
     } finally {
       _restoring = false;
     }

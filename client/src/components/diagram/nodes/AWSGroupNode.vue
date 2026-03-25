@@ -110,6 +110,14 @@ function toggleCollapse() {
   diagrams.toggleGroupCollapse(props.id);
 }
 
+function onResize() {
+  // After the group is resized, clamp all direct children to remain within bounds
+  const children = diagrams.getGroupChildren(props.id);
+  for (const child of children) {
+    diagrams.clampChildToParent(child.id);
+  }
+}
+
 function ungroupChildren() {
   diagrams.ungroupChildren(props.id);
   closeContextMenu();
@@ -190,6 +198,7 @@ const isDropTarget = computed(() => props.hoveredGroupId === props.id);
       :color="data.groupType.color"
       handle-class-name="vf-group-resize-handle"
       line-class-name="vf-group-resize-line"
+      @resize-end="onResize"
     />
 
     <!-- Handles -->

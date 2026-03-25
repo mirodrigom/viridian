@@ -356,8 +356,8 @@ export function fuzzyMatchService(name: string, map: Record<string, string>): st
 
   // Try matching by just the last word (e.g., "Lambda" from "AWS Lambda Function")
   const words = normalized.split(/\s+/);
-  const lastWord = words[words.length - 1];
-  if (map[lastWord]) return map[lastWord];
+  const lastWord = words[words.length - 1] ?? '';
+  if (lastWord && map[lastWord]) return map[lastWord];
 
   return null;
 }

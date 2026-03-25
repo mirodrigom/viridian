@@ -21,6 +21,7 @@ const fps = ref(8);
 const scale = ref(1);
 const isExporting = ref(false);
 const progress = ref(0);
+const exportPhase = ref<'capturing' | 'encoding'>('capturing');
 
 const durationOptions = [2, 3, 5];
 const fpsOptions = [6, 8, 12];
@@ -30,11 +31,27 @@ const scaleOptions = [
   { value: 2, label: '2x (Sharp)' },
 ];
 
+/** Detect the best supported video MIME type this browser can record. */
+function detectMimeType(): { mimeType: string; ext: string } {
+  const candidates = [
+    { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4' },
+    { mimeType: 'video/mp4', ext: 'mp4' },
+    { mimeType: 'video/webm;codecs=vp9', ext: 'webm' },
+    { mimeType: 'video/webm;codecs=vp8', ext: 'webm' },
+    { mimeType: 'video/webm', ext: 'webm' },
+  ];
+  for (const c of candidates) {
+    if (MediaRecorder.isTypeSupported(c.mimeType)) return c;
+  }
+  return { mimeType: '', ext: 'webm' };
+}
+
+const detectedFormat = computed(() => detectMimeType());
+
 const totalFrames = computed(() => duration.value * fps.value);
 const estimatedSeconds = computed(() => Math.round(totalFrames.value * 1.5));
 
 const estimatedSize = computed(() => {
-  // Show the content-cropped dimensions, not the full container
   const bounds = diagrams.getContentBounds(20);
   if (!bounds) {
     const el = props.flowContainer;
@@ -53,11 +70,8 @@ function close() {
   emit('update:open', false);
 }
 
-/**
- * Convert any oklch() color string to rgb/rgba by drawing a 1×1 canvas pixel.
- * getComputedStyle() returns oklch as-is in Chrome 111+, but getImageData()
- * always returns raw RGBA bytes regardless of input color space.
- */
+// ─── Color space helpers (copied from GIF dialog) ────────────────────────────
+
 const _probeCanvas = document.createElement('canvas');
 _probeCanvas.width = 1;
 _probeCanvas.height = 1;
@@ -74,21 +88,10 @@ function oklchToRgb(oklchValue: string): string {
   return `rgba(${r},${g},${b},${(a / 255).toFixed(3)})`;
 }
 
-/**
- * Replace every oklch(...) occurrence in a string with its browser-resolved
- * rgb/rgba equivalent.
- */
 function resolveOklchInString(value: string): string {
-  return value.replace(
-    /oklch\([^)]+\)/g,
-    (match) => oklchToRgb(match),
-  );
+  return value.replace(/oklch\([^)]+\)/g, (match) => oklchToRgb(match));
 }
 
-/**
- * Patch all live <style> tags that contain oklch() so the SVG serializer
- * (html-to-image) doesn't encounter unsupported color formats. Returns a restore function.
- */
 function patchLiveStyles(): () => void {
   const patches: { el: HTMLStyleElement; original: string }[] = [];
   for (const style of document.querySelectorAll<HTMLStyleElement>('style')) {
@@ -104,7 +107,7 @@ function patchLiveStyles(): () => void {
   };
 }
 
-const exportPhase = ref<'capturing' | 'encoding'>('capturing');
+// ─── Export ───────────────────────────────────────────────────────────────────
 
 async function startExport() {
   if (!props.flowContainer) {
@@ -112,10 +115,7 @@ async function startExport() {
     return;
   }
 
-  // Use the full flow container as capture source so coordinates match the viewport transform
   const captureTarget = props.flowContainer;
-
-  // Content bounds in flow-space (node coords) with a small padding so labels/shadows aren't clipped
   const FLOW_PADDING = 20;
   const bounds = diagrams.getContentBounds(FLOW_PADDING);
   if (!bounds) {
@@ -127,47 +127,49 @@ async function startExport() {
   exportPhase.value = 'capturing';
   progress.value = 0;
 
-  // Patch live <style> tags that use oklch() (unsupported by serializers), restore after.
   const restoreStyles = patchLiveStyles();
 
   try {
     const { toCanvas } = await import('html-to-image');
-    const { encode: encodeGif } = await import('modern-gif');
 
-    // Snapshot the viewport transform at the start of export (stays constant across frames)
     const vp = props.getViewport();
-
-    // Content region in container-pixel space:
-    //   screenCoord = flowCoord * zoom + offset
     const contentX = bounds.x * vp.zoom + vp.x;
     const contentY = bounds.y * vp.zoom + vp.y;
-    const contentW = bounds.width  * vp.zoom;
+    const contentW = bounds.width * vp.zoom;
     const contentH = bounds.height * vp.zoom;
 
-    // Output canvas dimensions, scaled by user-chosen scale factor
-    const canvasWidth  = Math.max(1, Math.round(contentW * scale.value));
-    const canvasHeight = Math.max(1, Math.round(contentH * scale.value));
+    // MediaRecorder requires even dimensions for most codecs
+    const rawW = Math.max(2, Math.round(contentW * scale.value));
+    const rawH = Math.max(2, Math.round(contentH * scale.value));
+    const canvasWidth  = rawW % 2 === 0 ? rawW : rawW + 1;
+    const canvasHeight = rawH % 2 === 0 ? rawH : rawH + 1;
 
+    // ── Step 1: capture all frames as ImageBitmap objects ─────────────────────
+    const { mimeType, ext } = detectedFormat.value;
     const frameDelay = Math.round(1000 / fps.value);
-    const frames: { data: Uint8Array<ArrayBuffer>; width: number; height: number; delay: number }[] = [];
-
     const total = totalFrames.value;
 
-    // Switch edges to export mode — dots positioned via getPointAtLength
+    // Output canvas that MediaRecorder will stream from
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width  = canvasWidth;
+    outputCanvas.height = canvasHeight;
+    const outputCtx = outputCanvas.getContext('2d');
+    if (!outputCtx) throw new Error('Canvas 2D context unavailable');
+
     diagrams.gifExportProgress = 0;
     await nextTick();
 
-    for (let i = 0; i < total; i++) {
-      // Advance animation: progress cycles 0 → 1 over the GIF duration
-      diagrams.gifExportProgress = (i / total) % 1;
-      await nextTick(); // Let Vue re-render dot positions
+    // Capture phase — render frames into ImageBitmap array
+    const frameBitmaps: ImageBitmap[] = [];
 
-      // Capture the full container at pixelRatio=1 (we'll scale down into the output canvas)
+    for (let i = 0; i < total; i++) {
+      diagrams.gifExportProgress = (i / total) % 1;
+      await nextTick();
+
       const fullCanvas = await toCanvas(captureTarget, {
         backgroundColor: '#0a0a0a',
         pixelRatio: 1,
         filter: (node: Element) => {
-          // Exclude UI chrome and animateMotion elements (replaced by programmatic positions)
           if (node.classList?.contains('vue-flow__controls')) return false;
           if (node.classList?.contains('vue-flow__minimap')) return false;
           if (node.classList?.contains('vue-flow__handle')) return false;
@@ -176,52 +178,81 @@ async function startExport() {
         },
       });
 
-      // Crop to content region and scale to output dimensions
+      // Crop to content region
       const frameCanvas = document.createElement('canvas');
       frameCanvas.width  = canvasWidth;
       frameCanvas.height = canvasHeight;
       const ctx = frameCanvas.getContext('2d');
       if (!ctx) throw new Error('Canvas context unavailable');
-      // drawImage(src, srcX, srcY, srcW, srcH, dstX, dstY, dstW, dstH)
-      // Clamp source rect to canvas bounds to avoid rendering artifacts
       const safeX = Math.max(0, contentX);
       const safeY = Math.max(0, contentY);
       const safeW = Math.min(contentW, fullCanvas.width  - safeX);
       const safeH = Math.min(contentH, fullCanvas.height - safeY);
       ctx.drawImage(fullCanvas, safeX, safeY, safeW, safeH, 0, 0, canvasWidth, canvasHeight);
 
-      frames.push({
-        data: new Uint8Array(ctx.getImageData(0, 0, canvasWidth, canvasHeight).data.buffer as ArrayBuffer),
-        width: canvasWidth,
-        height: canvasHeight,
-        delay: frameDelay,
-      });
+      frameBitmaps.push(await createImageBitmap(frameCanvas));
 
       progress.value = Math.round(((i + 1) / total) * 100);
-      // Yield to browser so progress bar updates
       await new Promise(r => setTimeout(r, 0));
     }
 
+    // ── Step 2: encode via MediaRecorder ─────────────────────────────────────
     exportPhase.value = 'encoding';
     progress.value = 0;
 
-    const gifData = await encodeGif({ width: canvasWidth, height: canvasHeight, frames });
+    const stream = outputCanvas.captureStream(0); // 0 = manual frame control
+    const recorderOptions: MediaRecorderOptions = {};
+    if (mimeType) recorderOptions.mimeType = mimeType;
 
-    const blob = new Blob([gifData], { type: 'image/gif' });
+    const recorder = new MediaRecorder(stream, recorderOptions);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+    const recordingDone = new Promise<Blob>((resolve, reject) => {
+      recorder.onstop = () => {
+        const type = mimeType || 'video/webm';
+        resolve(new Blob(chunks, { type }));
+      };
+      recorder.onerror = (e) => reject(new Error('MediaRecorder error: ' + String(e)));
+    });
+
+    recorder.start();
+
+    const videoTrack = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
+
+    for (let i = 0; i < frameBitmaps.length; i++) {
+      const bitmap = frameBitmaps[i]!;
+      outputCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      outputCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
+      // Signal that a new frame is ready
+      if (videoTrack.requestFrame) {
+        videoTrack.requestFrame();
+      }
+
+      // Hold this frame for the configured duration
+      await new Promise(r => setTimeout(r, frameDelay));
+
+      progress.value = Math.round(((i + 1) / frameBitmaps.length) * 100);
+    }
+
+    recorder.stop();
+    const blob = await recordingDone;
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.gif`;
+    a.download = `${diagrams.currentDiagramName.replace(/\s+/g, '-').toLowerCase()}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
 
-    toast.success('GIF exported successfully');
+    toast.success(`Video exported successfully (${ext.toUpperCase()})`);
     emit('update:open', false);
   } catch (err) {
-    console.error('GIF export error:', err);
-    toast.error('GIF export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    console.error('Video export error:', err);
+    toast.error('Video export failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
   } finally {
-    // Resume live SVG animation
     diagrams.gifExportProgress = null;
     restoreStyles();
     isExporting.value = false;
@@ -235,7 +266,7 @@ async function startExport() {
     <Transition name="fade">
       <div v-if="props.open" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="close">
         <div class="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl">
-          <h3 class="mb-4 text-sm font-semibold">Export GIF Animation</h3>
+          <h3 class="mb-4 text-sm font-semibold">Export Video</h3>
 
           <div class="space-y-4">
             <!-- Duration -->
@@ -291,13 +322,24 @@ async function startExport() {
               <div>Total frames: <span class="text-foreground font-medium">{{ totalFrames }}</span></div>
               <div v-if="estimatedSize">Output: <span class="text-foreground font-medium">{{ estimatedSize.w }} x {{ estimatedSize.h }}px</span></div>
               <div>Estimated time: <span class="text-foreground font-medium">~{{ estimatedSeconds }}s</span></div>
+              <div>
+                Format:
+                <span class="text-foreground font-medium uppercase">{{ detectedFormat.ext }}</span>
+                <span class="ml-1 text-muted-foreground/70">({{ detectedFormat.mimeType || 'default' }})</span>
+              </div>
               <div class="text-muted-foreground">Cropped to diagram content</div>
             </div>
 
             <!-- Progress -->
             <div v-if="isExporting" class="space-y-1">
               <div class="flex items-center justify-between text-[10px] text-muted-foreground">
-                <span>{{ exportPhase === 'capturing' ? `Capturing frame ${Math.round(progress * totalFrames / 100)} / ${totalFrames}` : 'Encoding GIF...' }}</span>
+                <span>
+                  {{
+                    exportPhase === 'capturing'
+                      ? `Capturing frame ${Math.round(progress * totalFrames / 100)} / ${totalFrames}`
+                      : `Encoding frame ${Math.round(progress * totalFrames / 100)} / ${totalFrames}`
+                  }}
+                </span>
                 <span class="tabular-nums">{{ progress }}%</span>
               </div>
               <div class="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -308,7 +350,7 @@ async function startExport() {
                 />
               </div>
               <div class="text-[9px] text-muted-foreground/60">
-                {{ exportPhase === 'capturing' ? 'Tip: use 0.5x scale for faster export' : 'Encoding frames into GIF...' }}
+                {{ exportPhase === 'capturing' ? 'Tip: use 0.5x scale for faster export' : 'Encoding frames into video...' }}
               </div>
             </div>
           </div>
@@ -316,7 +358,7 @@ async function startExport() {
           <div class="mt-6 flex justify-end gap-2">
             <Button variant="ghost" size="sm" :disabled="isExporting" @click="close">Cancel</Button>
             <Button size="sm" :disabled="isExporting" @click="startExport">
-              {{ isExporting ? 'Exporting...' : 'Export GIF' }}
+              {{ isExporting ? 'Exporting...' : 'Export Video' }}
             </Button>
           </div>
         </div>

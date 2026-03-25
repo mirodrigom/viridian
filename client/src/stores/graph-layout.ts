@@ -100,14 +100,14 @@ export function autoLayout(deps: GraphLayoutDeps) {
 
     let totalContainerWidth = 0;
     for (const cr of containerRules) {
-      const w = parseInt(cr.style?.width || '600');
+      const w = parseInt((cr.style as Record<string, string> | undefined)?.width || '600');
       totalContainerWidth += w + CONTAINER_GAP;
     }
     totalContainerWidth -= CONTAINER_GAP;
 
     let cx = -(totalContainerWidth / 2);
     for (const cr of containerRules) {
-      const w = parseInt(cr.style?.width || '600');
+      const w = parseInt((cr.style as Record<string, string> | undefined)?.width || '600');
       cr.position = { x: cx, y: y + 40 };
       positionedNodes.set(cr.id, cr.position);
       cx += w + CONTAINER_GAP;

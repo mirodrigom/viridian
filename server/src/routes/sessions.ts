@@ -282,7 +282,7 @@ router.get('/:id/messages', validate({
   params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
 }), async (req, res) => {
   try {
-    const sessionId = req.params.id;
+    const sessionId = req.params.id as string;
     const projectDir = req.query.projectDir as string;
 
     const filePath = join(CLAUDE_DIR, projectDir, `${sessionId}.jsonl`);
@@ -576,7 +576,7 @@ router.delete('/project/:dir', validate({
   params: z.object({ dir: z.string().regex(/^[\w-]+$/, 'Invalid projectDir') }),
 }), async (req, res) => {
   try {
-    const projectDir = req.params.dir;
+    const projectDir = req.params.dir as string;
 
     const dirPath = join(CLAUDE_DIR, projectDir);
 
@@ -696,7 +696,7 @@ router.get('/:id/preferences', validate({
   params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
 }), async (req, res) => {
   try {
-    const sessionId = req.params.id;
+    const sessionId = req.params.id as string;
     const preferences = getSessionPreferences(sessionId);
     res.json({ preferences });
   } catch (err) {
@@ -719,7 +719,7 @@ router.patch('/:id/preferences', validate({
   params: z.object({ id: z.string().regex(/^[\w-]+$/, 'Invalid session id') }),
 }), async (req, res) => {
   try {
-    const sessionId = req.params.id;
+    const sessionId = req.params.id as string;
     const { projectDir, preferences } = req.body as { projectDir: string; preferences: Record<string, unknown> };
     upsertSessionPreferences(projectDir, sessionId, preferences);
     res.json({ success: true });

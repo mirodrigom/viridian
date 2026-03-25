@@ -150,7 +150,7 @@ function slugToLabel(slug: string): string {
 
 // GET /project-assets — scan a project's .claude/ directory for importable assets
 router.get('/project-assets', validate({ query: z.object({ cwd: z.string().min(1) }) }), (req: AuthRequest, res) => {
-  const { cwd } = req.query;
+  const { cwd } = req.query as { cwd: string };
 
   try {
     const result: {

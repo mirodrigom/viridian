@@ -27,19 +27,19 @@ const router: ReturnType<typeof Router> = Router();
 router.use(authMiddleware);
 
 /** GET /api/providers — List all registered providers with availability status. */
-router.get('/', (_req, res) => {
-  res.json(getProviderDTOs());
+router.get('/', async (_req, res) => {
+  res.json(await getProviderDTOs());
 });
 
 /** GET /api/providers/:id — Single provider details. */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const provider = getProvider(req.params.id as ProviderId);
     let available = false;
     try { available = provider.isAvailable(); } catch { /* not available */ }
 
     let configured = true;
-    try { configured = provider.isConfigured().configured; } catch { /* assume configured */ }
+    try { configured = (await provider.isConfigured()).configured; } catch { /* assume configured */ }
 
     res.json({
       id: provider.info.id,

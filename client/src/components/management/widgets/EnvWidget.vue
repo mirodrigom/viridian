@@ -46,7 +46,7 @@ watch(envPath, (val) => { try { localStorage.setItem(ENV_PATH_KEY, val); } catch
 // Auto-load the first discovered env file when files are discovered and nothing is loaded yet
 watch(() => management.envFiles, (files) => {
   if (files.length > 0 && !envPath.value && !content.value) {
-    selectEnvFile(files[0]);
+    if (files[0]) selectEnvFile(files[0]);
   }
 }, { immediate: true });
 

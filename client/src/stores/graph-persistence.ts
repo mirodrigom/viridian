@@ -45,8 +45,8 @@ export function serializeGraph(
       id: e.id,
       source: e.source,
       target: e.target,
-      sourceHandle: e.sourceHandle,
-      targetHandle: e.targetHandle,
+      sourceHandle: e.sourceHandle ?? undefined,
+      targetHandle: e.targetHandle ?? undefined,
       data: e.data as GraphEdgeData,
     })),
     ...(viewport && { viewport }),
@@ -64,7 +64,7 @@ export function deserializeGraph(config: GraphConfig, deps: GraphPersistenceDeps
     position: n.position,
     data: n.data,
     ...(n.parentNode && { parentNode: n.parentNode }),
-    ...(n.extent && { extent: n.extent }),
+    ...(n.extent && { extent: n.extent as 'parent' }),
     ...(n.style && { style: n.style }),
   }));
 

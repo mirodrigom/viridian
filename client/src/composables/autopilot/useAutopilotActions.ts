@@ -44,10 +44,10 @@ export function useAutopilotActions() {
       if (profiles.length === 0) await callbacks.fetchProfiles();
 
       const updatedProfiles = callbacks.getProfiles();
-      const agentAProfile = updatedProfiles.find(p => p.id === runData.agentAProfileId)
-        || { id: runData.agentAProfileId || 'unknown', name: 'Agent A', role: 'custom' as const, description: '', systemPrompt: '', allowedTools: [], disallowedTools: [], model: null, isBuiltin: false };
-      const agentBProfile = updatedProfiles.find(p => p.id === runData.agentBProfileId)
-        || { id: runData.agentBProfileId || 'unknown', name: 'Agent B', role: 'custom' as const, description: '', systemPrompt: '', allowedTools: [], disallowedTools: [], model: null, isBuiltin: false };
+      const agentAProfile = (updatedProfiles.find(p => p.id === runData.agentAProfileId)
+        || { id: runData.agentAProfileId || 'unknown', name: 'Agent A', role: 'custom' as const, description: '', systemPrompt: '', allowedTools: [], disallowedTools: [], model: null, isBuiltin: false }) as AutopilotProfile;
+      const agentBProfile = (updatedProfiles.find(p => p.id === runData.agentBProfileId)
+        || { id: runData.agentBProfileId || 'unknown', name: 'Agent B', role: 'custom' as const, description: '', systemPrompt: '', allowedTools: [], disallowedTools: [], model: null, isBuiltin: false }) as AutopilotProfile;
 
       // Reconstruct cycles
       const cycles: AutopilotCycle[] = (cyclesData.cycles || []).map((c: Record<string, unknown>) => ({
@@ -87,7 +87,7 @@ export function useAutopilotActions() {
         agentAProfile,
         agentBProfile,
         cycles,
-        currentCycleNumber: cycles.length > 0 ? cycles[cycles.length - 1].cycleNumber : 0,
+        currentCycleNumber: cycles.length > 0 ? (cycles[cycles.length - 1]?.cycleNumber ?? 0) : 0,
         totalTokens: runData.tokens || {
           agentA: { inputTokens: 0, outputTokens: 0 },
           agentB: { inputTokens: 0, outputTokens: 0 },

@@ -254,7 +254,7 @@ function topoSortDirectChildren(
   const sorted: string[] = [];
   let qi = 0;
   while (qi < queue.length) {
-    const ref = queue[qi++];
+    const ref = queue[qi++]!;
     sorted.push(ref);
     for (const neighbor of adjacency.get(ref) || []) {
       const newDeg = (inDegree.get(neighbor) || 1) - 1;
@@ -321,7 +321,7 @@ function topologicalSort(
   const sorted: string[] = [];
   let qi = 0;
   while (qi < queue.length) {
-    const ref = queue[qi++];
+    const ref = queue[qi++]!;
     sorted.push(ref);
     for (const neighbor of adjacency.get(ref) || []) {
       const newDeg = (inDegree.get(neighbor) || 1) - 1;

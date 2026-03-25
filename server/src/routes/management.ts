@@ -140,7 +140,7 @@ router.delete('/services/:id', async (req: AuthRequest, res) => {
     .where({ id: req.params.id, user_id: req.user!.id })
     .first();
   if (!existing) { res.status(404).json({ error: 'Service not found' }); return; }
-  stopService(req.params.id);
+  stopService(req.params.id as string);
   await db('management_services')
     .where({ id: req.params.id, user_id: req.user!.id })
     .delete();
@@ -161,7 +161,7 @@ router.post('/services/:id/stop', async (req: AuthRequest, res) => {
     .where({ id: req.params.id, user_id: req.user!.id })
     .first();
   if (!existing) { res.status(404).json({ error: 'Service not found' }); return; }
-  stopService(req.params.id);
+  stopService(req.params.id as string);
   res.json({ ok: true });
 });
 

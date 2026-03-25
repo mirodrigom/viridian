@@ -115,7 +115,7 @@ export interface IProvider {
   isAvailable(): boolean;
 
   /** Check if credentials/auth are configured for this provider. */
-  isConfigured(): ConfigStatus;
+  isConfigured(): ConfigStatus | Promise<ConfigStatus>;
 
   /** Find and return the binary path, or throw if not found. */
   findBinary(): string;

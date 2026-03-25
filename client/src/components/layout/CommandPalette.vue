@@ -114,7 +114,7 @@ const filteredResults = computed<Result[]>(() => {
         label: name,
         sublabel: f.path,
         icon: FileText,
-        action: () => { files.setActiveFile(f.path); navigate('editor'); },
+        action: () => { files.openFile(f.path); navigate('editor'); },
       };
     });
 

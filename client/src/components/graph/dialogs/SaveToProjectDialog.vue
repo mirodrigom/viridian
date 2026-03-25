@@ -29,7 +29,7 @@ const error = ref('');
 const projectPath = computed(() => chat.projectPath || '');
 
 const grouped = computed(() => {
-  const groups: Record<string, FilePreview[]> = {
+  const groups: { agents: FilePreview[]; skills: FilePreview[]; mcps: FilePreview[]; rules: FilePreview[]; other: FilePreview[] } = {
     agents: [],
     skills: [],
     mcps: [],
@@ -116,7 +116,7 @@ async function onSave() {
 
 watch(open, (v) => { if (v) fetchPreview(); });
 
-const groupConfig: { key: string; label: string; icon: typeof Bot }[] = [
+const groupConfig: { key: 'agents' | 'skills' | 'mcps' | 'rules' | 'other'; label: string; icon: typeof Bot }[] = [
   { key: 'agents', label: 'Agents', icon: Bot },
   { key: 'skills', label: 'Skills', icon: Zap },
   { key: 'mcps', label: 'MCP Servers', icon: Server },

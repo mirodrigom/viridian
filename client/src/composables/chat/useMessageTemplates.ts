@@ -79,7 +79,7 @@ export function useMessageTemplates(
       if (!categories[template.category]) {
         categories[template.category] = [];
       }
-      categories[template.category].push(template);
+      categories[template.category]!.push(template);
     });
     return categories;
   });

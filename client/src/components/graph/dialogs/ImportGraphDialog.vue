@@ -298,7 +298,7 @@ function onImport() {
   );
   if (nodesWithoutMeta.length > 0) {
     toast.info('Generating agent metadata...', { duration: 10000, id: 'meta-gen' });
-    generateForGraph({ nodes, edges }).then((results) => {
+    generateForGraph({ nodes: nodes as unknown as Record<string, unknown>[], edges: edges as unknown as Record<string, unknown>[] }).then((results) => {
       for (const r of results) {
         graph.updateNodeData(r.nodeId, { metadata: r.metadata } as Partial<NodeData>);
       }

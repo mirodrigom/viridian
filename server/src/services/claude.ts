@@ -505,7 +505,7 @@ export function abortSession(sessionId: string) {
     session.abortController = undefined;
   }
   if (session.process) {
-    gracefulKill(session.process);
+    gracefulKill(session.process as { kill: (signal?: string | number) => boolean; pid?: number });
     setTimeout(() => {
       if (session.isStreaming && session.streamGeneration === generation) {
         session.isStreaming = false;

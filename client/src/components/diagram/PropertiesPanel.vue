@@ -178,7 +178,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
-                @update:model-value="(v: string) => updateNodeFieldDebounced('customLabel', v)"
+                @update:model-value="(v: string | number) => updateNodeFieldDebounced('customLabel', String(v))"
               />
             </div>
 
@@ -189,8 +189,8 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 :model-value="(nodeData as AWSServiceNodeData).service.iconUrl"
                 class="h-7 text-xs"
                 placeholder="https://example.com/logo.svg"
-                @update:model-value="(v: string) => {
-                  const svc = { ...(nodeData as AWSServiceNodeData).service, iconUrl: v };
+                @update:model-value="(v: string | number) => {
+                  const svc = { ...(nodeData as AWSServiceNodeData).service, iconUrl: String(v) };
                   diagrams.updateNodeData(diagrams.selectedNodeId!, { service: svc } as any);
                 }"
               />
@@ -250,7 +250,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
                 data-testid="prop-custom-label"
                 class="h-7 text-xs"
                 placeholder="Override display name..."
-                @update:model-value="(v: string) => updateNodeFieldDebounced('customLabel', v)"
+                @update:model-value="(v: string | number) => updateNodeFieldDebounced('customLabel', String(v))"
               />
             </div>
 
@@ -308,7 +308,7 @@ function applyQuickStyle(qs: typeof quickStyles[number]) {
             :model-value="edgeData.label || ''"
             class="h-7 text-xs"
             placeholder="Connection label..."
-            @update:model-value="(v: string) => updateEdgeFieldDebounced('label', v)"
+            @update:model-value="(v: string | number) => updateEdgeFieldDebounced('label', String(v))"
           />
         </div>
 

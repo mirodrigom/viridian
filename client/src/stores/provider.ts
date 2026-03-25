@@ -110,15 +110,13 @@ export const useProviderStore = defineStore('provider', () => {
   );
 
   // Actions
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
   async function fetchProviders(retryCount = 0) {
     try {
       const res = await apiFetch('/api/providers');
       if (!res.ok) {
         // Server returned error — retry up to 3 times with backoff
         if (retryCount < 3) {
-          retryTimer = setTimeout(() => fetchProviders(retryCount + 1), 2000 * (retryCount + 1));
+          setTimeout(() => fetchProviders(retryCount + 1), 2000 * (retryCount + 1));
         }
         return;
       }
@@ -140,7 +138,7 @@ export const useProviderStore = defineStore('provider', () => {
       console.error('Failed to fetch providers:', err);
       // Network error — retry up to 3 times with backoff
       if (retryCount < 3) {
-        retryTimer = setTimeout(() => fetchProviders(retryCount + 1), 2000 * (retryCount + 1));
+        setTimeout(() => fetchProviders(retryCount + 1), 2000 * (retryCount + 1));
       }
     }
   }

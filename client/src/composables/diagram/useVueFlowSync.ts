@@ -83,20 +83,32 @@ export function useVueFlowSync({
     () => {
       for (const storeNode of diagrams.nodes) {
         const vfNode = findNode(storeNode.id);
-        if (vfNode && vfNode.data !== storeNode.data) {
-          vfNode.data = storeNode.data;
+        if (vfNode) {
+          if (vfNode.data !== storeNode.data) {
+            vfNode.data = storeNode.data;
+          }
+          // Sync hidden flag (collapse/expand sets this without bumping mutationVersion)
+          if (vfNode.hidden !== !!storeNode.hidden) {
+            vfNode.hidden = !!storeNode.hidden;
+          }
         }
       }
       for (const storeEdge of diagrams.edges) {
         const vfEdge = findEdge(storeEdge.id);
-        if (vfEdge && vfEdge.data !== storeEdge.data) {
-          vfEdge.data = storeEdge.data;
+        if (vfEdge) {
+          if (vfEdge.data !== storeEdge.data) {
+            vfEdge.data = storeEdge.data;
+          }
+          // Sync edge hidden flag (set by syncEdgeVisibility during collapse)
+          if (vfEdge.hidden !== !!storeEdge.hidden) {
+            vfEdge.hidden = !!storeEdge.hidden;
+          }
         }
       }
     },
   );
 
-  // Sync node/edge removals and zIndex changes — watch mutationVersion counter
+  // Sync node/edge removals, zIndex, and hidden flag changes — watch mutationVersion counter
   watch(
     () => diagrams.mutationVersion,
     () => {
@@ -110,7 +122,7 @@ export function useVueFlowSync({
       const edgesToRemove = getEdges.value.filter(e => !storeEdgeIds.has(e.id));
       if (edgesToRemove.length) removeEdges(edgesToRemove);
 
-      // Sync zIndex changes
+      // Sync zIndex and hidden flag changes
       for (const storeNode of diagrams.nodes) {
         const vfNode = findNode(storeNode.id);
         if (vfNode) {
@@ -118,6 +130,16 @@ export function useVueFlowSync({
           if (vfNode.zIndex !== storeZ) {
             vfNode.zIndex = storeZ;
           }
+          if (vfNode.hidden !== !!storeNode.hidden) {
+            vfNode.hidden = !!storeNode.hidden;
+          }
+        }
+      }
+      // Sync edge hidden flag
+      for (const storeEdge of diagrams.edges) {
+        const vfEdge = findEdge(storeEdge.id);
+        if (vfEdge && vfEdge.hidden !== !!storeEdge.hidden) {
+          vfEdge.hidden = !!storeEdge.hidden;
         }
       }
     },

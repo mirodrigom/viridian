@@ -32,7 +32,7 @@ if [ ! -d "node_modules" ]; then
   npm install
 fi
 
-npx cdk deploy "$@" --require-approval broadening
+npx cdk deploy "$@" --require-approval never
 
 # ── 3. Print outputs ─────────────────────────────────────────────────────────
 step "Deployment complete!"

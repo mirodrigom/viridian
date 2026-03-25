@@ -37,7 +37,7 @@ const hasRunningParent = computed(() => {
 const PROMPT_TYPES = new Set(['agent', 'subagent', 'expert']);
 const missingPrompt = computed(() => {
   if (!PROMPT_TYPES.has(props.data.nodeType)) return false;
-  const prompt = (props.data as Record<string, unknown>).systemPrompt as string | undefined;
+  const prompt = (props.data as unknown as Record<string, unknown>).systemPrompt as string | undefined;
   return !prompt || prompt.trim() === '';
 });
 

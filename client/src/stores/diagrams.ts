@@ -273,7 +273,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
     let qi = 0;
     while (qi < queue.length) {
-      const id = queue[qi++];
+      const id = queue[qi++]!;
       const level = nodeLevel.get(id)!;
       for (const edge of edgeList) {
         if (edge.source === id && !nodeLevel.has(edge.target)) {
@@ -301,8 +301,16 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   /** Readonly accessor for edge flow levels (cached behind topologyVersion). */
   const edgeFlowLevels = computed((): Map<string, number> => _edgeFlowLevelsCache.value);
 
-  /** Highest flow level present in the current diagram (0 when no levels). */
-  const maxFlowLevel = computed((): number => _maxFlowLevelCache.value);
+  /** Highest flow level present in the current diagram (0 when no levels).
+   *  Considers both auto-computed BFS levels AND manual flowOrder overrides on edges. */
+  const maxFlowLevel = computed((): number => {
+    let max = _maxFlowLevelCache.value;
+    for (const edge of edges.value) {
+      const manual = (edge.data as DiagramEdgeData | undefined)?.flowOrder;
+      if (manual != null && manual > max) max = manual;
+    }
+    return max;
+  });
 
   // ─── Flow playback ──────────────────────────────────────────────────
   /** null = normal mode (all edges animate). Number = only edges up to this step are shown. */
@@ -498,6 +506,44 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     if (id) selectedEdgeId.value = null;
   }
 
+  /**
+   * Toggle the visibility of a node.
+   * For groups: recursively shows/hides all descendants as well.
+   * For services: just toggles the node's own `hidden` flag.
+   * Respects collapsed groups — collapsed children stay hidden even when unhiding a group.
+   */
+  function toggleNodeVisibility(nodeId: string) {
+    const node = nodeById.value.get(nodeId);
+    if (!node) return;
+
+    const nowHidden = !node.hidden;
+
+    function applyRecursive(id: string, hide: boolean) {
+      const n = nodeById.value.get(id);
+      if (!n) return;
+      n.hidden = hide;
+      // Walk direct children
+      for (const child of nodes.value) {
+        if (child.parentNode === id) {
+          // When unhiding a group, keep collapsed children hidden
+          if (!hide) {
+            const groupData = n.data as AWSGroupNodeData;
+            if (n.type === 'aws-group' && groupData.collapsed) {
+              child.hidden = true;
+              continue;
+            }
+          }
+          applyRecursive(child.id, hide);
+        }
+      }
+    }
+
+    applyRecursive(nodeId, nowHidden);
+    isDirty.value = true;
+    dataVersion.value++;
+    pushSnapshot();
+  }
+
   function selectEdge(id: string | null) {
     selectedEdgeId.value = id;
     if (id) selectedNodeId.value = null;
@@ -505,7 +551,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
 
   // ─── Grouping (delegated) ─────────────────────────────────────
   const grouping = createDiagramGrouping({
-    nodes, nodeById, isDirty, diagramVersion, selectedNodeId, selectedEdgeId, pushSnapshot,
+    nodes, edges, nodeById, isDirty, diagramVersion, dataVersion, selectedNodeId, selectedEdgeId, pushSnapshot,
   });
 
   // ─── Multi-select helpers ─────────────────────────────────────
@@ -514,6 +560,143 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     for (const id of selectedIds) {
       removeNode(id);
     }
+  }
+
+  // ─── Copy / Paste / Duplicate ──────────────────────────────────
+
+  /** Internal clipboard for copied nodes and their interconnecting edges. */
+  const clipboard = ref<{ nodes: any[]; edges: any[] } | null>(null);
+
+  /**
+   * Copy the given node IDs (and their interconnecting edges) into the clipboard.
+   * Does NOT modify the diagram.
+   */
+  function copyNodes(nodeIds: string[]) {
+    const idSet = new Set(nodeIds);
+    const copiedNodes = nodes.value
+      .filter(n => idSet.has(n.id))
+      .map(n => JSON.parse(JSON.stringify({
+        id: n.id,
+        type: (n.data as DiagramNodeData).nodeType,
+        position: n.position,
+        data: n.data,
+        ...(n.parentNode && { parentNode: n.parentNode }),
+        ...(n.extent && { extent: n.extent }),
+        ...(n.style && { style: n.style }),
+        ...((n as any).zIndex != null && { zIndex: (n as any).zIndex }),
+      })));
+
+    const copiedEdges = edges.value
+      .filter(e => idSet.has(e.source) && idSet.has(e.target))
+      .map(e => JSON.parse(JSON.stringify({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
+        type: e.type,
+        data: e.data,
+        label: e.label,
+        animated: e.animated,
+        style: e.style,
+        markerEnd: e.markerEnd,
+        markerStart: e.markerStart,
+      })));
+
+    clipboard.value = { nodes: copiedNodes, edges: copiedEdges };
+  }
+
+  /**
+   * Paste from clipboard, creating new nodes offset by (dx, dy) from originals.
+   * Returns the new node IDs so the caller can select them.
+   */
+  function pasteNodes(dx = 40, dy = 40): string[] {
+    if (!clipboard.value || clipboard.value.nodes.length === 0) return [];
+
+    const oldToNew = new Map<string, string>();
+    const newNodeIds: string[] = [];
+
+    // Create new nodes with fresh IDs
+    for (const snap of clipboard.value.nodes) {
+      const newId = uuid();
+      oldToNew.set(snap.id, newId);
+      newNodeIds.push(newId);
+
+      const data = { ...snap.data };
+      // Rehydrate service/group type references
+      if (data.nodeType === 'aws-service') {
+        const svc = getServiceById((data as AWSServiceNodeData).serviceId);
+        if (svc) (data as AWSServiceNodeData).service = svc;
+      } else if (data.nodeType === 'aws-group') {
+        const gt = AWS_GROUP_TYPES.find(g => g.id === (data as AWSGroupNodeData).groupTypeId);
+        if (gt) (data as AWSGroupNodeData).groupType = gt;
+      }
+
+      nodes.value.push({
+        id: newId,
+        type: snap.type === 'aws-service' ? 'aws-service' : 'aws-group',
+        position: { x: snap.position.x + dx, y: snap.position.y + dy },
+        data,
+        // Remap parentNode if the parent is also being pasted
+        ...(snap.parentNode && oldToNew.has(snap.parentNode)
+          ? { parentNode: oldToNew.get(snap.parentNode), extent: snap.extent }
+          : {}),
+        ...(snap.style && { style: { ...snap.style } }),
+        ...(snap.zIndex != null && { zIndex: snap.zIndex }),
+      });
+    }
+
+    // Second pass: fix parentNode refs for nodes whose parent was processed after them
+    for (const snap of clipboard.value.nodes) {
+      if (snap.parentNode) {
+        const newParentId = oldToNew.get(snap.parentNode);
+        if (newParentId) {
+          const newNode = nodes.value.find(n => n.id === oldToNew.get(snap.id));
+          if (newNode) {
+            newNode.parentNode = newParentId;
+            newNode.extent = snap.extent;
+          }
+        }
+      }
+    }
+
+    // Recreate interconnecting edges with remapped IDs
+    for (const snap of clipboard.value.edges) {
+      const newSource = oldToNew.get(snap.source);
+      const newTarget = oldToNew.get(snap.target);
+      if (!newSource || !newTarget) continue;
+
+      edges.value.push({
+        id: `e-${newSource}-${newTarget}`,
+        source: newSource,
+        target: newTarget,
+        sourceHandle: snap.sourceHandle,
+        targetHandle: snap.targetHandle,
+        type: snap.type,
+        data: { ...snap.data },
+        label: snap.label,
+        animated: snap.animated,
+        style: snap.style ? { ...snap.style } : undefined,
+        markerEnd: snap.markerEnd,
+        markerStart: snap.markerStart,
+      });
+    }
+
+    isDirty.value = true;
+    mutationVersion.value++;
+    topologyVersion.value++;
+    pushSnapshot();
+
+    return newNodeIds;
+  }
+
+  /**
+   * Duplicate selected nodes in one step (copy + paste).
+   * Returns the new node IDs.
+   */
+  function duplicateNodes(nodeIds: string[], dx = 40, dy = 40): string[] {
+    copyNodes(nodeIds);
+    return pasteNodes(dx, dy);
   }
 
   // ─── Edge CRUD ─────────────────────────────────────────────────
@@ -682,11 +865,12 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     playbackStep, playbackMaxStep, setPlaybackStep,
     // Node CRUD
     addServiceNode, addCustomServiceNode, addGroupNode, removeNode,
-    updateNodeData, updateNodePosition, selectNode, selectEdge,
+    updateNodeData, updateNodePosition, selectNode, selectEdge, toggleNodeVisibility,
     // Parent-child nesting (from grouping module)
     setNodeParent: grouping.setNodeParent,
     ungroupChildren: grouping.ungroupChildren,
     getGroupChildren: grouping.getGroupChildren,
+    clampChildToParent: grouping.clampChildToParent,
     findGroupAtPosition: grouping.findGroupAtPosition,
     getAbsolutePosition: (nodeId: string) => getAbsolutePosition(nodes.value, nodeId),
     // Collapse / Expand (from grouping module)
@@ -704,6 +888,8 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     getNodeDepth: (nodeId: string) => getNodeDepth(nodes.value, nodeId),
     // Multi-select
     removeSelectedNodes,
+    // Copy / Paste / Duplicate
+    clipboard, copyNodes, pasteNodes, duplicateNodes,
     // Edge CRUD
     addEdge, removeEdge, updateEdgeData,
     // Undo / Redo

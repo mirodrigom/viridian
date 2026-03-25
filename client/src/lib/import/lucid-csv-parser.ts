@@ -93,7 +93,7 @@ interface LucidRow {
 function buildRow(values: string[], headers: string[]): LucidRow {
   const get = (key: string) => {
     const idx = headers.indexOf(key);
-    return idx >= 0 && idx < values.length ? values[idx].trim() : '';
+    return idx >= 0 && idx < values.length ? (values[idx] ?? '').trim() : '';
   };
   return {
     id: get('Id'),
@@ -132,7 +132,7 @@ export function parseLucidCSV(csvText: string): ImportResult {
     return { nodes, edges, warnings, format: 'lucidchart-csv', stats: { totalShapes: 0, totalConnections: 0, mappedServices: 0, unmappedServices: 0, groups: 0 } };
   }
 
-  const headers = rows[0].map(h => h.trim());
+  const headers = rows[0]!.map(h => h.trim());
   const dataRows = rows.slice(1).map(r => buildRow(r, headers));
 
   // Separate lines from shapes, skip Document/Page meta rows and Lucid group anchor shapes
@@ -366,7 +366,7 @@ export interface LucidPageInfo {
 export function getLucidPages(csvText: string): LucidPageInfo[] {
   const rows = parseCSV(csvText);
   if (rows.length < 2) return [];
-  const headers = rows[0].map(h => h.trim());
+  const headers = rows[0]!.map(h => h.trim());
   const dataRows = rows.slice(1).map(r => buildRow(r, headers));
   return dataRows
     .filter(r => r.name.toLowerCase() === 'page' && r.id)
@@ -392,7 +392,7 @@ export function buildLucidAIPrompt(csvText: string, pageId?: string): string {
   const rows = parseCSV(csvText);
   if (rows.length < 2) return '';
 
-  const headers = rows[0].map(h => h.trim());
+  const headers = rows[0]!.map(h => h.trim());
   const allRows = rows.slice(1).map(r => buildRow(r, headers));
 
   const docRow = allRows.find(r => r.name.toLowerCase() === 'document');
@@ -436,7 +436,7 @@ export function buildLucidAIPrompt(csvText: string, pageId?: string): string {
       let parentLabel = '';
       if (shape.containedBy) {
         const ids = shape.containedBy.split('|');
-        const immediateParentId = ids[ids.length - 1];
+        const immediateParentId = ids[ids.length - 1] ?? '';
         parentLabel = idToLabel.get(immediateParentId) || '';
       }
       const parentStr = parentLabel ? ` (in: "${parentLabel}")` : '';

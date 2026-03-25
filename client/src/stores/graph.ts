@@ -351,7 +351,7 @@ export const useGraphStore = defineStore('graph', () => {
       data.nodeType === 'rule' ? 'ruleText' :
       'systemPrompt';
 
-    const existingPrompt = (data as Record<string, unknown>)[promptField] as string || '';
+    const existingPrompt = (data as unknown as Record<string, unknown>)[promptField] as string || '';
 
     generatingPrompt.value = true;
     updateNodeData(nodeId, { [promptField]: '' } as Partial<NodeData>);

@@ -141,7 +141,7 @@ export function setupChatWs(server: Server) {
       sessionCleanups.clear();
     });
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       try {
         const data = JSON.parse(raw.toString());
 
@@ -170,7 +170,7 @@ export function setupChatWs(server: Server) {
           // Fail fast with a clear message if the provider isn't configured.
           // We wrap in stream_start/stream_end so the client renders it in a message bubble.
           try {
-            const configStatus = providerInstance.isConfigured();
+            const configStatus = await Promise.resolve(providerInstance.isConfigured());
             if (!configStatus.configured) {
               const errMsg = configStatus.reason || `${providerInstance.info.name} is not configured. Open Settings → Providers to set it up.`;
               safeSend(ws, { type: 'stream_start', sessionId: null });

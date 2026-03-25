@@ -48,6 +48,7 @@ function onDrop(targetId: string, e: DragEvent) {
   if (srcIdx === -1 || tgtIdx === -1) { reset(); return; }
 
   const [moved] = newOrder.splice(srcIdx, 1);
+  if (!moved) { reset(); return; }
   newOrder.splice(tgtIdx, 0, moved);
   store.reorderWidgets(newOrder);
   reset();

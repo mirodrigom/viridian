@@ -141,7 +141,7 @@ function layoutScope(
 
   // ── Step 3: run dagre ──────────────────────────────────────────────────
   try {
-    layout(g);
+    layout(g, {});
   } catch (err) {
     console.warn('[AutoLayout] dagre layout failed for scope', scopeId, err);
     return { w: 0, h: 0 };

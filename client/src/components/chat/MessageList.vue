@@ -37,7 +37,7 @@ function startLoadingMessages() {
   loadingMsgTimer = setInterval(() => {
     let next: string;
     do {
-      next = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+      next = loadingMessages[Math.floor(Math.random() * loadingMessages.length)] ?? loadingMessages[0]!;
     } while (next === currentLoadingMsg.value && loadingMessages.length > 1);
     currentLoadingMsg.value = next;
   }, 2500);

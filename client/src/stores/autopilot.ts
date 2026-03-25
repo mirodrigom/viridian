@@ -88,7 +88,7 @@ export const useAutopilotStore = defineStore('autopilot', () => {
       setLoadingRun: (loading: boolean) => { state.isLoadingRun.value = loading; },
       setCurrentRun: state.setCurrentRun,
       clearTimeline: state.clearTimeline,
-      addTimeline: state.addTimeline,
+      addTimeline: state.addTimeline as (type: string, cycleNumber: number | null, detail: string, meta?: Record<string, unknown>) => void,
       setSelectedCycleNumber: state.setSelectedCycleNumber,
       fetchProfiles: config.fetchProfiles,
       getProfiles: () => config.profiles.value,

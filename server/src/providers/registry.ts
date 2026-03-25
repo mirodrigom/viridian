@@ -50,8 +50,8 @@ export function getDefaultProvider(): IProvider {
 }
 
 /** Serialize all providers to DTOs for the REST API. */
-export function getProviderDTOs(): ProviderInfoDTO[] {
-  return [...providers.values()].map(p => ({
+export async function getProviderDTOs(): Promise<ProviderInfoDTO[]> {
+  return Promise.all([...providers.values()].map(async p => ({
     id: p.info.id,
     name: p.info.name,
     icon: p.info.icon,
@@ -60,7 +60,7 @@ export function getProviderDTOs(): ProviderInfoDTO[] {
     models: p.models,
     capabilities: p.capabilities,
     available: (() => { try { return p.isAvailable(); } catch { return false; } })(),
-    configured: (() => { try { return p.isConfigured().configured; } catch { return true; } })(),
+    configured: await (async () => { try { const s = await p.isConfigured(); return s.configured; } catch { return true; } })(),
     installCommand: (isWindows && p.info.windowsInstallCommand) || p.info.installCommand,
-  }));
+  })));
 }

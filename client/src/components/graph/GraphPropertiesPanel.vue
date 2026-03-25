@@ -111,7 +111,7 @@ function onTagKeydown(e: KeyboardEvent) {
     addTag();
   }
   if (e.key === 'Backspace' && tagInput.value === '' && metadata.value.tags.length > 0) {
-    removeTag(metadata.value.tags[metadata.value.tags.length - 1]);
+    removeTag(metadata.value.tags[metadata.value.tags.length - 1]!);
   }
 }
 

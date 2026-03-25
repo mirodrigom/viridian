@@ -193,7 +193,7 @@ export const useMcpStore = defineStore('mcp', () => {
     const idx = servers.value.findIndex(s => s.id === id);
     if (idx === -1) return;
 
-    servers.value[idx] = { ...servers.value[idx], status: 'testing', error: undefined };
+    servers.value[idx] = { ...servers.value[idx]!, status: 'testing', error: undefined };
 
     try {
       const res = await apiFetch(`/api/mcp/managed/${id}/test`, { method: 'POST' });

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useManualsStore, type LogoPosition } from '@/stores/manuals';
+import { apiFetch } from '@/lib/apiFetch';
+import { toast } from 'vue-sonner';
 import { useChatStore } from '@/stores/chat';
 import { useProviderStore } from '@/stores/provider';
 import { useSettingsStore } from '@/stores/settings';
@@ -140,38 +142,40 @@ function printManual() {
   printWindow.onload = () => printWindow.print();
 }
 
-function exportPdf() {
+async function exportPdf() {
   if (!manual.value?.content) return;
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) return;
-
-  // Override print styles: no @page margins (content has its own padding),
-  // force .page to fill the full sheet width and fit one page per sheet.
-  const printFix = `<style>@media print {
-  @page { size: A4; margin: 0 !important; }
-  html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
-  .page {
-    width: 100% !important;
-    min-height: 0 !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
-    overflow: hidden !important;
-    box-sizing: border-box !important;
-    page-break-after: always !important;
-    break-after: page !important;
-    margin: 0 !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
+  exportingPdf.value = true;
+  try {
+    const res = await apiFetch(`/api/manuals/${manual.value.id}/export-pdf`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: 'PDF generation failed' }));
+      throw new Error(errBody.error || `Server returned ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${editTitle.value.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('PDF export failed:', err);
+    toast.error('PDF export failed. Falling back to browser print.');
+    // Fallback: use window.print() for environments without Puppeteer
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(manual.value.content);
+      printWindow.document.close();
+      printWindow.onload = () => {
+        printWindow.focus();
+        printWindow.print();
+      };
+    }
+  } finally {
+    exportingPdf.value = false;
   }
-  .page:last-child { page-break-after: auto !important; }
-}</style>`;
-  const html = manual.value.content.replace('</head>', `${printFix}</head>`);
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.onload = () => {
-    printWindow.focus();
-    printWindow.print();
-  };
 }
 
 async function previewVersion(versionId: string) {

@@ -48,7 +48,7 @@ export function parseCommandBlocks(text: string): DiagramCommand[] {
 
   while ((match = COMMAND_BLOCK_RE.exec(text)) !== null) {
     try {
-      const parsed = JSON.parse(match[1]);
+      const parsed = JSON.parse(match[1] ?? '');
       if (Array.isArray(parsed)) {
         commands.push(...parsed);
       }
@@ -278,10 +278,11 @@ export function executeDiagramCommands(
         }
 
         case 'addEdge': {
-          const { sourceRef, targetRef, label } = cmd.params as {
+          const { sourceRef, targetRef, label, flowOrder } = cmd.params as {
             sourceRef: string;
             targetRef: string;
             label?: string;
+            flowOrder?: number;
           };
 
           const sourceId = refToId.get(sourceRef);
@@ -296,9 +297,12 @@ export function executeDiagramCommands(
             });
             edgesCreated++;
 
-            if (label) {
-              const edgeId = `e-${sourceId}-${targetId}`;
-              diagrams.updateEdgeData(edgeId, { label });
+            const edgeId = `e-${sourceId}-${targetId}`;
+            if (label || flowOrder != null) {
+              diagrams.updateEdgeData(edgeId, {
+                ...(label ? { label } : {}),
+                ...(flowOrder != null ? { flowOrder } : {}),
+              });
             }
           }
           break;

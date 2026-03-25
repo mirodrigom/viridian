@@ -453,7 +453,7 @@ function formatTime(ts: number) {
 
   <!-- Image lightbox -->
   <Dialog v-model:open="lightboxOpen">
-    <DialogContent class="max-w-[90vw] max-h-[90vh] p-2 border-none bg-transparent shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50 [&>button]:rounded-full [&>button]:h-8 [&>button]:w-8">
+    <DialogContent class="max-w-[90vw] max-h-[90vh] p-2 border-none bg-transparent shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50 [&>button]:rounded-full [&>button]:h-8 [&>button]:w-8 [&>button]:flex [&>button]:items-center [&>button]:justify-center">
       <DialogTitle class="sr-only">{{ lightboxAlt }}</DialogTitle>
       <img
         :src="lightboxSrc"

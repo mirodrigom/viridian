@@ -133,10 +133,10 @@ const mobileSessionTitle = computed(() => {
 // Swipe-to-close for mobile sidebar
 const touchStartX = ref(0);
 function handleSidebarTouchStart(e: TouchEvent) {
-  touchStartX.value = e.touches[0].clientX;
+  touchStartX.value = e.touches[0]?.clientX ?? 0;
 }
 function handleSidebarTouchEnd(e: TouchEvent) {
-  const deltaX = e.changedTouches[0].clientX - touchStartX.value;
+  const deltaX = (e.changedTouches[0]?.clientX ?? 0) - touchStartX.value;
   if (deltaX < -60) {
     showMobileSidebar.value = false;
   }

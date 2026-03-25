@@ -56,10 +56,10 @@ function extractDominantColors(dataUrl: string) {
     const colorMap = new Map<string, { r: number; g: number; b: number; count: number }>();
 
     for (let i = 0; i < pixels.length; i += 4) {
-      const r = pixels[i];
-      const g = pixels[i + 1];
-      const b = pixels[i + 2];
-      const a = pixels[i + 3];
+      const r = pixels[i]!;
+      const g = pixels[i + 1]!;
+      const b = pixels[i + 2]!;
+      const a = pixels[i + 3]!;
 
       // Skip transparent pixels
       if (a < 128) continue;

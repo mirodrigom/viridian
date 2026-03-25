@@ -5,6 +5,7 @@ import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
 import { Background } from '@vue-flow/background';
 import type { Connection, NodeDragEvent } from '@vue-flow/core';
+import { ConnectionMode } from '@vue-flow/core';
 import type { GraphNodeType, RuleNodeData } from '@/types/graph';
 import { useGraphStore } from '@/stores/graph';
 import { useGraphRunnerStore } from '@/stores/graphRunner';
@@ -315,7 +316,7 @@ function isValidConnection(connection: Connection): boolean {
           <VueFlow
             id="graph-editor"
             :default-edge-options="{ type: 'custom' }"
-            :connection-mode="1"
+            :connection-mode="ConnectionMode.Loose"
             :fit-view-on-init="true"
             :is-valid-connection="isValidConnection"
             :snap-to-grid="true"
@@ -387,7 +388,7 @@ function isValidConnection(connection: Connection): boolean {
           <VueFlow
             id="graph-editor"
             :default-edge-options="{ type: 'custom' }"
-            :connection-mode="1"
+            :connection-mode="ConnectionMode.Loose"
             :fit-view-on-init="true"
             :is-valid-connection="isValidConnection"
             :snap-to-grid="true"

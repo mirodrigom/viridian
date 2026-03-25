@@ -180,8 +180,8 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     .first();
   if (!existing) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  stopAllForProject(req.params.id);
-  deactivateAgent(req.params.id);
+  stopAllForProject(req.params.id as string);
+  deactivateAgent(req.params.id as string);
   await db('projects').where({ id: req.params.id, user_id: req.user!.id }).delete();
   res.json({ ok: true });
 });
@@ -224,7 +224,7 @@ router.delete('/:id/services/:sid', async (req: AuthRequest, res) => {
     .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  stopService(req.params.sid);
+  stopService(req.params.sid as string);
   await db('project_services')
     .where({ id: req.params.sid, project_id: req.params.id })
     .delete();
@@ -255,7 +255,7 @@ router.post('/:id/services/:sid/stop', async (req: AuthRequest, res) => {
     .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  stopService(req.params.sid);
+  stopService(req.params.sid as string);
   res.json({ ok: true, status: 'stopped' });
 });
 
@@ -282,7 +282,7 @@ router.post('/:id/agent/deactivate', async (req: AuthRequest, res) => {
     .first();
   if (!p) { res.status(404).json({ error: 'Project not found' }); return; }
 
-  deactivateAgent(req.params.id);
+  deactivateAgent(req.params.id as string);
   res.json({ ok: true });
 });
 

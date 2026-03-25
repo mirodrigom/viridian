@@ -94,7 +94,7 @@ account  ← ALWAYS the outermost container (single-account by default)
 
 **addEdge** — Draw a connection between two nodes
 \`\`\`json
-{ "action": "addEdge", "params": { "sourceRef": "alb1", "targetRef": "ec2a", "label": "HTTP/8080" } }
+{ "action": "addEdge", "params": { "sourceRef": "alb1", "targetRef": "ec2a", "label": "HTTP/8080", "flowOrder": 1 } }
 \`\`\`
 
 **updateNode** — Set description or notes on a node
@@ -114,7 +114,7 @@ account  ← ALWAYS the outermost container (single-account by default)
 6. **Global services under account, not region** — cloudfront, route53, waf: setParent to \`account\`, not to \`region\`
 7. **Multi-AZ = duplicate AZ structure** — create separate az + subnet pairs for each AZ; duplicate compute/db nodes
 8. **Edges connect services, not groups** — addEdge always references service refIds, not group refIds
-9. **Edge labels** — keep them short: "HTTPS", "SQL", "gRPC", "Events", "Cache hit", "Read", "Write"
+9. **Edge labels** — keep them short: "HTTPS", "SQL", "gRPC", "Events", "Cache hit", "Read", "Write". When the user describes a numbered flow or sequence, include a \`flowOrder\` field (0-based) in each addEdge. Edges in the same phase share the same flowOrder. Include the step number in the label too (e.g. "1. Invoke", "2. Query"). This ensures the animated flow badges match the label numbers.
 10. **Use newDiagram for fresh requests**, skip it for modifications
 
 ---
@@ -146,10 +146,10 @@ account  ← ALWAYS the outermost container (single-account by default)
   { "action": "setParent", "params": { "childRef": "alb", "parentRef": "pub-sub" } },
   { "action": "setParent", "params": { "childRef": "ec2", "parentRef": "pub-sub" } },
   { "action": "setParent", "params": { "childRef": "rds", "parentRef": "priv-sub" } },
-  { "action": "addEdge", "params": { "sourceRef": "r53", "targetRef": "cf", "label": "DNS" } },
-  { "action": "addEdge", "params": { "sourceRef": "cf", "targetRef": "alb", "label": "HTTPS" } },
-  { "action": "addEdge", "params": { "sourceRef": "alb", "targetRef": "ec2", "label": "HTTP" } },
-  { "action": "addEdge", "params": { "sourceRef": "ec2", "targetRef": "rds", "label": "SQL" } }
+  { "action": "addEdge", "params": { "sourceRef": "r53", "targetRef": "cf", "label": "1. DNS", "flowOrder": 0 } },
+  { "action": "addEdge", "params": { "sourceRef": "cf", "targetRef": "alb", "label": "2. HTTPS", "flowOrder": 1 } },
+  { "action": "addEdge", "params": { "sourceRef": "alb", "targetRef": "ec2", "label": "3. HTTP", "flowOrder": 2 } },
+  { "action": "addEdge", "params": { "sourceRef": "ec2", "targetRef": "rds", "label": "4. SQL", "flowOrder": 3 } }
 ]
 \`\`\`
 
@@ -166,8 +166,8 @@ account  ← ALWAYS the outermost container (single-account by default)
   { "action": "setParent", "params": { "childRef": "apigw", "parentRef": "region" } },
   { "action": "setParent", "params": { "childRef": "fn", "parentRef": "region" } },
   { "action": "setParent", "params": { "childRef": "db", "parentRef": "region" } },
-  { "action": "addEdge", "params": { "sourceRef": "apigw", "targetRef": "fn", "label": "Invoke" } },
-  { "action": "addEdge", "params": { "sourceRef": "fn", "targetRef": "db", "label": "Read/Write" } }
+  { "action": "addEdge", "params": { "sourceRef": "apigw", "targetRef": "fn", "label": "1. Invoke", "flowOrder": 0 } },
+  { "action": "addEdge", "params": { "sourceRef": "fn", "targetRef": "db", "label": "2. Read/Write", "flowOrder": 1 } }
 ]
 \`\`\`
 
@@ -185,7 +185,7 @@ account  ← ALWAYS the outermost container (single-account by default)
   { "action": "addService", "params": { "refId": "app-svc", "serviceId": "ec2", "label": "Application" } },
   { "action": "setParent", "params": { "childRef": "tgw", "parentRef": "shared-region" } },
   { "action": "setParent", "params": { "childRef": "app-svc", "parentRef": "app-region" } },
-  { "action": "addEdge", "params": { "sourceRef": "app-svc", "targetRef": "tgw", "label": "VPC Attachment" } }
+  { "action": "addEdge", "params": { "sourceRef": "app-svc", "targetRef": "tgw", "label": "1. VPC Attachment", "flowOrder": 0 } }
 ]
 \`\`\`
 

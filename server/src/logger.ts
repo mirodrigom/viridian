@@ -2,7 +2,10 @@ import pino from 'pino';
 import { mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import roll from 'pino-roll';
+// pino-roll v4 exports an async function as module.exports (CJS) with no TS types.
+import _pinoRoll from 'pino-roll';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const roll = _pinoRoll as unknown as (opts: Record<string, unknown>) => Promise<NodeJS.WritableStream>;
 
 const isDev = process.env.NODE_ENV !== 'production';
 const __dirname = dirname(fileURLToPath(import.meta.url));

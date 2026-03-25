@@ -511,12 +511,45 @@ router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
 
   let browser;
   try {
+    // Make the HTML self-contained: replace external Google Fonts @import
+    // with system font stack so Puppeteer doesn't hang waiting for network
+    let html = row.content;
+    // Remove @import url('https://fonts.googleapis.com/...') statements
+    html = html.replace(/@import\s+url\([^)]*fonts\.googleapis\.com[^)]*\)\s*;?/gi, '');
+    // Remove <link> tags for Google Fonts
+    html = html.replace(/<link[^>]*fonts\.googleapis\.com[^>]*\/?>/gi, '');
+    // Inject a system font fallback so font-family: 'Inter', etc. still renders
+    const fontFallback = `<style id="pdf-font-fallback">
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; src: local('Inter'), local('Helvetica Neue'), local('Arial'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; src: local('Inter SemiBold'), local('Helvetica Neue Medium'), local('Arial Bold'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; src: local('Inter Bold'), local('Helvetica Neue Bold'), local('Arial Bold'); }
+      @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; src: local('Inter ExtraBold'), local('Helvetica Neue Bold'), local('Arial Black'); }
+      @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; src: local('JetBrains Mono'), local('Courier New'), local('monospace'); }
+    </style>`;
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', `${fontFallback}</head>`);
+    } else {
+      html = `${fontFallback}${html}`;
+    }
+
     browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
     });
     const page = await browser.newPage();
-    await page.setContent(row.content, { waitUntil: 'networkidle0', timeout: 30000 });
+    // Block external font/stylesheet requests to avoid hanging
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const url = request.url();
+      if (url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com')) {
+        request.abort();
+      } else {
+        request.continue();
+      }
+    });
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Allow a brief moment for inline styles and layout to settle
+    await new Promise(resolve => setTimeout(resolve, 500));
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

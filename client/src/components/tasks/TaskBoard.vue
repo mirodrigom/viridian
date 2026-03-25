@@ -45,13 +45,13 @@ const {
   handleStartPrdChat, handlePrdReply, handleFinalizePrd, handleParsePrd,
 } = usePrdParser({
   projectPath: () => chat.projectPath,
-  tasksStore: tasks,
+  tasksStore: tasks as any,
 });
 
 const {
   draggingTaskId, dragOverColumn,
   onDragStart, onDragEnd, onColumnDragOver, onColumnDragLeave, onColumnDrop,
-} = useTaskDragDrop({ tasksStore: tasks });
+} = useTaskDragDrop({ tasksStore: tasks as any });
 
 // ── Local state ────────────────────────────────────────────────────────────
 
@@ -663,8 +663,8 @@ function sendToChat(task: Task) {
               class="h-4 w-4"
               :class="detailTask.status === 'done' ? 'text-green-500' : detailTask.status === 'in_progress' ? 'text-blue-500' : 'text-muted-foreground'"
             />
-            <Badge :class="STATUS_OPTIONS.find(s => s.value === detailTask.status)?.color">
-              {{ STATUS_OPTIONS.find(s => s.value === detailTask.status)?.label }}
+            <Badge :class="STATUS_OPTIONS.find(s => s.value === detailTask!.status)?.color">
+              {{ STATUS_OPTIONS.find(s => s.value === detailTask!.status)?.label }}
             </Badge>
             <Badge v-if="tasks.isBlockedByDependency(detailTask)" variant="outline" class="border-orange-500/40 text-orange-500">
               blocked

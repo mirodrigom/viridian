@@ -161,7 +161,7 @@ function statusIcon(status: string) {
 
 function truncateGoal(goal: string, max = 60): string {
   if (!goal) return 'Untitled run';
-  const firstLine = goal.split('\n')[0].trim();
+  const firstLine = (goal.split('\n')[0] ?? '').trim();
   if (firstLine.length <= max) return firstLine;
   return firstLine.slice(0, max) + '...';
 }

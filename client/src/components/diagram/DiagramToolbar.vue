@@ -5,8 +5,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   Save, FolderOpen, FilePlus, Maximize2, Download, ImageDown, FileJson, FileType, Grid3x3, MousePointerSquareDashed,
-  Minimize2, Maximize, Film, Undo2, Redo2, Import, FileUp,
-  Play, Pause, SkipBack, SkipForward, StopCircle,
+  Minimize2, Maximize, Film, Clapperboard, Undo2, Redo2, Import, FileUp, Copy,
+  Play, Pause, SkipBack, SkipForward, StopCircle, Share2,
 } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -83,11 +83,14 @@ const emit = defineEmits<{
   (e: 'exportSvg'): void;
   (e: 'exportJson'): void;
   (e: 'exportGif'): void;
+  (e: 'exportVideo'): void;
+  (e: 'exportDrawio'): void;
   (e: 'import'): void;
   (e: 'importJson'): void;
   (e: 'toggleSnap'): void;
   (e: 'collapseAll'): void;
   (e: 'expandAll'): void;
+  (e: 'duplicate'): void;
 }>();
 
 const tools = [
@@ -102,6 +105,7 @@ const exportTools = [
   { event: 'exportSvg' as const, icon: FileType, label: 'Export SVG' },
   { event: 'exportJson' as const, icon: FileJson, label: 'Export JSON' },
   { event: 'exportGif' as const, icon: Film, label: 'Export GIF' },
+  { event: 'exportVideo' as const, icon: Clapperboard, label: 'Export Video (WebM/MP4)' },
 ] as const;
 </script>
 
@@ -116,7 +120,7 @@ const exportTools = [
             size="sm"
             class="h-7 w-7 p-0"
             :data-testid="`toolbar-${tool.event}`"
-            @click="emit(tool.event)"
+            @click="(emit as (e: string) => void)(tool.event)"
           >
             <component :is="tool.icon" class="h-3.5 w-3.5" />
           </Button>
@@ -246,12 +250,28 @@ const exportTools = [
             size="sm"
             class="h-7 w-7 p-0"
             :data-testid="`toolbar-${tool.event}`"
-            @click="emit(tool.event)"
+            @click="(emit as (e: string) => void)(tool.event)"
           >
             <component :is="tool.icon" class="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>{{ tool.label }}</TooltipContent>
+      </Tooltip>
+
+      <!-- Export draw.io -->
+      <Tooltip>
+        <TooltipTrigger as-child>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-7 w-7 p-0"
+            data-testid="toolbar-exportDrawio"
+            @click="emit('exportDrawio')"
+          >
+            <Share2 class="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Export draw.io / Lucidchart (.drawio)</TooltipContent>
       </Tooltip>
 
       <!-- Flow playback controls — only visible when diagram has numbered flow levels -->
@@ -323,7 +343,23 @@ const exportTools = [
       <!-- Spacer -->
       <div class="flex-1" />
 
-      <!-- Selection count badge -->
+      <!-- Selection count badge + Duplicate button -->
+      <template v-if="props.selectedCount > 0">
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0"
+              data-testid="toolbar-duplicate"
+              @click="emit('duplicate')"
+            >
+              <Copy class="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Duplicate Selected (Ctrl+D)</TooltipContent>
+        </Tooltip>
+      </template>
       <div v-if="props.selectedCount > 1" class="mr-2 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5">
         <MousePointerSquareDashed class="h-3 w-3 text-primary" />
         <span class="text-[10px] font-medium tabular-nums text-primary">{{ props.selectedCount }} selected</span>

@@ -341,7 +341,7 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
         const msgs = chat.messages;
         let enterIdx = -1;
         for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i].toolUse?.tool === 'EnterPlanMode') {
+          if (msgs[i]?.toolUse?.tool === 'EnterPlanMode') {
             enterIdx = i;
             break;
           }
@@ -349,8 +349,8 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
         let planText = '';
         if (enterIdx >= 0) {
           for (let i = enterIdx + 1; i < msgs.length; i++) {
-            if (msgs[i].toolUse?.tool === 'ExitPlanMode') break;
-            const tu = msgs[i].toolUse;
+            if (msgs[i]?.toolUse?.tool === 'ExitPlanMode') break;
+            const tu = msgs[i]?.toolUse;
             if (tu?.tool === 'Write') {
               const filePath = String(tu.input.file_path || tu.input.filePath || '');
               if (filePath.includes('.claude/plans/') && tu.input.content) {
@@ -361,9 +361,9 @@ export function useStreamHandlers({ ctx, rateLimitDetector, sessionRecovery }: S
           }
           if (!planText) {
             for (let i = enterIdx + 1; i < msgs.length; i++) {
-              if (msgs[i].toolUse?.tool === 'ExitPlanMode') break;
-              if (msgs[i].role === 'assistant' && msgs[i].content) {
-                planText += msgs[i].content;
+              if (msgs[i]?.toolUse?.tool === 'ExitPlanMode') break;
+              if (msgs[i]?.role === 'assistant' && msgs[i]?.content) {
+                planText += msgs[i]?.content;
               }
             }
           }

@@ -134,10 +134,10 @@ const EDGE_HANDLE_MAP: Record<string, { sourceHandle: string; targetHandle: stri
 };
 
 function onImport() {
-  const selectedAgentList = [...selectedAgents.value].sort((a, b) => a - b).map(i => agents.value[i]);
-  const selectedSkillList = [...selectedSkills.value].sort((a, b) => a - b).map(i => skills.value[i]);
-  const selectedMcpList = [...selectedMcps.value].sort((a, b) => a - b).map(i => mcps.value[i]);
-  const selectedRuleList = [...selectedRules.value].sort((a, b) => a - b).map(i => rules.value[i]);
+  const selectedAgentList = [...selectedAgents.value].sort((a, b) => a - b).map(i => agents.value[i]).filter((x): x is NonNullable<typeof x> => x != null);
+  const selectedSkillList = [...selectedSkills.value].sort((a, b) => a - b).map(i => skills.value[i]).filter((x): x is NonNullable<typeof x> => x != null);
+  const selectedMcpList = [...selectedMcps.value].sort((a, b) => a - b).map(i => mcps.value[i]).filter((x): x is NonNullable<typeof x> => x != null);
+  const selectedRuleList = [...selectedRules.value].sort((a, b) => a - b).map(i => rules.value[i]).filter((x): x is NonNullable<typeof x> => x != null);
 
   const totalCount = selectedAgentList.length + selectedSkillList.length + selectedMcpList.length + selectedRuleList.length;
   if (totalCount === 0) {
@@ -156,7 +156,7 @@ function onImport() {
   const orchestratorIndex = needsOrchestrator
     ? selectedAgentList.findIndex(a =>
         /orchestrator/i.test(a.label) ||
-        (a.metadata as AgentMetadata)?.domain === 'orchestrator')
+        ((a.metadata as AgentMetadata)?.domain as string) === 'orchestrator')
     : -1;
   const importedOrchestrator = orchestratorIndex >= 0 ? selectedAgentList[orchestratorIndex] : null;
 
@@ -254,7 +254,7 @@ function onImport() {
   // Orchestrator → each subagent/expert (delegation)
   if (orchestratorId) {
     for (const subId of executableNodeIds) {
-      const handles = EDGE_HANDLE_MAP['delegation'];
+      const handles = EDGE_HANDLE_MAP['delegation']!;
       graph.addEdge({ source: orchestratorId, target: subId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }
@@ -262,11 +262,11 @@ function onImport() {
   // Each executable node → skills (skill-usage), mcps (tool-access)
   for (const nodeId of executableNodeIds) {
     for (const skillId of skillNodeIds) {
-      const handles = EDGE_HANDLE_MAP['skill-usage'];
+      const handles = EDGE_HANDLE_MAP['skill-usage']!;
       graph.addEdge({ source: nodeId, target: skillId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
     for (const mcpId of mcpNodeIds) {
-      const handles = EDGE_HANDLE_MAP['tool-access'];
+      const handles = EDGE_HANDLE_MAP['tool-access']!;
       graph.addEdge({ source: nodeId, target: mcpId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }
@@ -278,7 +278,7 @@ function onImport() {
     : executableNodeIds;
   for (const nodeId of allExecutableIds) {
     for (const ruleId of ruleNodeIds) {
-      const handles = EDGE_HANDLE_MAP['rule-constraint'];
+      const handles = EDGE_HANDLE_MAP['rule-constraint']!;
       graph.addEdge({ source: nodeId, target: ruleId, sourceHandle: handles.sourceHandle, targetHandle: handles.targetHandle });
     }
   }

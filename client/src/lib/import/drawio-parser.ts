@@ -44,7 +44,7 @@ function extractAWSServiceKey(style: Record<string, string>): string | null {
   const resIcon = style.resIcon || style.prIcon;
   if (resIcon) {
     const match = resIcon.match(/mxgraph\.aws[34]\.(.+)/);
-    if (match) return match[1].toLowerCase();
+    if (match) return (match[1] ?? '').toLowerCase();
   }
 
   // Pattern 2: shape=mxgraph.aws4.<name> (direct reference)
@@ -52,7 +52,7 @@ function extractAWSServiceKey(style: Record<string, string>): string | null {
   if (shape) {
     const match = shape.match(/mxgraph\.aws[34]\.(.+)/);
     if (match) {
-      const key = match[1].toLowerCase();
+      const key = (match[1] ?? '').toLowerCase();
       // Skip generic group/resource/product icons — they're handled separately
       if (key === 'resourceicon' || key === 'producticon' || key === 'group') return null;
       return key;
@@ -72,7 +72,7 @@ function extractAWSGroupType(style: Record<string, string>): string | null {
   if (grIcon) {
     const match = grIcon.match(/mxgraph\.aws[34]\.group_(.+)/);
     if (match) {
-      return DRAWIO_GROUP_MAP[match[1].toLowerCase()] || 'generic';
+      return DRAWIO_GROUP_MAP[(match[1] ?? '').toLowerCase()] || 'generic';
     }
   }
 
@@ -81,7 +81,7 @@ function extractAWSGroupType(style: Record<string, string>): string | null {
   if (shape) {
     const match = shape.match(/mxgraph\.aws[34]\.group_(.+)/);
     if (match) {
-      return DRAWIO_GROUP_MAP[match[1].toLowerCase()] || 'generic';
+      return DRAWIO_GROUP_MAP[(match[1] ?? '').toLowerCase()] || 'generic';
     }
   }
 
@@ -156,7 +156,7 @@ async function decompressDiagramContent(content: string): Promise<string> {
     }
 
     const decoded = new TextDecoder().decode(
-      chunks.length === 1 ? chunks[0] : await new Blob(chunks).arrayBuffer().then(b => new Uint8Array(b))
+      chunks.length === 1 ? chunks[0] : await new Blob(chunks as BlobPart[]).arrayBuffer().then(b => new Uint8Array(b))
     );
 
     // draw.io also URL-encodes the XML after compression
@@ -200,7 +200,7 @@ export async function parseDrawioXML(xmlText: string): Promise<ImportResult> {
   const diagrams = doc.querySelectorAll('diagram');
 
   if (diagrams.length > 0) {
-    const diagramEl = diagrams[0];
+    const diagramEl = diagrams[0]!;
     const innerXML = diagramEl.textContent || '';
 
     // Check if content is compressed

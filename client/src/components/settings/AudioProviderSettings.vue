@@ -96,7 +96,7 @@ onMounted(() => {
       <!-- Active Provider Selection -->
       <div class="space-y-1.5">
         <Label class="text-xs">Provider</Label>
-        <Select :model-value="audioStore.activeProviderId" @update:model-value="selectProvider">
+        <Select :model-value="audioStore.activeProviderId" @update:model-value="(v: any) =>selectProvider(String(v ?? ''))">
           <SelectTrigger class="h-8 text-sm">
             <SelectValue />
           </SelectTrigger>
@@ -119,7 +119,7 @@ onMounted(() => {
       <!-- Language Selection -->
       <div class="space-y-1.5">
         <Label class="text-xs">Language</Label>
-        <Select :model-value="audioStore.language" @update:model-value="selectLanguage">
+        <Select :model-value="audioStore.language" @update:model-value="(v: any) =>selectLanguage(String(v ?? ''))">
           <SelectTrigger class="h-8 text-sm">
             <SelectValue />
           </SelectTrigger>
@@ -136,7 +136,7 @@ onMounted(() => {
         <Label class="text-xs">Model</Label>
         <Select
           :model-value="audioStore.selectedModelId || 'default'"
-          @update:model-value="selectModel"
+          @update:model-value="(v: any) =>selectModel(String(v ?? ''))"
         >
           <SelectTrigger class="h-8 text-sm">
             <SelectValue />

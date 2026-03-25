@@ -322,6 +322,84 @@ export function useDiagramEvents({
       }
     }
 
+    // Ctrl+C: Copy selected nodes
+    if ((event.ctrlKey || event.metaKey) && event.key === 'c' && !isInput) {
+      const selected = getSelectedNodes.value;
+      const ids = selected.length > 0
+        ? selected.map(n => n.id)
+        : diagrams.selectedNodeId ? [diagrams.selectedNodeId] : [];
+      if (ids.length > 0) {
+        event.preventDefault();
+        diagrams.copyNodes(ids);
+      }
+      return;
+    }
+
+    // Ctrl+V: Paste copied nodes
+    if ((event.ctrlKey || event.metaKey) && event.key === 'v' && !isInput) {
+      if (diagrams.clipboard) {
+        event.preventDefault();
+        const newIds = diagrams.pasteNodes(40, 40);
+        if (newIds.length > 0) {
+          // Deselect old, select new nodes in VueFlow
+          for (const node of getNodes.value) {
+            node.selected = false;
+          }
+          // Add pasted nodes to VueFlow
+          const newVfNodes = newIds
+            .map(id => diagrams.nodes.find(n => n.id === id))
+            .filter(Boolean)
+            .map(n => ({ ...n! }));
+          addNodes(newVfNodes);
+          const newEdges = diagrams.edges
+            .filter(e => newIds.includes(e.source) && newIds.includes(e.target))
+            .map(e => ({ ...e }));
+          if (newEdges.length) addEdges(newEdges);
+          // Select the pasted nodes
+          nextTick(() => {
+            for (const id of newIds) {
+              const vfNode = findNode(id);
+              if (vfNode) vfNode.selected = true;
+            }
+          });
+        }
+      }
+      return;
+    }
+
+    // Ctrl+D: Duplicate selected nodes in place
+    if ((event.ctrlKey || event.metaKey) && event.key === 'd' && !isInput) {
+      event.preventDefault();
+      const selected = getSelectedNodes.value;
+      const ids = selected.length > 0
+        ? selected.map(n => n.id)
+        : diagrams.selectedNodeId ? [diagrams.selectedNodeId] : [];
+      if (ids.length > 0) {
+        const newIds = diagrams.duplicateNodes(ids, 40, 40);
+        if (newIds.length > 0) {
+          for (const node of getNodes.value) {
+            node.selected = false;
+          }
+          const newVfNodes = newIds
+            .map(id => diagrams.nodes.find(n => n.id === id))
+            .filter(Boolean)
+            .map(n => ({ ...n! }));
+          addNodes(newVfNodes);
+          const newEdges = diagrams.edges
+            .filter(e => newIds.includes(e.source) && newIds.includes(e.target))
+            .map(e => ({ ...e }));
+          if (newEdges.length) addEdges(newEdges);
+          nextTick(() => {
+            for (const id of newIds) {
+              const vfNode = findNode(id);
+              if (vfNode) vfNode.selected = true;
+            }
+          });
+        }
+      }
+      return;
+    }
+
     if (event.key === 'Escape') {
       diagrams.selectNode(null);
       diagrams.selectEdge(null);

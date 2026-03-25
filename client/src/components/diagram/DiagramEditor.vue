@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { VueFlow, useVueFlow, SelectionMode } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
@@ -19,6 +19,7 @@ import AWSServiceNode from './nodes/AWSServiceNode.vue';
 import AWSGroupNode from './nodes/AWSGroupNode.vue';
 import AnimatedFlowEdge from './edges/AnimatedFlowEdge.vue';
 import ExportGifDialog from './dialogs/ExportGifDialog.vue';
+import ExportVideoDialog from './dialogs/ExportVideoDialog.vue';
 import AddCustomServiceDialog from './dialogs/AddCustomServiceDialog.vue';
 import ImportDiagramDialog from './dialogs/ImportDiagramDialog.vue';
 import DiagramAIChat from './DiagramAIChat.vue';
@@ -41,6 +42,7 @@ const diagrams = useDiagramsStore();
 const showSaveDialog = ref(false);
 const showLoadDialog = ref(false);
 const showGifDialog = ref(false);
+const showVideoDialog = ref(false);
 const showCustomServiceDialog = ref(false);
 const showImportDialog = ref(false);
 const flowContainer = ref<HTMLDivElement>();
@@ -109,8 +111,8 @@ const { commitInlineEdgeLabel, cancelInlineEdgeLabel, onDragOver, onDrop } = use
   findEdge,
 });
 
-// ─── Canvas export (PNG, SVG, JSON) ──────────────────────────────────
-const { exportJson, exportPng, exportSvg, importJson } = useCanvasExport({
+// ─── Canvas export (PNG, SVG, JSON, draw.io) ─────────────────────────
+const { exportJson, exportPng, exportSvg, importJson, exportDrawio } = useCanvasExport({
   flowContainer,
   diagrams,
   getViewport,
@@ -126,6 +128,36 @@ function toggleSnapToGrid() {
 
 function onNew() {
   diagrams.newDiagram();
+}
+
+function onDuplicate() {
+  const selected = getSelectedNodes.value;
+  const ids = selected.length > 0
+    ? selected.map(n => n.id)
+    : diagrams.selectedNodeId ? [diagrams.selectedNodeId] : [];
+  if (ids.length === 0) return;
+
+  const newIds = diagrams.duplicateNodes(ids, 40, 40);
+  if (newIds.length > 0) {
+    for (const node of getNodes.value) {
+      node.selected = false;
+    }
+    const newVfNodes = newIds
+      .map(id => diagrams.nodes.find(n => n.id === id))
+      .filter(Boolean)
+      .map(n => ({ ...n! }));
+    addNodes(newVfNodes);
+    const newEdges = diagrams.edges
+      .filter(e => newIds.includes(e.source) && newIds.includes(e.target))
+      .map(e => ({ ...e }));
+    if (newEdges.length) addEdges(newEdges);
+    nextTick(() => {
+      for (const id of newIds) {
+        const vfNode = findNode(id);
+        if (vfNode) vfNode.selected = true;
+      }
+    });
+  }
 }
 
 // ─── Mobile tap-to-add ────────────────────────────────────────────────
@@ -248,10 +280,14 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
             @export-svg="exportSvg"
             @export-json="exportJson"
             @export-gif="showGifDialog = true"
+            @export-video="showVideoDialog = true"
+            @export-drawio="exportDrawio"
+
             @import-json="importJson"
             @toggle-snap="toggleSnapToGrid"
             @collapse-all="diagrams.collapseAllGroups()"
             @expand-all="diagrams.expandAllGroups()"
+            @duplicate="onDuplicate"
           />
 
           <div
@@ -335,6 +371,9 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
           @export-svg="exportSvg"
           @export-json="exportJson"
           @export-gif="showGifDialog = true"
+          @export-video="showVideoDialog = true"
+          @export-drawio="exportDrawio"
+          @export-lucid="exportLucid"
           @toggle-snap="toggleSnapToGrid"
           @collapse-all="diagrams.collapseAllGroups()"
           @expand-all="diagrams.expandAllGroups()"
@@ -418,7 +457,8 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
     <!-- Dialogs -->
     <SaveDiagramDialog v-model:open="showSaveDialog" />
     <LoadDiagramDialog v-model:open="showLoadDialog" />
-    <ExportGifDialog v-model:open="showGifDialog" :flow-container="flowContainer" />
+    <ExportGifDialog v-model:open="showGifDialog" :flow-container="flowContainer" :get-viewport="getViewport" />
+    <ExportVideoDialog v-model:open="showVideoDialog" :flow-container="flowContainer" :get-viewport="getViewport" />
     <AddCustomServiceDialog v-model:open="showCustomServiceDialog" @add="onAddCustomService" />
     <ImportDiagramDialog v-model:open="showImportDialog" @import="onImportResult" @ai-import="onAIImport" />
   </div>

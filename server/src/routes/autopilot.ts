@@ -85,7 +85,7 @@ router.post('/profiles', validate({
 });
 
 router.put('/profiles/:id', async (req: AuthRequest, res) => {
-  const profile = await updateProfile(req.params.id, req.body);
+  const profile = await updateProfile(req.params.id as string, req.body);
   if (!profile) {
     res.status(404).json({ error: 'Profile not found or is built-in' });
     return;
@@ -94,7 +94,7 @@ router.put('/profiles/:id', async (req: AuthRequest, res) => {
 });
 
 router.delete('/profiles/:id', async (req: AuthRequest, res) => {
-  const ok = await deleteProfile(req.params.id);
+  const ok = await deleteProfile(req.params.id as string);
   if (!ok) {
     res.status(404).json({ error: 'Profile not found or is built-in' });
     return;

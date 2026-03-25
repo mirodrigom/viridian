@@ -99,6 +99,10 @@ export class ViridianStack extends cdk.Stack {
 
     const listener = alb.addListener('HttpListener', { port: 80 });
 
+    // Restrict ALB to CloudFront-only via custom origin header
+    const cfSecretHeader = 'X-Viridian-CF-Secret';
+    const cfSecretValue = 'viridian-cf-origin-verify';
+
     // ── Fargate Service ────────────────────────────────────────────────────
     const service = new ecs.FargateService(this, 'Service', {
       cluster,
@@ -111,16 +115,26 @@ export class ViridianStack extends cdk.Stack {
     // Allow ECS → RDS
     dbCluster.connections.allowDefaultPortFrom(service);
 
-    const targetGroup = listener.addTargets('EcsTarget', {
+    // Default: reject direct ALB access
+    listener.addAction('DefaultDeny', {
+      action: elbv2.ListenerAction.fixedResponse(403, {
+        contentType: 'text/plain',
+        messageBody: 'Forbidden',
+      }),
+    });
+
+    // Allow only requests from CloudFront (verified by custom header)
+    listener.addTargets('EcsTarget', {
       port: 12000,
       protocol: elbv2.ApplicationProtocol.HTTP,
       targets: [service],
+      conditions: [elbv2.ListenerCondition.httpHeader(cfSecretHeader, [cfSecretValue])],
+      priority: 1,
       healthCheck: {
         path: '/api/health',
         interval: cdk.Duration.seconds(30),
         healthyThresholdCount: 2,
       },
-      // Enable WebSocket stickiness
       stickinessCookieDuration: cdk.Duration.hours(1),
     });
 
@@ -132,6 +146,12 @@ export class ViridianStack extends cdk.Stack {
     });
 
     // ── CloudFront ─────────────────────────────────────────────────────────
+    // Shared ALB origin with custom header for origin verification
+    const albOrigin = new origins.LoadBalancerV2Origin(alb, {
+      protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
+      customHeaders: { [cfSecretHeader]: cfSecretValue },
+    });
+
     const distribution = new cloudfront.Distribution(this, 'Cdn', {
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(clientBucket),
@@ -140,18 +160,14 @@ export class ViridianStack extends cdk.Stack {
       },
       additionalBehaviors: {
         '/api/*': {
-          origin: new origins.LoadBalancerV2Origin(alb, {
-            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-          }),
+          origin: albOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER,
         },
         '/ws/*': {
-          origin: new origins.LoadBalancerV2Origin(alb, {
-            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTP_ONLY,
-          }),
+          origin: albOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
@@ -181,6 +197,8 @@ export class ViridianStack extends cdk.Stack {
       destinationBucket: clientBucket,
       distribution,
       distributionPaths: ['/*'],
+      memoryLimit: 512,
+      ephemeralStorageSize: cdk.Size.mebibytes(1024),
     });
 
     // ── Outputs ────────────────────────────────────────────────────────────

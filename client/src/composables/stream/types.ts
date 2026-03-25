@@ -8,7 +8,7 @@ import type { Router } from 'vue-router';
 export interface WebSocketHandle {
   connected: Ref<boolean>;
   connect: () => void;
-  send: (data: unknown) => boolean;
+  send: (data: Record<string, unknown>) => boolean;
   on: (event: string, handler: (data: unknown) => void) => void;
   disconnect: () => void;
 }

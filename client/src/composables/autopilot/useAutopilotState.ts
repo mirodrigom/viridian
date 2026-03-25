@@ -119,7 +119,7 @@ export function useAutopilotState() {
   function updateCycleStatus(cycleNumber: number, status: string) {
     const cycle = getCycle(cycleNumber);
     if (cycle) {
-      cycle.status = status;
+      cycle.status = status as typeof cycle.status;
     }
   }
 
