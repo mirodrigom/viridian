@@ -68,7 +68,7 @@ function verifyFaviconUrl(url: string): Promise<boolean> {
         const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
         // Look for at least one non-transparent pixel
         for (let i = 3; i < data.length; i += 4) {
-          if (data[i] > 10) { resolve(true); return; }
+          if ((data[i] ?? 0) > 10) { resolve(true); return; }
         }
         resolve(false);
       } catch {

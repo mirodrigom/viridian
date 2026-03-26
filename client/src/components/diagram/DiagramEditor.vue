@@ -373,7 +373,6 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
           @export-gif="showGifDialog = true"
           @export-video="showVideoDialog = true"
           @export-drawio="exportDrawio"
-          @export-lucid="exportLucid"
           @toggle-snap="toggleSnapToGrid"
           @collapse-all="diagrams.collapseAllGroups()"
           @expand-all="diagrams.expandAllGroups()"
