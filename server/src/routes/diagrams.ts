@@ -128,6 +128,80 @@ router.put('/:id', async (req: AuthRequest, res) => {
   res.json(rowToDiagram(row));
 });
 
+// POST /:id/share — create share link for a diagram
+router.post('/:id/share', async (req: AuthRequest, res) => {
+  const existing = await db('diagrams')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
+
+  if (!existing) {
+    res.status(404).json({ error: 'Diagram not found' });
+    return;
+  }
+
+  // Check if already shared
+  const existingShare = await db('diagram_shares')
+    .where({ diagram_id: req.params.id })
+    .first();
+
+  if (existingShare) {
+    res.json({ shareToken: existingShare.id });
+    return;
+  }
+
+  const shareToken = randomUUID();
+  await db('diagram_shares').insert({
+    id: shareToken,
+    diagram_id: req.params.id,
+    user_id: req.user!.id,
+  });
+
+  res.status(201).json({ shareToken });
+});
+
+// DELETE /:id/share — remove share link
+router.delete('/:id/share', async (req: AuthRequest, res) => {
+  const existing = await db('diagrams')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
+
+  if (!existing) {
+    res.status(404).json({ error: 'Diagram not found' });
+    return;
+  }
+
+  await db('diagram_shares')
+    .where({ diagram_id: req.params.id, user_id: req.user!.id })
+    .delete();
+
+  res.status(204).send();
+});
+
+// GET /:id/share-status — check if diagram is shared
+router.get('/:id/share-status', async (req: AuthRequest, res) => {
+  const existing = await db('diagrams')
+    .where({ id: req.params.id, user_id: req.user!.id })
+    .select('id')
+    .first();
+
+  if (!existing) {
+    res.status(404).json({ error: 'Diagram not found' });
+    return;
+  }
+
+  const share = await db('diagram_shares')
+    .where({ diagram_id: req.params.id })
+    .first();
+
+  if (share) {
+    res.json({ shared: true, shareToken: share.id });
+  } else {
+    res.json({ shared: false });
+  }
+});
+
 // DELETE /:id — delete diagram
 router.delete('/:id', async (req: AuthRequest, res) => {
   const existing = await db('diagrams')

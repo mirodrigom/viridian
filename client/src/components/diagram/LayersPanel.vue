@@ -345,6 +345,7 @@ onUnmounted(() => {
           @dragleave="onRootDragLeave"
           @drop="onDrop($event, null)"
         />
+
       </div>
     </ScrollArea>
 

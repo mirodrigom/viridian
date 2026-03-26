@@ -13,6 +13,7 @@ import DiagramToolbar from './DiagramToolbar.vue';
 import NodePalette from './NodePalette.vue';
 import PropertiesPanel from './PropertiesPanel.vue';
 import LayersPanel from './LayersPanel.vue';
+import ConnectionsPanel from './ConnectionsPanel.vue';
 import SaveDiagramDialog from './dialogs/SaveDiagramDialog.vue';
 import LoadDiagramDialog from './dialogs/LoadDiagramDialog.vue';
 import AWSServiceNode from './nodes/AWSServiceNode.vue';
@@ -249,12 +250,16 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
       <ResizablePanel :default-size="14" :min-size="10" :max-size="22">
         <div class="flex h-full flex-col border-r border-border">
           <ResizablePanelGroup direction="vertical">
-            <ResizablePanel :default-size="60" :min-size="20">
+            <ResizablePanel :default-size="45" :min-size="15">
               <NodePalette @add-custom="showCustomServiceDialog = true" />
             </ResizablePanel>
             <ResizableHandle />
-            <ResizablePanel :default-size="40" :min-size="15">
+            <ResizablePanel :default-size="30" :min-size="12">
               <LayersPanel />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel :default-size="25" :min-size="12">
+              <ConnectionsPanel />
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>
@@ -569,6 +574,15 @@ function onImportResult(result: ImportResult, options: { autoLayout: boolean }) 
   width: 14px;
   height: 14px;
   transition: width 0.15s, height 0.15s;
+}
+
+/* ─── Selected edge highlight ─── */
+.diagram-canvas .vue-flow__edge.selected .vue-flow__edge-path {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+.diagram-canvas .vue-flow__edge.selected .vue-flow__edge-interaction {
+  stroke-width: 30;
 }
 
 /* ─── Animated edge flow ─── */

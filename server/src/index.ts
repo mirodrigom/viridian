@@ -25,6 +25,7 @@ import autopilotRoutes from './routes/autopilot.js';
 import providersRoutes from './routes/providers.js';
 import managementRoutes from './routes/management.js';
 import diagramsRoutes from './routes/diagrams.js';
+import sharedRoutes from './routes/shared.js';
 import manualsRoutes from './routes/manuals.js';
 import tracesRoutes from './routes/traces.js';
 import audioRoutes from './routes/audio.js';
@@ -60,6 +61,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // Public routes
 app.use('/api/auth', authRoutes);
+app.use('/api/shared', sharedRoutes);
 
 // Protected routes
 app.use('/api/files', filesRoutes);

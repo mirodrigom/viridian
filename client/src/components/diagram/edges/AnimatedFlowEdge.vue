@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { getBezierPath, getStraightPath, getSmoothStepPath, EdgeLabelRenderer } from '@vue-flow/core';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { getBezierPath, getStraightPath, getSmoothStepPath, EdgeLabelRenderer, useVueFlow } from '@vue-flow/core';
 import type { EdgeProps } from '@vue-flow/core';
 import type { DiagramEdgeData } from '@/stores/diagrams';
 import { useDiagramsStore } from '@/stores/diagrams';
 
 const props = defineProps<EdgeProps>();
 const diagrams = useDiagramsStore();
+const { viewport } = useVueFlow();
 
 const edgeData = computed(() => (props.data || {}) as DiagramEdgeData);
 
@@ -120,17 +121,21 @@ const maxFlowLevel = computed(() => diagrams.maxFlowLevel);
 const hasManualOrder = computed(() => edgeData.value.flowOrder != null);
 
 // Position for the sequence badge — near source or target end of the path
+// Uses badgeOffset (computed later) to spread badges that share the same node
 const badgePos = computed(() => {
   // Depend on pathData so badge repositions when nodes move
   const _path = pathData.value;
   void _path;
   if (!pathRef.value || !pathReady.value || (maxFlowLevel.value === 0 && !hasManualOrder.value)) return null;
   const len = pathRef.value.getTotalLength();
+  const level = flowLevel.value;
   const pos = edgeData.value.flowOrderPosition || 'source';
+  // Use flowLevel to naturally space badges from the same node
+  const base = 24 + level * 8;
   if (pos === 'target') {
-    return pathRef.value.getPointAtLength(Math.max(len - 24, len * 0.88));
+    return pathRef.value.getPointAtLength(Math.max(len - Math.min(base, len * 0.4), len * 0.6));
   }
-  return pathRef.value.getPointAtLength(Math.min(24, len * 0.12));
+  return pathRef.value.getPointAtLength(Math.min(base, len * 0.4));
 });
 
 // ── Custom SVG markers (VueFlow's marker system doesn't react to post-creation changes) ──
@@ -156,6 +161,84 @@ const dotPositions = computed(() => {
     return { x: point.x, y: point.y, key: i };
   });
 });
+
+// ── Label offset from edge data ──────────────────────────────────────
+const labelOffsetX = computed(() => edgeData.value.labelOffsetX || 0);
+const labelOffsetY = computed(() => edgeData.value.labelOffsetY || 0);
+
+// ── Draggable label handling ─────────────────────────────────────────
+const isDragging = ref(false);
+const dragStartScreenX = ref(0);
+const dragStartScreenY = ref(0);
+const dragStartOffsetX = ref(0);
+const dragStartOffsetY = ref(0);
+const hasMoved = ref(false);
+
+function onLabelMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  isDragging.value = true;
+  hasMoved.value = false;
+  dragStartScreenX.value = e.clientX;
+  dragStartScreenY.value = e.clientY;
+  dragStartOffsetX.value = labelOffsetX.value;
+  dragStartOffsetY.value = labelOffsetY.value;
+  window.addEventListener('mousemove', onLabelMouseMove);
+  window.addEventListener('mouseup', onLabelMouseUp);
+}
+
+// Max distance (in flow-space px) the label can be dragged from the edge midpoint
+const MAX_LABEL_OFFSET = 120;
+
+function clampOffset(x: number, y: number): { x: number; y: number } {
+  const dist = Math.sqrt(x * x + y * y);
+  if (dist <= MAX_LABEL_OFFSET) return { x, y };
+  const scale = MAX_LABEL_OFFSET / dist;
+  return { x: x * scale, y: y * scale };
+}
+
+function onLabelMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return;
+  // Convert screen delta to flow-space delta by dividing by zoom
+  const zoom = viewport.value.zoom || 1;
+  const dx = (e.clientX - dragStartScreenX.value) / zoom;
+  const dy = (e.clientY - dragStartScreenY.value) / zoom;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+    hasMoved.value = true;
+  }
+  const clamped = clampOffset(dragStartOffsetX.value + dx, dragStartOffsetY.value + dy);
+  diagrams.updateEdgeData(props.id, {
+    labelOffsetX: clamped.x,
+    labelOffsetY: clamped.y,
+  });
+}
+
+function onLabelMouseUp(e: MouseEvent) {
+  window.removeEventListener('mousemove', onLabelMouseMove);
+  window.removeEventListener('mouseup', onLabelMouseUp);
+  isDragging.value = false;
+  if (!hasMoved.value) {
+    // Click without drag — select the edge
+    diagrams.selectEdge(props.id);
+  }
+}
+
+function onLabelDblClick(e: MouseEvent) {
+  e.stopPropagation();
+  e.preventDefault();
+  // Reset label position to center
+  diagrams.updateEdgeData(props.id, {
+    labelOffsetX: 0,
+    labelOffsetY: 0,
+  });
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onLabelMouseMove);
+  window.removeEventListener('mouseup', onLabelMouseUp);
+});
+
 </script>
 
 <template>
@@ -268,15 +351,20 @@ const dotPositions = computed(() => {
 
   <!-- Edge label and flow badge rendered as HTML so they appear above nodes -->
   <EdgeLabelRenderer>
-    <!-- Edge label -->
+    <!-- Edge label (draggable) -->
     <div
       v-if="edgeData.label"
       class="nodrag nopan"
       :style="{
         position: 'absolute',
-        transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-        pointerEvents: 'none',
+        transform: `translate(-50%, -50%) translate(${labelX + labelOffsetX}px, ${labelY + labelOffsetY}px)`,
+        pointerEvents: 'all',
+        cursor: isDragging ? 'grabbing' : 'grab',
+        userSelect: 'none',
+        zIndex: 1,
       }"
+      @mousedown="onLabelMouseDown"
+      @dblclick="onLabelDblClick"
     >
       <span
         :style="{

@@ -177,6 +177,12 @@ export class ViridianStack extends cdk.Stack {
       defaultRootObject: 'index.html',
       errorResponses: [
         {
+          httpStatus: 403,
+          responseHttpStatus: 200,
+          responsePagePath: '/index.html',
+          ttl: cdk.Duration.seconds(0),
+        },
+        {
           httpStatus: 404,
           responseHttpStatus: 200,
           responsePagePath: '/index.html',
@@ -195,8 +201,6 @@ export class ViridianStack extends cdk.Stack {
     new s3deploy.BucketDeployment(this, 'DeployClient', {
       sources: [s3deploy.Source.asset('../client/dist')],
       destinationBucket: clientBucket,
-      distribution,
-      distributionPaths: ['/*'],
       memoryLimit: 512,
       ephemeralStorageSize: cdk.Size.mebibytes(1024),
     });

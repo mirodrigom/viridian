@@ -34,7 +34,21 @@ fi
 
 npx cdk deploy "$@" --require-approval never
 
-# ── 3. Print outputs ─────────────────────────────────────────────────────────
+# ── 3. Invalidate CloudFront cache ────────────────────────────────────────────
+step "Invalidating CloudFront cache..."
+CF_DIST_ID=$(aws cloudformation describe-stacks \
+  --stack-name ViridianStack \
+  --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+  --output text 2>/dev/null || true)
+
+if [ -n "$CF_DIST_ID" ]; then
+  aws cloudfront create-invalidation --distribution-id "$CF_DIST_ID" --paths "/*" > /dev/null
+  echo -e "  ${GREEN}✓${NC}  CloudFront cache invalidated ($CF_DIST_ID)"
+else
+  echo "  ⚠  Could not find CloudFront distribution ID — skip invalidation"
+fi
+
+# ── 4. Print outputs ─────────────────────────────────────────────────────────
 step "Deployment complete!"
 echo ""
 echo -e "${GREEN}Stack outputs:${NC}"

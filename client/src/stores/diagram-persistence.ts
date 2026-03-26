@@ -135,6 +135,8 @@ export function deserializeDiagram(
       dotColor: e.data?.dotColor ?? '',
       labelSize: e.data?.labelSize ?? 'small',
       dotDirection: e.data?.dotDirection ?? 'forward',
+      labelOffsetX: e.data?.labelOffsetX ?? 0,
+      labelOffsetY: e.data?.labelOffsetY ?? 0,
     };
     return {
       id: e.id,
@@ -222,6 +224,23 @@ export function createDiagramPersistence(deps: DiagramPersistenceDeps) {
     if (deps.currentDiagramId.value === id) deps.newDiagram();
   }
 
+  async function shareDiagram(diagramId: string): Promise<{ shareToken: string }> {
+    const res = await apiFetch(`/api/diagrams/${diagramId}/share`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to create share link');
+    return res.json();
+  }
+
+  async function unshareDiagram(diagramId: string): Promise<void> {
+    const res = await apiFetch(`/api/diagrams/${diagramId}/share`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) throw new Error('Failed to remove share link');
+  }
+
+  async function getShareStatus(diagramId: string): Promise<{ shared: boolean; shareToken?: string }> {
+    const res = await apiFetch(`/api/diagrams/${diagramId}/share-status`);
+    if (!res.ok) throw new Error('Failed to get share status');
+    return res.json();
+  }
+
   return {
     serialize,
     deserialize,
@@ -229,5 +248,8 @@ export function createDiagramPersistence(deps: DiagramPersistenceDeps) {
     loadDiagram,
     saveDiagram,
     deleteDiagram,
+    shareDiagram,
+    unshareDiagram,
+    getShareStatus,
   };
 }

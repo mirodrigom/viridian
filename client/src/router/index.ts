@@ -107,6 +107,12 @@ const router = createRouter({
       component: ProjectPage,
       meta: { tab: 'scheduler' },
     },
+    {
+      path: '/share/d/:shareToken',
+      name: 'shared-diagram',
+      component: () => import('@/pages/SharedDiagramPage.vue'),
+      meta: { public: true },
+    },
   ],
 });
 

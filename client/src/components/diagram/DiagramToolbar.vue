@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue';
+import { ref, computed, onUnmounted, onMounted } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { useDiagramsStore } from '@/stores/diagrams';
 import {
   Save, FolderOpen, FilePlus, Maximize2, Download, ImageDown, FileJson, FileType, Grid3x3, MousePointerSquareDashed,
   Minimize2, Maximize, Film, Clapperboard, Undo2, Redo2, Import, FileUp, Copy,
-  Play, Pause, SkipBack, SkipForward, StopCircle, Share2,
+  Play, Pause, SkipBack, SkipForward, StopCircle, Share2, Link, Check, Loader2, Unlink,
 } from 'lucide-vue-next';
+import { apiFetch } from '@/lib/apiFetch';
 
 const props = defineProps<{
   snapToGrid: boolean;
@@ -15,6 +19,84 @@ const props = defineProps<{
 }>();
 
 const diagrams = useDiagramsStore();
+
+// ─── Share dialog ────────────────────────────────────────────────────────────
+const showShareDialog = ref(false);
+const shareLoading = ref(false);
+const shareStatus = ref<{ shared: boolean; shareToken?: string }>({ shared: false });
+const shareCopied = ref(false);
+
+const canShare = computed(() => !!diagrams.currentDiagramId);
+
+const shareUrl = computed(() => {
+  if (!shareStatus.value.shareToken) return '';
+  return `${window.location.origin}/share/d/${shareStatus.value.shareToken}`;
+});
+
+async function openShareDialog() {
+  showShareDialog.value = true;
+  if (!diagrams.currentDiagramId) return;
+
+  shareLoading.value = true;
+  try {
+    const res = await apiFetch(`/api/diagrams/${diagrams.currentDiagramId}/share-status`);
+    if (res.ok) {
+      shareStatus.value = await res.json();
+    }
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function createShareLink() {
+  if (!diagrams.currentDiagramId) return;
+  shareLoading.value = true;
+  try {
+    const res = await apiFetch(`/api/diagrams/${diagrams.currentDiagramId}/share`, {
+      method: 'POST',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      shareStatus.value = { shared: true, shareToken: data.shareToken };
+    }
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function removeShareLink() {
+  if (!diagrams.currentDiagramId) return;
+  shareLoading.value = true;
+  try {
+    const res = await apiFetch(`/api/diagrams/${diagrams.currentDiagramId}/share`, {
+      method: 'DELETE',
+    });
+    if (res.ok || res.status === 204) {
+      shareStatus.value = { shared: false };
+    }
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function copyShareUrl() {
+  if (!shareUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(shareUrl.value);
+    shareCopied.value = true;
+    setTimeout(() => { shareCopied.value = false; }, 2000);
+  } catch {
+    // Fallback for environments without clipboard API
+    const input = document.createElement('input');
+    input.value = shareUrl.value;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+    shareCopied.value = true;
+    setTimeout(() => { shareCopied.value = false; }, 2000);
+  }
+}
 
 // ─── Flow playback ──────────────────────────────────────────────────────────
 const isPlaying = ref(false);
@@ -274,6 +356,25 @@ const exportTools = [
         <TooltipContent>Export draw.io / Lucidchart (.drawio)</TooltipContent>
       </Tooltip>
 
+      <!-- Share -->
+      <template v-if="canShare">
+        <div class="mx-1 h-4 w-px bg-border" />
+        <Tooltip>
+          <TooltipTrigger as-child>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 w-7 p-0"
+              data-testid="toolbar-share"
+              @click="openShareDialog"
+            >
+              <Link class="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Share Diagram</TooltipContent>
+        </Tooltip>
+      </template>
+
       <!-- Flow playback controls — only visible when diagram has numbered flow levels -->
       <template v-if="showPlayback">
         <div class="mx-1 h-4 w-px bg-border" />
@@ -371,5 +472,58 @@ const exportTools = [
         <span>{{ diagrams.edgeCount }} edges</span>
       </div>
     </TooltipProvider>
+
+    <!-- Share Dialog -->
+    <Dialog v-model:open="showShareDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Share Diagram</DialogTitle>
+          <DialogDescription>
+            Create a public link to share a read-only view of this diagram.
+          </DialogDescription>
+        </DialogHeader>
+
+        <!-- Loading state -->
+        <div v-if="shareLoading" class="flex items-center justify-center py-6">
+          <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+
+        <!-- Not shared yet -->
+        <div v-else-if="!shareStatus.shared" class="py-4">
+          <p class="mb-4 text-sm text-muted-foreground">
+            Anyone with the link will be able to view this diagram without signing in.
+          </p>
+          <Button class="w-full" @click="createShareLink">
+            <Link class="mr-2 h-4 w-4" />
+            Create Share Link
+          </Button>
+        </div>
+
+        <!-- Already shared -->
+        <div v-else class="space-y-4 py-4">
+          <div class="flex items-center gap-2">
+            <input
+              :value="shareUrl"
+              readonly
+              class="flex-1 rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
+              @focus="($event.target as HTMLInputElement).select()"
+            />
+            <Button variant="outline" size="sm" class="shrink-0" @click="copyShareUrl">
+              <Check v-if="shareCopied" class="mr-1 h-3.5 w-3.5 text-green-500" />
+              <Copy v-else class="mr-1 h-3.5 w-3.5" />
+              {{ shareCopied ? 'Copied' : 'Copy' }}
+            </Button>
+          </div>
+
+          <div class="flex items-center justify-between rounded-md border border-border bg-muted/50 px-3 py-2">
+            <span class="text-xs text-muted-foreground">This diagram is publicly shared</span>
+            <Button variant="ghost" size="sm" class="h-7 text-xs text-destructive hover:text-destructive" @click="removeShareLink">
+              <Unlink class="mr-1 h-3 w-3" />
+              Unshare
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>

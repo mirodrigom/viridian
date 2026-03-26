@@ -61,6 +61,8 @@ export interface DiagramEdgeData {
   dotDirection?: DotDirection;
   flowOrder?: number;
   flowOrderPosition?: 'source' | 'target';
+  labelOffsetX?: number;
+  labelOffsetY?: number;
 }
 
 export interface SerializedDiagramNode {
@@ -753,6 +755,15 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     pushSnapshot();
   }
 
+  function toggleEdgeVisibility(edgeId: string) {
+    const edge = edgeById.value.get(edgeId);
+    if (!edge) return;
+    edge.hidden = !edge.hidden;
+    isDirty.value = true;
+    mutationVersion.value++;
+    pushSnapshot();
+  }
+
   function removeEdge(id: string) {
     edges.value = edges.value.filter(e => e.id !== id);
     if (selectedEdgeId.value === id) selectedEdgeId.value = null;
@@ -865,7 +876,7 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     playbackStep, playbackMaxStep, setPlaybackStep,
     // Node CRUD
     addServiceNode, addCustomServiceNode, addGroupNode, removeNode,
-    updateNodeData, updateNodePosition, selectNode, selectEdge, toggleNodeVisibility,
+    updateNodeData, updateNodePosition, selectNode, selectEdge, toggleNodeVisibility, toggleEdgeVisibility,
     // Parent-child nesting (from grouping module)
     setNodeParent: grouping.setNodeParent,
     ungroupChildren: grouping.ungroupChildren,
@@ -903,6 +914,10 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     loadDiagram: persistence.loadDiagram,
     saveDiagram: persistence.saveDiagram,
     deleteDiagram: persistence.deleteDiagram,
+    // Sharing
+    shareDiagram: persistence.shareDiagram,
+    unshareDiagram: persistence.unshareDiagram,
+    getShareStatus: persistence.getShareStatus,
   };
 });
 
