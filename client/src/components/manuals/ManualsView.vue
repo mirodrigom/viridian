@@ -17,7 +17,7 @@ const showEditor = ref(false);
 const newTitle = ref('');
 const creating = ref(false);
 
-const projectPath = computed(() => chatStore.projectPath || '/tmp');
+const projectPath = computed(() => chatStore?.projectPath || '/tmp');
 
 onMounted(() => {
   manualsStore.fetchManualList(projectPath.value);

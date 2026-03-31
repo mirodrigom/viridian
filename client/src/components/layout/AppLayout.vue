@@ -149,7 +149,7 @@ watch(activeTab, (newTab, oldTab) => {
   }
   // For autopilot, preserve run/cycle in URL if a run is loaded
   if (newTab === 'autopilot' && (route.name === 'autopilot-run' || route.name === 'autopilot-cycle')) return;
-  if (newTab === 'autopilot' && autopilotStore.currentRun) {
+  if (newTab === 'autopilot' && autopilotStore?.currentRun) {
     const runId = autopilotStore.currentRun.runId;
     if (autopilotStore.selectedCycleNumber !== null) {
       router.replace({ name: 'autopilot-cycle', params: { runId, cycleNumber: String(autopilotStore.selectedCycleNumber) } });

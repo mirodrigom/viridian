@@ -859,6 +859,46 @@ export const useDiagramsStore = defineStore('diagrams', () => {
   // Capture initial empty state so the very first mutation is undoable
   pushSnapshot();
 
+  // ─── Export bridge ─────────────────────────────────────────────────
+  // Allows external components (like Confluence converter) to capture a PNG data URL
+  // from the currently rendered diagram. DiagramEditor registers the function on mount.
+  const _exportPngAsDataUrl = ref<(() => Promise<string | null>) | null>(null);
+
+  function registerExportPngAsDataUrl(fn: () => Promise<string | null>) {
+    _exportPngAsDataUrl.value = fn;
+  }
+
+  async function capturePngDataUrl(): Promise<string | null> {
+    if (!_exportPngAsDataUrl.value) return null;
+
+    // html-to-image cannot capture elements with display:none.
+    // The diagram tab uses force-mount + display:none when hidden,
+    // so we temporarily make it visible for the capture.
+    const diagramTabContent = document.querySelector('[data-diagram-tab]') as HTMLElement | null;
+    const wasHidden = diagramTabContent?.style.display === 'none';
+    if (diagramTabContent && wasHidden) {
+      diagramTabContent.style.display = '';
+      diagramTabContent.style.position = 'fixed';
+      diagramTabContent.style.left = '-9999px';
+      diagramTabContent.style.width = '1920px';
+      diagramTabContent.style.height = '1080px';
+      // Allow layout to recalculate
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    try {
+      return await _exportPngAsDataUrl.value();
+    } finally {
+      if (diagramTabContent && wasHidden) {
+        diagramTabContent.style.display = 'none';
+        diagramTabContent.style.position = '';
+        diagramTabContent.style.left = '';
+        diagramTabContent.style.width = '';
+        diagramTabContent.style.height = '';
+      }
+    }
+  }
+
   return {
     // State
     nodes, edges, selectedNodeId, selectedEdgeId,
@@ -918,6 +958,9 @@ export const useDiagramsStore = defineStore('diagrams', () => {
     shareDiagram: persistence.shareDiagram,
     unshareDiagram: persistence.unshareDiagram,
     getShareStatus: persistence.getShareStatus,
+    // Export bridge (for external PNG capture)
+    registerExportPngAsDataUrl,
+    capturePngDataUrl,
   };
 });
 

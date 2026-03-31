@@ -80,7 +80,7 @@ async function handleRoute(to: RouteLocationNormalized, isRouteUpdate = false) {
 
   // --- Autopilot handling ---
   const runId = to.params.runId as string | undefined;
-  if (runId) {
+  if (runId && autopilot) {
     if (autopilot.isRunning && autopilot.currentRun?.runId !== runId) {
       router.replace({ name: 'autopilot-run', params: { runId: autopilot.currentRun!.runId } });
     } else if (autopilot.currentRun?.runId !== runId) {

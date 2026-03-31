@@ -209,7 +209,7 @@ router.post('/:id/generate', async (req: AuthRequest, res) => {
       /* ── A4 page layout: footer always at bottom ── */
       .page { min-height: 1123px !important; display: flex !important; flex-direction: column !important; box-sizing: border-box !important; }
       .page-content { flex: 1 1 auto !important; }
-      .page-footer  { margin-top: auto !important; }
+      .page-footer  { margin-top: 24px !important; }
       /* ── Cover page: clamp excessive vertical whitespace ── */
       .cover-content, .portada-content, [class*="cover"] .page-content, [class*="portada"] .page-content { justify-content: flex-start !important; padding-top: 32px !important; }
       .page-content > * + * { margin-top: revert; }
@@ -234,6 +234,7 @@ router.post('/:id/generate', async (req: AuthRequest, res) => {
       @media print {
         @page { size: A4; margin: 12mm 15mm; }
         .page { min-height: 0 !important; page-break-after: always !important; break-after: page !important; box-shadow: none !important; margin: 0 !important; border-radius: 0 !important; border: none !important; }
+        .page:last-child { page-break-after: auto !important; break-after: auto !important; }
         body  { background: #fff !important; padding: 0 !important; margin: 0 !important; }
         .page-header { overflow: visible !important; }
       }
@@ -298,7 +299,8 @@ router.post('/:id/generate', async (req: AuthRequest, res) => {
 
   const logoInstructions = `
 LOGO PLACEMENT (critical — must be exact):
-- Every page must have a header with class="page-header" and inline style="display:flex;flex-direction:row;align-items:center;justify-content:space-between;"
+- Every page must have a header with class="page-header" and inline style="display:flex;flex-direction:row;align-items:center;justify-content:space-between;background:#ffffff;"
+- The page-header MUST have a WHITE background (#ffffff). NEVER use dark, gradient, or colored backgrounds on the header — logos may have dark elements that become unreadable on dark backgrounds
 - Inside page-header, ALWAYS exactly these 3 children IN ORDER:
   1. <div class="logo-left" style="flex-shrink:0;min-width:80px;"></div>  ← LEAVE EMPTY — logo injected automatically
   2. <div class="center-title" style="flex:1;text-align:center;">Section Title</div>
@@ -311,7 +313,7 @@ A4 PAGE LAYOUT (critical):
 - The .page width is 900px on screen. Usable content area inside page-content is about 800px wide (after padding)
 - Structure each .page as: page-header → page-content (main content) → page-footer
 - page-content should contain ALL the section content for that page
-- page-footer must always be the LAST element inside .page, after all content
+- page-footer must always be the LAST element inside .page, placed immediately after page-content (do NOT use margin-top:auto or flexbox tricks to push it to the bottom — it must flow naturally after the content to avoid PDF pagination issues)
 - If a section has more content than fits in one page, split it into multiple .page divs, each with its own header and footer
 - Large diagrams or flow charts that would exceed one page must each get their own dedicated .page div
 - Cover page: do NOT use justify-content:center or large padding-top on the cover page-content — start content from the top with normal padding (24px). The cover should show the title and metadata immediately below the header without excessive whitespace
@@ -356,13 +358,13 @@ ${logoInstructions}
 
 STRUCTURE per page:
 <div class="page" style="page-break-inside:avoid;">
-  <div class="page-header" style="display:flex;flex-direction:row;align-items:center;justify-content:space-between;">
+  <div class="page-header" style="display:flex;flex-direction:row;align-items:center;justify-content:space-between;background:#ffffff;border-bottom:3px solid ${primaryColor};">
     <div class="logo-left" style="flex-shrink:0;"></div>
     <div class="center-title" style="flex:1;text-align:center;">Section Title</div>
     <div class="logo-right" style="flex-shrink:0;"></div>
   </div>
   <div class="page-content">...content...</div>
-  <div class="page-footer" style="page-break-inside:avoid;"><span>Company — Title</span><span>Page X of Y | Date</span></div>
+  <div class="page-footer" style="margin-top:24px;"><span>Company — Title</span><span>Page X of Y | Date</span></div>
 </div>`;
 
   const generateSystemPrompt = `You are a professional document designer. Generate a complete, polished, self-contained HTML file based on the user's description.
@@ -469,6 +471,17 @@ ${logoInstructions}`;
     }
 
     log.info({ chars: accumulatedText.length }, 'Generate done');
+
+    // Guard: if the provider returned no usable content, report an error
+    // instead of saving a blank page with only logos/topbar.
+    const stripped = accumulatedText.replace(/\s+/g, '');
+    if (!stripped || stripped.length < 50) {
+      log.warn({ chars: accumulatedText.length, stripped: stripped.length }, 'Provider returned empty or trivially short content');
+      sendEvent('error', { error: 'The AI provider returned no content. Check that the provider is properly configured and has API access.' });
+      res.end();
+      return;
+    }
+
     sendEvent('progress', { text: 'Injecting logos and styles...' });
 
     // Inject CSS + logos server-side (not sent to Claude to avoid token limit)
@@ -526,10 +539,49 @@ router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
       @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; src: local('Inter ExtraBold'), local('Helvetica Neue Bold'), local('Arial Black'); }
       @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; src: local('JetBrains Mono'), local('Courier New'), local('monospace'); }
     </style>`;
+    // Fix PDF-specific issues:
+    // 1. Remove gradient text (-webkit-background-clip:text) so text remains selectable/searchable
+    // 2. Prevent last page footer from being clipped by removing page-break-after on last .page
+    const pdfFixes = `<style id="pdf-fixes">
+      /* Remove gradient-text technique so PDF text is selectable and searchable */
+      h1, h2, h3, h4, h5, h6, span, p, a, li, td, th, label, div {
+        -webkit-background-clip: initial !important;
+        background-clip: initial !important;
+        -webkit-text-fill-color: initial !important;
+        color: inherit;
+      }
+      h1, h2, h3, h4, h5, h6 {
+        background: none !important;
+        background-image: none !important;
+        color: #1e3a5f !important;
+      }
+      /* Preserve table header gradient backgrounds */
+      thead tr { color: #fff !important; }
+      thead th { color: #fff !important; }
+      /* Fix footer placement: remove min-height so Puppeteer paginates naturally */
+      .page { min-height: auto !important; }
+      .page-footer { margin-top: 24px !important; }
+      /* Prevent last page footer from being clipped */
+      .page:last-child { page-break-after: auto !important; break-after: auto !important; margin-bottom: 0 !important; }
+      .page:last-child .page-footer { padding-bottom: 16px !important; }
+      /* Ensure all text renders as real text, not rasterized layers */
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      /* Force white header background so logos with any colors remain legible */
+      .page-header {
+        background: #ffffff !important;
+        background-image: none !important;
+      }
+      /* Avoid rasterization from CSS filters/transforms that force compositing */
+      .page, .page-content, .page-header, .page-footer {
+        filter: none !important;
+        backdrop-filter: none !important;
+        -webkit-filter: none !important;
+      }
+    </style>`;
     if (html.includes('</head>')) {
-      html = html.replace('</head>', `${fontFallback}</head>`);
+      html = html.replace('</head>', `${fontFallback}${pdfFixes}</head>`);
     } else {
-      html = `${fontFallback}${html}`;
+      html = `${fontFallback}${pdfFixes}${html}`;
     }
 
     browser = await puppeteer.launch({
@@ -553,7 +605,7 @@ router.post('/:id/export-pdf', async (req: AuthRequest, res) => {
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '12mm', bottom: '12mm', left: '15mm', right: '15mm' },
+      margin: { top: '12mm', bottom: '16mm', left: '15mm', right: '15mm' },
     });
     await browser.close();
     browser = undefined;

@@ -63,7 +63,7 @@ function reset() {
 
 onMounted(() => {
   store.connect();
-  store.init(chat.projectPath);
+  store.init(chat.projectPath ?? null);
 });
 
 watch(() => chat.projectPath, (path) => {
@@ -81,7 +81,7 @@ watch(() => chat.projectPath, (path) => {
         v-if="store.projectPath"
         class="text-[10px] font-mono text-muted-foreground truncate max-w-48"
         :title="store.projectPath"
-      >{{ store.projectPath.split('/').pop() }}</span>
+      >{{ store.projectPath?.split('/').pop() }}</span>
       <span
         v-if="store.runningCount > 0"
         class="flex h-4 min-w-5 items-center justify-center rounded-full bg-green-500/15 px-1.5 text-[10px] font-semibold text-green-500"

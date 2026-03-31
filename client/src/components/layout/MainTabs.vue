@@ -2,11 +2,17 @@
 import { ref, watch, computed, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { useFilesStore } from '@/stores/files';
 import { useChatStore } from '@/stores/chat';
 import { useGitStore } from '@/stores/git';
-import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network, BookOpen, CalendarClock } from 'lucide-vue-next';
+import { MessageSquare, Code, GitBranch, ClipboardList, Loader2, Workflow, Bot, FolderOpen, LayoutDashboard, Network, BookOpen, CalendarClock, Wrench, ChevronDown, FileSpreadsheet } from 'lucide-vue-next';
 import ChatView from '@/components/chat/ChatView.vue';
 import EditorTabs from '@/components/editor/EditorTabs.vue';
 const DiffEditorView = defineAsyncComponent(() => import('@/components/editor/DiffEditorView.vue'));
@@ -22,6 +28,7 @@ const ManagementView = defineAsyncComponent(() => import('@/components/managemen
 const DiagramEditor = defineAsyncComponent(() => import('@/components/diagram/DiagramEditor.vue'));
 const ManualsView = defineAsyncComponent(() => import('@/components/manuals/ManualsView.vue'));
 const SchedulerView = defineAsyncComponent(() => import('@/components/scheduler/SchedulerView.vue'));
+const ConfluenceConverter = defineAsyncComponent(() => import('@/components/confluence/ConfluenceConverter.vue'));
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -29,11 +36,11 @@ import {
 } from '@/components/ui/resizable';
 import { useTasksStore } from '@/stores/tasks';
 import { useGraphStore } from '@/stores/graph';
-import { useAutopilotStore } from '@/stores/autopilot';
 import { useManagementStore } from '@/stores/management';
 import { useDiagramsStore } from '@/stores/diagrams';
 import { useManualsStore } from '@/stores/manuals';
 import { useScheduledTasksStore } from '@/stores/scheduledTasks';
+import { useConfluenceStore } from '@/stores/confluence';
 
 // Mobile responsive
 const isMobile = ref(false);
@@ -60,11 +67,11 @@ const chat = useChatStore();
 const git = useGitStore();
 const tasks = useTasksStore();
 const graphStore = useGraphStore();
-const autopilot = useAutopilotStore();
 const managementStore = useManagementStore();
 const diagramsStore = useDiagramsStore();
 const manualsStore = useManualsStore();
 const scheduledTasksStore = useScheduledTasksStore();
+const confluenceStore = useConfluenceStore();
 
 // Auto-switch to editor when a file is opened or diff is opened
 watch(() => files.activeFile, (val) => {
@@ -80,10 +87,15 @@ const gitChanges = computed(() =>
   (git.staged?.length || 0) + (git.modified?.length || 0) + (git.untracked?.length || 0)
 );
 
-const tabs = [
+// Direct top-level tabs (always visible in the bar)
+const directTabs = [
   { value: 'chat', label: 'Chat', icon: MessageSquare },
-  { value: 'editor', label: 'Editor', icon: Code },
   { value: 'git', label: 'Git', icon: GitBranch },
+] as const;
+
+// Tabs grouped under the "Tools" dropdown
+const toolTabs = [
+  { value: 'editor', label: 'Editor', icon: Code },
   { value: 'management', label: 'Management', icon: LayoutDashboard },
   { value: 'tasks', label: 'Tasks', icon: ClipboardList },
   { value: 'graph', label: 'Graph', icon: Workflow },
@@ -91,18 +103,47 @@ const tabs = [
   { value: 'diagrams', label: 'Diagrams', icon: Network },
   { value: 'manuals', label: 'Manuals', icon: BookOpen },
   { value: 'scheduler', label: 'Scheduler', icon: CalendarClock },
+  { value: 'confluence', label: 'Confluence', icon: FileSpreadsheet },
 ] as const;
+
+// All tab values (used for TabsContent rendering)
+const allTabValues = [...directTabs.map(t => t.value), ...toolTabs.map(t => t.value)];
+
+// Whether the currently active tab is one of the tool tabs
+const isToolTabActive = computed(() =>
+  toolTabs.some(t => t.value === activeTab.value)
+);
+
+// The currently active tool tab definition (for showing its icon/label in the trigger)
+const activeToolTab = computed(() =>
+  toolTabs.find(t => t.value === activeTab.value)
+);
+
+// Total badge count across all tool tabs (shown on the Tools trigger)
+const toolsBadgeTotal = computed(() => {
+  let total = 0;
+  for (const t of toolTabs) {
+    const b = badgeFor(t.value);
+    if (b) total += b;
+  }
+  return total || null;
+});
 
 function badgeFor(tab: string): number | null {
   if (tab === 'editor' && openFileCount.value > 0) return openFileCount.value;
   if (tab === 'git' && gitChanges.value > 0) return gitChanges.value;
-  if (tab === 'tasks' && tasks.stats.total > 0) return tasks.stats.total - tasks.stats.done || null;
-  if (tab === 'graph' && graphStore.nodeCount > 0) return graphStore.nodeCount;
-  if (tab === 'management' && managementStore.runningCount > 0) return managementStore.runningCount;
-  if (tab === 'diagrams' && diagramsStore.nodeCount > 0) return diagramsStore.nodeCount;
-  if (tab === 'manuals' && manualsStore.manualCount > 0) return manualsStore.manualCount;
-  if (tab === 'scheduler' && scheduledTasksStore.enabledCount > 0) return scheduledTasksStore.enabledCount;
+  if (tab === 'tasks' && tasks?.stats?.total > 0) return tasks.stats.total - tasks.stats.done || null;
+  if (tab === 'graph' && graphStore?.nodeCount > 0) return graphStore.nodeCount;
+  if (tab === 'management' && managementStore?.runningCount > 0) return managementStore.runningCount;
+  if (tab === 'diagrams' && diagramsStore?.nodeCount > 0) return diagramsStore.nodeCount;
+  if (tab === 'manuals' && manualsStore?.manualCount > 0) return manualsStore.manualCount;
+  if (tab === 'scheduler' && scheduledTasksStore?.enabledCount > 0) return scheduledTasksStore.enabledCount;
+  if (tab === 'confluence' && confluenceStore?.pageCount > 0) return confluenceStore.pageCount;
   return null;
+}
+
+function selectToolTab(value: string) {
+  activeTab.value = value;
 }
 </script>
 
@@ -111,7 +152,8 @@ function badgeFor(tab: string): number | null {
     <!-- Custom tab bar -->
     <div class="flex min-h-[44px] sm:min-h-0 sm:h-10 items-center gap-0.5 overflow-x-auto border-b border-border bg-muted/30 px-1.5 snap-x snap-mandatory scrollbar-none">
       <TooltipProvider :delay-duration="300">
-        <Tooltip v-for="tab in tabs" :key="tab.value">
+        <!-- Direct tabs: Chat & Git -->
+        <Tooltip v-for="tab in directTabs" :key="tab.value">
           <TooltipTrigger as-child>
             <button
               class="relative flex min-h-[44px] sm:min-h-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-150 snap-start shrink-0"
@@ -149,6 +191,58 @@ function badgeFor(tab: string): number | null {
           </TooltipTrigger>
           <TooltipContent class="sm:hidden">{{ tab.label }}</TooltipContent>
         </Tooltip>
+
+        <!-- Tools dropdown -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button
+              class="relative flex min-h-[44px] sm:min-h-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-150 snap-start shrink-0"
+              :class="[
+                isToolTabActive
+                  ? 'bg-background text-foreground shadow-sm ring-1 ring-border/60'
+                  : 'text-muted-foreground hover:bg-background/50 hover:text-foreground/80',
+              ]"
+            >
+              <component
+                :is="activeToolTab?.icon ?? Wrench"
+                class="h-4 w-4 shrink-0"
+                :class="[isToolTabActive ? 'text-primary' : '']"
+              />
+              <span class="hidden sm:inline">{{ activeToolTab?.label ?? 'Tools' }}</span>
+              <ChevronDown class="h-3 w-3 shrink-0 opacity-50" />
+              <!-- Aggregated badge for tool tabs -->
+              <span
+                v-if="toolsBadgeTotal"
+                class="flex h-5 min-w-5 sm:h-4 sm:min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"
+                :class="[
+                  isToolTabActive
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-muted text-muted-foreground',
+                ]"
+              >
+                {{ toolsBadgeTotal }}
+              </span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" class="w-48">
+            <DropdownMenuItem
+              v-for="tool in toolTabs"
+              :key="tool.value"
+              class="flex items-center gap-2 cursor-pointer"
+              :class="[activeTab === tool.value ? 'bg-accent' : '']"
+              @click="selectToolTab(tool.value)"
+            >
+              <component :is="tool.icon" class="h-4 w-4 shrink-0" />
+              <span class="flex-1">{{ tool.label }}</span>
+              <span
+                v-if="badgeFor(tool.value)"
+                class="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-semibold leading-none text-muted-foreground"
+              >
+                {{ badgeFor(tool.value) }}
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TooltipProvider>
     </div>
 
@@ -218,6 +312,7 @@ function badgeFor(tab: string): number | null {
       <ErrorBoundary name="Management"><ManagementView /></ErrorBoundary>
     </TabsContent>
     <TabsContent value="diagrams" class="mt-0 flex-1 overflow-hidden" :force-mount="true"
+      data-diagram-tab
       :style="{ display: activeTab === 'diagrams' ? undefined : 'none' }"
     >
       <ErrorBoundary name="Diagrams"><DiagramEditor /></ErrorBoundary>
@@ -227,6 +322,9 @@ function badgeFor(tab: string): number | null {
     </TabsContent>
     <TabsContent value="scheduler" class="mt-0 flex-1 overflow-hidden">
       <ErrorBoundary name="Scheduler"><SchedulerView /></ErrorBoundary>
+    </TabsContent>
+    <TabsContent value="confluence" class="mt-0 flex-1 overflow-hidden">
+      <ErrorBoundary name="Confluence"><ConfluenceConverter /></ErrorBoundary>
     </TabsContent>
   </Tabs>
 </template>

@@ -237,5 +237,42 @@ export function useCanvasExport({ flowContainer, diagrams, getViewport, fitView,
     }
   }
 
-  return { exportJson, exportPng, exportSvg, importJson, exportDrawio };
+  /** Export diagram to PNG as a base64 data URL (for embedding in HTML). */
+  async function exportPngAsDataUrl(): Promise<string | null> {
+    try {
+      const captureTarget = flowContainer.value;
+      if (!captureTarget) return null;
+      const bounds = diagrams.getContentBounds(0);
+      if (!bounds) return null;
+
+      const { toCanvas } = await import('html-to-image');
+
+      return await _withFitViewport(captureTarget, bounds, async (contentRect) => {
+        const PIXEL_RATIO = 2;
+        const fullCanvas = await toCanvas(captureTarget, {
+          pixelRatio: PIXEL_RATIO,
+          backgroundColor: '#0a0a0a',
+          filter: _exportFilter,
+        });
+
+        const cropX = Math.round(contentRect.x * PIXEL_RATIO);
+        const cropY = Math.round(contentRect.y * PIXEL_RATIO);
+        const cropW = Math.round(contentRect.width * PIXEL_RATIO);
+        const cropH = Math.round(contentRect.height * PIXEL_RATIO);
+
+        const cropped = document.createElement('canvas');
+        cropped.width  = cropW;
+        cropped.height = cropH;
+        const ctx = cropped.getContext('2d')!;
+        ctx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+        return cropped.toDataURL('image/png');
+      });
+    } catch (err) {
+      console.error('PNG data URL export error:', err);
+      return null;
+    }
+  }
+
+  return { exportJson, exportPng, exportSvg, importJson, exportDrawio, exportPngAsDataUrl };
 }

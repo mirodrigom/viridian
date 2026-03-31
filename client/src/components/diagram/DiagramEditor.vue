@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted } from 'vue';
 import { VueFlow, useVueFlow, SelectionMode } from '@vue-flow/core';
 import { MiniMap } from '@vue-flow/minimap';
 import { Controls } from '@vue-flow/controls';
@@ -113,12 +113,17 @@ const { commitInlineEdgeLabel, cancelInlineEdgeLabel, onDragOver, onDrop } = use
 });
 
 // ─── Canvas export (PNG, SVG, JSON, draw.io) ─────────────────────────
-const { exportJson, exportPng, exportSvg, importJson, exportDrawio } = useCanvasExport({
+const { exportJson, exportPng, exportSvg, importJson, exportDrawio, exportPngAsDataUrl } = useCanvasExport({
   flowContainer,
   diagrams,
   getViewport,
   fitView,
   setViewport,
+});
+
+// Register the PNG data URL export function so other components can capture diagrams
+onMounted(() => {
+  diagrams.registerExportPngAsDataUrl(exportPngAsDataUrl);
 });
 
 // ─── Toolbar actions ─────────────────────────────────────────────────

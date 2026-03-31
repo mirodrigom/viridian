@@ -152,6 +152,11 @@ router.post('/clone', validate({
     res.end();
   }, 10 * 60_000);
 
+  // Send keepalive SSE comments every 15s to prevent proxy/ALB timeouts
+  const keepalive = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 15_000);
+
   // git clone writes progress to stderr
   proc.stderr.on('data', (chunk: Buffer) => {
     const text = chunk.toString();
@@ -167,6 +172,7 @@ router.post('/clone', validate({
 
   proc.on('close', (code) => {
     clearTimeout(cloneTimeout);
+    clearInterval(keepalive);
     if (code === 0) {
       sendEvent('complete', { path: clonePath, repoName });
     } else {
@@ -177,6 +183,7 @@ router.post('/clone', validate({
 
   proc.on('error', (err) => {
     clearTimeout(cloneTimeout);
+    clearInterval(keepalive);
     sendEvent('error', { message: err.message });
     res.end();
   });
@@ -184,6 +191,7 @@ router.post('/clone', validate({
   // Handle client disconnect
   res.on('close', () => {
     clearTimeout(cloneTimeout);
+    clearInterval(keepalive);
     proc.kill();
   });
 });

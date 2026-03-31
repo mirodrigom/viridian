@@ -236,11 +236,11 @@ function sendToChat(task: Task) {
     <div class="flex h-9 items-center justify-between border-b border-border px-3">
       <div class="flex items-center gap-3">
         <span class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Tasks</span>
-        <div v-if="tasks.stats.total > 0" class="flex items-center gap-2">
+        <div v-if="tasks.stats?.total > 0" class="flex items-center gap-2">
           <div class="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-            <div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: `${tasks.stats.progress}%` }" />
+            <div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: `${tasks.stats?.progress ?? 0}%` }" />
           </div>
-          <span class="text-xs text-muted-foreground">{{ tasks.stats.done }}/{{ tasks.stats.total }}</span>
+          <span class="text-xs text-muted-foreground">{{ tasks.stats?.done ?? 0 }}/{{ tasks.stats?.total ?? 0 }}</span>
         </div>
       </div>
       <div class="flex items-center gap-1">

@@ -49,7 +49,11 @@ export default defineConfig({
     host: process.env.VITE_HOST || 'localhost',
     port: 12001,
     proxy: {
-      '/api': process.env.VITE_API_TARGET || 'http://localhost:12000',
+      '/api': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:12000',
+        timeout: 0,
+        proxyTimeout: 0,
+      },
       '/ws': {
         target: (process.env.VITE_API_TARGET || 'http://localhost:12000').replace(/^http/, 'ws'),
         ws: true,

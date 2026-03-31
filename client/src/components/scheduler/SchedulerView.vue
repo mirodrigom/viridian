@@ -218,7 +218,7 @@ function statusColor(status: string): string {
     <TaskForm
       :open="showForm"
       :task="editingTask"
-      :default-project-dir="chat.projectPath || '/home'"
+      :default-project-dir="chat?.projectPath || '/home'"
       @close="closeForm"
       @saved="closeForm"
     />
