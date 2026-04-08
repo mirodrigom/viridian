@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import { useManagementStore } from '@/stores/management';
 import { toast } from 'vue-sonner';
-import { Play, Square, Loader2, Plus, Trash2, Terminal, ServerCog } from 'lucide-vue-next';
+import { Play, Square, Loader2, Plus, Trash2, Terminal, ServerCog, Pencil, Check, X } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import WidgetShell from './WidgetShell.vue';
@@ -33,6 +33,35 @@ async function addService() {
     showAdd.value = false;
   } catch { toast.error('Failed to add service'); }
   finally { adding.value = false; }
+}
+
+// Edit service
+const editingId = ref<string | null>(null);
+const editName = ref('');
+const editCmd = ref('');
+const editCwd = ref('');
+
+function startEdit(svc: { id: string; name: string; command: string; cwd: string }) {
+  editingId.value = svc.id;
+  editName.value = svc.name;
+  editCmd.value = svc.command;
+  editCwd.value = svc.cwd;
+}
+
+function cancelEdit() {
+  editingId.value = null;
+}
+
+async function saveEdit() {
+  if (!editingId.value || !editName.value.trim() || !editCmd.value.trim()) return;
+  try {
+    await store.updateService(editingId.value, {
+      name: editName.value.trim(),
+      command: editCmd.value.trim(),
+      cwd: editCwd.value.trim(),
+    });
+    editingId.value = null;
+  } catch { toast.error('Failed to update service'); }
 }
 
 async function toggleService(id: string, status: string) {
@@ -82,57 +111,82 @@ function formatUptime(startedAt?: number) {
         <div
           v-for="svc in store.services"
           :key="svc.id"
-          class="flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/20 cursor-pointer transition-colors"
-          :class="selectedId === svc.id ? 'bg-muted/30' : ''"
-          @click="store.selectService(selectedId === svc.id ? null : svc.id)"
         >
-          <!-- Status indicator -->
-          <span class="relative flex h-2 w-2 shrink-0">
-            <span
-              v-if="svc.status === 'running'"
-              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"
-            />
-            <span
-              class="relative inline-flex h-2 w-2 rounded-full"
-              :class="{
-                'bg-green-500': svc.status === 'running',
-                'bg-yellow-500': svc.status === 'starting',
-                'bg-red-500': svc.status === 'error',
-                'bg-muted-foreground/40': svc.status === 'stopped',
-              }"
-            />
-          </span>
-
-          <Terminal class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-
-          <div class="flex-1 min-w-0">
-            <div class="flex items-baseline gap-2">
-              <span class="text-xs font-medium capitalize truncate">{{ svc.name }}</span>
-              <span v-if="svc.status === 'running' && svc.startedAt" class="text-[10px] text-muted-foreground shrink-0">
-                {{ formatUptime(svc.startedAt) }}
-              </span>
+          <!-- Inline edit mode -->
+          <div v-if="editingId === svc.id" class="p-3 space-y-2 bg-muted/10" @click.stop>
+            <div class="flex gap-2">
+              <Input v-model="editName" placeholder="Name" class="w-28 h-7 text-xs" @keydown.enter="saveEdit" @keydown.escape="cancelEdit" />
+              <Input v-model="editCmd" placeholder="Command" class="flex-1 h-7 text-xs font-mono" @keydown.enter="saveEdit" @keydown.escape="cancelEdit" />
             </div>
-            <span class="text-[10px] font-mono text-muted-foreground truncate block">{{ svc.command }}</span>
+            <div class="flex gap-2">
+              <Input v-model="editCwd" placeholder="/path/to/project  (optional)" class="flex-1 h-7 text-xs font-mono" @keydown.enter="saveEdit" @keydown.escape="cancelEdit" />
+              <Button size="sm" class="h-7 w-7 p-0" @click="saveEdit"><Check class="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" class="h-7 w-7 p-0" @click="cancelEdit"><X class="h-3 w-3" /></Button>
+            </div>
           </div>
 
-          <div class="flex items-center gap-1 shrink-0">
-            <Button
-              size="sm"
-              :variant="svc.status === 'running' || svc.status === 'starting' ? 'destructive' : 'default'"
-              class="h-6 w-6 p-0"
-              @click.stop="toggleService(svc.id, svc.status)"
-            >
-              <Loader2 v-if="svc.status === 'starting'" class="h-3 w-3 animate-spin" />
-              <Square v-else-if="svc.status === 'running'" class="h-3 w-3" />
-              <Play v-else class="h-3 w-3" />
-            </Button>
-            <Button
-              size="sm" variant="ghost"
-              class="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-              @click.stop="store.removeService(svc.id)"
-            >
-              <Trash2 class="h-3 w-3" />
-            </Button>
+          <!-- Normal display mode -->
+          <div
+            v-else
+            class="flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/20 cursor-pointer transition-colors"
+            :class="selectedId === svc.id ? 'bg-muted/30' : ''"
+            @click="store.selectService(selectedId === svc.id ? null : svc.id)"
+          >
+            <!-- Status indicator -->
+            <span class="relative flex h-2 w-2 shrink-0">
+              <span
+                v-if="svc.status === 'running'"
+                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"
+              />
+              <span
+                class="relative inline-flex h-2 w-2 rounded-full"
+                :class="{
+                  'bg-green-500': svc.status === 'running',
+                  'bg-yellow-500': svc.status === 'starting',
+                  'bg-red-500': svc.status === 'error',
+                  'bg-muted-foreground/40': svc.status === 'stopped',
+                }"
+              />
+            </span>
+
+            <Terminal class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline gap-2">
+                <span class="text-xs font-medium capitalize truncate">{{ svc.name }}</span>
+                <span v-if="svc.status === 'running' && svc.startedAt" class="text-[10px] text-muted-foreground shrink-0">
+                  {{ formatUptime(svc.startedAt) }}
+                </span>
+              </div>
+              <span class="text-[10px] font-mono text-muted-foreground truncate block">{{ svc.command }}</span>
+            </div>
+
+            <div class="flex items-center gap-1 shrink-0">
+              <Button
+                size="sm" variant="ghost"
+                class="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                @click.stop="startEdit(svc)"
+              >
+                <Pencil class="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
+                :variant="svc.status === 'running' || svc.status === 'starting' ? 'destructive' : 'default'"
+                class="h-6 w-6 p-0"
+                @click.stop="toggleService(svc.id, svc.status)"
+              >
+                <Loader2 v-if="svc.status === 'starting'" class="h-3 w-3 animate-spin" />
+                <Square v-else-if="svc.status === 'running'" class="h-3 w-3" />
+                <Play v-else class="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm" variant="ghost"
+                class="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                @click.stop="store.removeService(svc.id)"
+              >
+                <Trash2 class="h-3 w-3" />
+              </Button>
+            </div>
           </div>
         </div>
 

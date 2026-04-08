@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
+import { getDefaultShell } from '../utils/platform.js';
 import { z } from 'zod';
 import { authMiddleware, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/database.js';
@@ -152,7 +153,7 @@ router.post('/services/:id/start', async (req: AuthRequest, res) => {
     .where({ id: req.params.id, user_id: req.user!.id })
     .first() as ServiceRow | undefined;
   if (!s) { res.status(404).json({ error: 'Service not found' }); return; }
-  startService(s.id, '__management__', s.command, s.cwd || process.cwd());
+  startService(s.id, '__management__', s.command, s.cwd || s.project_path || process.cwd());
   res.json({ ok: true });
 });
 
@@ -233,7 +234,7 @@ router.post('/scripts/:id/run', async (req: AuthRequest, res) => {
 
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
 
-  const proc = spawn(s.command, { cwd: s.cwd || process.cwd(), shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(s.command, { cwd: s.cwd || process.cwd(), shell: getDefaultShell(), stdio: ['ignore', 'pipe', 'pipe'] });
 
   const send = (type: string, data: unknown) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
 

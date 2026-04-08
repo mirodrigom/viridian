@@ -47,13 +47,19 @@ export async function createTerminal(cwd: string, cols = 80, rows = 24): Promise
     }
   }
 
-  const ptyProcess = mod.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd: safeCwd,
-    env: process.env as Record<string, string>,
-  });
+  let ptyProcess: import('node-pty').IPty;
+  try {
+    ptyProcess = mod.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: safeCwd,
+      env: process.env as Record<string, string>,
+    });
+  } catch (err) {
+    log.error({ err, shell, cwd: safeCwd }, 'Failed to spawn PTY process');
+    return null;
+  }
 
   const session: TerminalSession = { id, pty: ptyProcess, cwd };
   sessions.set(id, session);

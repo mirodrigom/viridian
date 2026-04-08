@@ -6,7 +6,9 @@
 
 import { EventEmitter } from 'events';
 import { spawn, type ChildProcess } from 'child_process';
-import { isWindows } from '../utils/platform.js';
+import { statSync } from 'fs';
+import { dirname } from 'path';
+import { isWindows, getDefaultShell } from '../utils/platform.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('project-manager');
@@ -34,11 +36,24 @@ export function startService(serviceId: string, projectId: string, command: stri
     return;
   }
 
+  // Validate cwd is a directory; if it's a file, use its parent directory
+  let safeCwd = cwd;
+  try {
+    const stat = statSync(safeCwd);
+    if (!stat.isDirectory()) {
+      safeCwd = dirname(safeCwd);
+      log.debug({ original: cwd, resolved: safeCwd }, 'cwd was a file, using parent directory');
+    }
+  } catch {
+    log.warn({ cwd }, 'cwd does not exist, using process.cwd()');
+    safeCwd = process.cwd();
+  }
+
   let proc: ChildProcess;
   try {
     proc = spawn(command, {
-      cwd,
-      shell: true,
+      cwd: safeCwd,
+      shell: getDefaultShell(),
       detached: true, // becomes process group leader → we can kill the whole group
       stdio: ['ignore', 'pipe', 'pipe'],
     });

@@ -197,6 +197,18 @@ export const useManagementStore = defineStore('management', () => {
     selectedServiceId.value = id;
   }
 
+  async function updateService(id: string, updates: { name?: string; command?: string; cwd?: string }) {
+    const res = await apiFetch(`/api/management/services/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) throw new Error('Failed to update service');
+    const data = await res.json() as { service: ManagedService };
+    const idx = services.value.findIndex(s => s.id === id);
+    if (idx !== -1) services.value.splice(idx, 1, data.service);
+  }
+
   async function stopService(id: string) {
     await apiFetch(`/api/management/services/${id}/stop`, { method: 'POST' });
   }
@@ -305,7 +317,7 @@ export const useManagementStore = defineStore('management', () => {
     runningCount, selectedServiceLogs, sortedWidgets,
     connected,
     // Actions
-    bootstrap, init, fetchServices, addService, removeService, startService, stopService,
+    bootstrap, init, fetchServices, addService, updateService, removeService, startService, stopService,
     fetchScripts, addScript, removeScript,
     fetchProcesses, fetchEnvFiles,
     updateWidgetSize, reorderWidgets,

@@ -36,9 +36,17 @@ export function setupShellWs(server: Server) {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     const cwd = url.searchParams.get('cwd') || getHomeDir();
 
-    const session = await createTerminal(cwd);
+    let session: Awaited<ReturnType<typeof createTerminal>>;
+    try {
+      session = await createTerminal(cwd);
+    } catch (err) {
+      log.error({ err, cwd }, 'Failed to create terminal session');
+      safeSend(ws, { type: 'error', message: 'Failed to create terminal session' });
+      ws.close();
+      return;
+    }
     if (!session) {
-      safeSend(ws, { type: 'error', message: 'Terminal not available (node-pty not installed)' });
+      safeSend(ws, { type: 'error', message: 'Terminal not available (node-pty not installed or shell not found)' });
       ws.close();
       return;
     }

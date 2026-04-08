@@ -139,6 +139,8 @@ function connect() {
       if (msg.type === 'output' && terminal) {
         terminal.write(msg.data);
         checkForAuthUrl(msg.data);
+      } else if (msg.type === 'error') {
+        terminal?.writeln(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m`);
       } else if (msg.type === 'exit') {
         terminal?.writeln(`\r\n[Process exited with code ${msg.exitCode}]`);
       }
